@@ -73,6 +73,19 @@ class FMPClient:
 
     # --- Earnings ------------------------------------------------------------
 
+    def earnings_calendar(
+        self, from_date: str, to_date: str
+    ) -> list[dict[str, Any]]:
+        """All companies' earnings (date, EPS/revenue est & actual) in a window.
+
+        Unlike the per-symbol `earnings` endpoint, the bulk calendar is available
+        on the free tier and is cloud-IP friendly (no scraping), making it the
+        reliable earnings source in production.
+        """
+        return (
+            self._get("earnings-calendar", {"from": from_date, "to": to_date}) or []
+        )
+
     def earnings(self, symbol: str, limit: int = 40) -> list[dict[str, Any]]:
         """Historical + upcoming earnings for a symbol (date, EPS/revenue est & actual).
 

@@ -54,9 +54,25 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
     with FMPClient() as fmp:
         tracked = _build_universe(db, fmp, expand_peers=expand_peers)
         logger.info("Tracking %d tickers", len(tracked))
+
+        # Earnings come from FMP's bulk calendar (cloud-reliable, few calls)
+        # rather than per-ticker yfinance scraping (blocked on datacenter IPs).
+        try:
+            _ingest_earnings_calendar(db, fmp, tracked, settings.history_years)
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            logger.warning("Earnings calendar ingest failed: %s", exc, exc_info=True)
+
         for ticker in tracked:
             try:
-                ingest_company(db, fmp, ticker, history_years=settings.history_years)
+                ingest_company(
+                    db,
+                    fmp,
+                    ticker,
+                    history_years=settings.history_years,
+                    fetch_earnings=not fmp.enabled,
+                )
                 db.commit()
                 processed += 1
             except FMPError as exc:
@@ -151,6 +167,7 @@ def ingest_company(
     *,
     history_years: int = 5,
     fmp_earnings: bool = False,
+    fetch_earnings: bool = True,
 ) -> None:
     ticker = ticker.upper()
     _ensure_company(db, ticker)
@@ -159,9 +176,9 @@ def ingest_company(
     if fmp.enabled:
         try:
             _ingest_profile(db, fmp, ticker)
-            # FMP gates the earnings endpoint for most symbols on the free tier
-            # and each gated attempt still burns daily quota, so we only use FMP
-            # earnings on a paid plan; the free tier relies on yfinance below.
+            # FMP gates the per-symbol earnings endpoint on the free tier; it's
+            # only worth using on a paid plan. The bulk earnings calendar
+            # (see _ingest_earnings_calendar) is the default earnings source.
             if fmp_earnings:
                 got_fmp_earnings = _ingest_earnings_fmp(
                     db, fmp, ticker, history_years
@@ -169,19 +186,75 @@ def ingest_company(
             _ingest_analyst(db, fmp, ticker)
         except FMPError as exc:
             if "429" in str(exc):
-                # Daily quota exhausted: stop using FMP, finish via yfinance.
+                # Daily quota exhausted: stop using FMP for the rest of the run.
                 logger.warning(
-                    "FMP quota hit on %s; continuing with yfinance only", ticker
+                    "FMP quota hit on %s; continuing without FMP", ticker
                 )
                 fmp.disable()
             else:
                 raise
 
-    if not got_fmp_earnings:
+    # yfinance earnings scraping is unreliable on cloud IPs, so it's only a
+    # fallback when the FMP calendar isn't available (e.g. no API key).
+    if fetch_earnings and not got_fmp_earnings:
         _ingest_earnings_yahoo(db, ticker)
 
     _ingest_prices(db, ticker, history_years)
     _ingest_implied_move(db, ticker)
+
+
+def _ingest_earnings_calendar(
+    db: Session, fmp: FMPClient, tickers: list[str], history_years: int
+) -> None:
+    """Populate earnings events for all tracked tickers from FMP's bulk calendar.
+
+    Fetches in <=90-day windows (free-tier range limit) across the history
+    horizon plus near-future, and upserts the rows that match our universe.
+    """
+    if not fmp.enabled:
+        return
+    tracked = {t.upper() for t in tickers}
+    today = date.today()
+    start = today - timedelta(days=history_years * 365)
+    end = today + timedelta(days=120)
+    step = timedelta(days=90)
+
+    cur = start
+    matched = 0
+    while cur < end:
+        window_end = min(cur + step, end)
+        try:
+            rows = fmp.earnings_calendar(cur.isoformat(), window_end.isoformat())
+        except FMPError as exc:
+            logger.warning(
+                "Earnings calendar %s..%s failed: %s", cur, window_end, exc
+            )
+            if "429" in str(exc):
+                fmp.disable()
+                break
+            rows = []
+        for row in rows:
+            sym = (row.get("symbol") or "").upper()
+            if sym not in tracked:
+                continue
+            d = _parse_date(row.get("date"))
+            if d is None:
+                continue
+            matched += 1
+            _upsert_earnings(
+                db,
+                ticker=sym,
+                event_date=d,
+                timing=_timing_from_fmp(row.get("time")),
+                eps_estimate=_f(row.get("epsEstimated")),
+                eps_actual=_f(row.get("epsActual")),
+                revenue_estimate=_f(row.get("revenueEstimated")),
+                revenue_actual=_f(row.get("revenueActual")),
+                fiscal_period=None,
+            )
+        db.commit()
+        cur = window_end
+    logger.info("Earnings calendar: upserted %d events", matched)
 
 
 def _ingest_profile(db: Session, fmp: FMPClient, ticker: str) -> None:

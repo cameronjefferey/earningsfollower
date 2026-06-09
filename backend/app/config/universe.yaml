@@ -62,4 +62,6 @@ themes:
 
 # When true, ingestion expands each tracked ticker with its FMP stock peers
 # (also tagged to the same theme) so wave detection has more candidates.
-expand_with_fmp_peers: true
+# Disabled by default to conserve the FMP free-tier quota (250 calls/day);
+# wave detection still works across the curated themes above.
+expand_with_fmp_peers: false

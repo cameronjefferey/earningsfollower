@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from datetime import date
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.models import RefreshLog
+from app.db.session import get_db, session_scope
+from app.services import dashboard, waves
+from app.services.ingest import refresh_all
+
+router = APIRouter()
+
+WINDOWS = {"today", "week", "last_week", "upcoming", "around"}
+
+
+@router.get("/themes", tags=["reference"])
+def get_themes(db: Session = Depends(get_db)) -> list[dict]:
+    return dashboard.list_themes(db)
+
+
+@router.get("/earnings", tags=["earnings"])
+def get_earnings(
+    window: str = Query("week", description="today|week|last_week|upcoming|around"),
+    theme: str | None = Query(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    if window not in WINDOWS:
+        raise HTTPException(400, f"window must be one of {sorted(WINDOWS)}")
+    start, end = dashboard.date_range_for_window(window)
+    return {
+        "window": window,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "theme": theme,
+        "cards": dashboard.earnings_cards(db, window, theme),
+    }
+
+
+@router.get("/company/{ticker}", tags=["company"])
+def get_company(ticker: str, db: Session = Depends(get_db)) -> dict:
+    detail = dashboard.company_detail(db, ticker)
+    if detail is None:
+        raise HTTPException(404, f"No data for {ticker.upper()}")
+    return detail
+
+
+@router.get("/waves", tags=["waves"])
+def get_waves(
+    recent_days: int = Query(14, ge=1, le=60),
+    upcoming_days: int = Query(21, ge=1, le=60),
+    db: Session = Depends(get_db),
+) -> dict:
+    signals = waves.current_waves(
+        db, recent_days=recent_days, upcoming_days=upcoming_days
+    )
+    return {
+        "recent_days": recent_days,
+        "upcoming_days": upcoming_days,
+        "count": len(signals),
+        "signals": signals,
+    }
+
+
+def _run_refresh() -> None:
+    with session_scope() as db:
+        refresh_all(db)
+
+
+@router.post("/refresh", tags=["meta"])
+def post_refresh(
+    background: bool = Query(True, description="Run the refresh in the background"),
+    tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+) -> dict:
+    if background:
+        tasks.add_task(_run_refresh)
+        return {"status": "scheduled"}
+    result = refresh_all(db)
+    return {"status": "done", **result}
+
+
+@router.get("/refresh/status", tags=["meta"])
+def refresh_status(db: Session = Depends(get_db)) -> dict:
+    log = db.scalars(
+        select(RefreshLog).order_by(RefreshLog.id.desc())
+    ).first()
+    if log is None:
+        return {"status": "never_run"}
+    return {
+        "status": log.status,
+        "started_at": log.started_at.isoformat() if log.started_at else None,
+        "finished_at": log.finished_at.isoformat() if log.finished_at else None,
+        "detail": log.detail,
+    }

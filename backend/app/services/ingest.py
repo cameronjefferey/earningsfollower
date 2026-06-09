@@ -1,0 +1,440 @@
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from app.clients import yahoo
+from app.clients.fmp import FMPClient, FMPError
+from app.config import get_settings
+from app.db.models import (
+    AnalystSnapshot,
+    Company,
+    EarningsEvent,
+    ImpliedMove,
+    ImpliedMoveSnapshot,
+    PeerLink,
+    PriceBar,
+    RefreshLog,
+    ThemeMembership,
+)
+from app.universe import load_universe
+
+logger = logging.getLogger(__name__)
+
+
+def _timing_from_fmp(value: Any) -> str:
+    v = (str(value or "")).strip().lower()
+    if v in {"bmo", "amc"}:
+        return v
+    return "unknown"
+
+
+def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, Any]:
+    """Full data refresh: build the universe, then ingest each tracked ticker.
+
+    Resilient by design: a failure on one ticker is logged and skipped so the
+    rest of the refresh still completes (important on free-tier rate limits).
+    """
+    settings = get_settings()
+    universe = load_universe()
+    if expand_peers is None:
+        expand_peers = universe.expand_with_fmp_peers
+
+    log = RefreshLog(started_at=datetime.utcnow(), status="running")
+    db.add(log)
+    db.commit()
+
+    processed = 0
+    errors: list[str] = []
+
+    with FMPClient() as fmp:
+        tracked = _build_universe(db, fmp, expand_peers=expand_peers)
+        logger.info("Tracking %d tickers", len(tracked))
+        for ticker in tracked:
+            try:
+                ingest_company(db, fmp, ticker, history_years=settings.history_years)
+                db.commit()
+                processed += 1
+            except FMPError as exc:
+                # Likely a bad key / hard rate-limit; stop hammering FMP but keep
+                # whatever we already ingested.
+                db.rollback()
+                msg = f"FMP error on {ticker}: {exc}"
+                logger.warning(msg)
+                errors.append(msg)
+                break
+            except Exception as exc:  # noqa: BLE001 - keep refresh resilient
+                db.rollback()
+                msg = f"{ticker}: {exc}"
+                logger.warning("Ingest failed for %s", ticker, exc_info=True)
+                errors.append(msg)
+
+    log.finished_at = datetime.utcnow()
+    log.status = "ok" if not errors else "partial"
+    log.detail = (
+        f"processed={processed}; tracked={len(tracked)}; errors={len(errors)}"
+        + ("; " + " | ".join(errors[:5]) if errors else "")
+    )
+    db.commit()
+    return {
+        "processed": processed,
+        "tracked": len(tracked),
+        "errors": errors,
+        "status": log.status,
+    }
+
+
+def _build_universe(
+    db: Session, fmp: FMPClient, *, expand_peers: bool
+) -> list[str]:
+    universe = load_universe()
+
+    # ticker -> {theme_key: (label, is_seed)}
+    membership: dict[str, dict[str, tuple[str, bool]]] = {}
+
+    def add_member(ticker: str, key: str, label: str, seed: bool) -> None:
+        ticker = ticker.upper()
+        membership.setdefault(ticker, {})
+        prev = membership[ticker].get(key)
+        is_seed = seed or (prev[1] if prev else False)
+        membership[ticker][key] = (label, is_seed)
+
+    for theme in universe.themes:
+        for t in theme.tickers:
+            add_member(t, theme.key, theme.label, seed=True)
+
+    # Expand each seed with its FMP peers, inheriting the seed's themes.
+    if expand_peers and fmp.enabled:
+        for theme in universe.themes:
+            for seed in theme.tickers:
+                try:
+                    peers = fmp.stock_peers(seed)
+                except FMPError as exc:
+                    logger.warning("Peer fetch failed (%s): %s", seed, exc)
+                    peers = []
+                for peer in peers:
+                    add_member(peer, theme.key, theme.label, seed=False)
+                    _upsert_peer_link(db, seed, peer)
+        db.commit()
+
+    # Persist company + theme rows.
+    for ticker, themes in membership.items():
+        _ensure_company(db, ticker)
+        existing = {
+            m.theme_key: m
+            for m in db.scalars(
+                select(ThemeMembership).where(ThemeMembership.ticker == ticker)
+            )
+        }
+        for key, (label, seed) in themes.items():
+            if key in existing:
+                existing[key].theme_label = label
+                existing[key].is_seed = existing[key].is_seed or seed
+            else:
+                db.add(
+                    ThemeMembership(
+                        ticker=ticker, theme_key=key, theme_label=label, is_seed=seed
+                    )
+                )
+    db.commit()
+    return sorted(membership.keys())
+
+
+def ingest_company(
+    db: Session,
+    fmp: FMPClient,
+    ticker: str,
+    *,
+    history_years: int = 5,
+    fmp_earnings: bool = False,
+) -> None:
+    ticker = ticker.upper()
+    _ensure_company(db, ticker)
+
+    got_fmp_earnings = False
+    if fmp.enabled:
+        try:
+            _ingest_profile(db, fmp, ticker)
+            # FMP gates the earnings endpoint for most symbols on the free tier
+            # and each gated attempt still burns daily quota, so we only use FMP
+            # earnings on a paid plan; the free tier relies on yfinance below.
+            if fmp_earnings:
+                got_fmp_earnings = _ingest_earnings_fmp(
+                    db, fmp, ticker, history_years
+                )
+            _ingest_analyst(db, fmp, ticker)
+        except FMPError as exc:
+            if "429" in str(exc):
+                # Daily quota exhausted: stop using FMP, finish via yfinance.
+                logger.warning(
+                    "FMP quota hit on %s; continuing with yfinance only", ticker
+                )
+                fmp.disable()
+            else:
+                raise
+
+    if not got_fmp_earnings:
+        _ingest_earnings_yahoo(db, ticker)
+
+    _ingest_prices(db, ticker, history_years)
+    _ingest_implied_move(db, ticker)
+
+
+def _ingest_profile(db: Session, fmp: FMPClient, ticker: str) -> None:
+    profile = fmp.profile(ticker)
+    if not profile:
+        return
+    company = db.get(Company, ticker)
+    if company is None:
+        company = Company(ticker=ticker)
+        db.add(company)
+    company.name = profile.get("companyName") or company.name
+    company.sector = profile.get("sector") or company.sector
+    company.industry = profile.get("industry") or company.industry
+    company.exchange = (
+        profile.get("exchange") or profile.get("exchangeShortName") or company.exchange
+    )
+    company.image = profile.get("image") or company.image
+    mktcap = profile.get("marketCap") or profile.get("mktCap")
+    if mktcap:
+        try:
+            company.market_cap = float(mktcap)
+        except (TypeError, ValueError):
+            pass
+
+
+def _ingest_earnings_fmp(
+    db: Session, fmp: FMPClient, ticker: str, history_years: int
+) -> bool:
+    """Returns True if any FMP earnings rows were ingested, else False."""
+    limit = max(8, history_years * 4 + 8)
+    rows = fmp.earnings(ticker, limit=limit)
+    count = 0
+    for row in rows:
+        d = _parse_date(row.get("date"))
+        if d is None:
+            continue
+        count += 1
+        _upsert_earnings(
+            db,
+            ticker=ticker,
+            event_date=d,
+            timing=_timing_from_fmp(row.get("time")),
+            eps_estimate=_f(row.get("epsEstimated")),
+            eps_actual=_f(row.get("epsActual")),
+            revenue_estimate=_f(row.get("revenueEstimated")),
+            revenue_actual=_f(row.get("revenueActual")),
+            fiscal_period=row.get("fiscalDateEnding"),
+        )
+    return count > 0
+
+
+def _ingest_earnings_yahoo(db: Session, ticker: str) -> None:
+    for row in yahoo.get_earnings_dates(ticker, limit=28):
+        _upsert_earnings(
+            db,
+            ticker=ticker,
+            event_date=row["date"],
+            timing="unknown",
+            eps_estimate=row.get("eps_estimate"),
+            eps_actual=row.get("eps_actual"),
+            revenue_estimate=None,
+            revenue_actual=None,
+            fiscal_period=None,
+        )
+
+
+def _ingest_analyst(db: Session, fmp: FMPClient, ticker: str) -> None:
+    consensus = fmp.price_target_consensus(ticker)
+    grades = fmp.grades_historical(ticker, limit=12)
+
+    if not consensus and not grades:
+        return
+
+    row = db.get(AnalystSnapshot, ticker)
+    if row is None:
+        row = AnalystSnapshot(ticker=ticker)
+        db.add(row)
+
+    if consensus:
+        row.price_target = _f(consensus.get("targetConsensus"))
+        row.price_target_high = _f(consensus.get("targetHigh"))
+        row.price_target_low = _f(consensus.get("targetLow"))
+
+    if grades:
+        latest = grades[0]
+        row.strong_buy = _i(latest.get("analystRatingsStrongBuy"))
+        row.buy = _i(latest.get("analystRatingsBuy"))
+        row.hold = _i(latest.get("analystRatingsHold"))
+        row.sell = _i(latest.get("analystRatingsSell"))
+        row.strong_sell = _i(latest.get("analystRatingsStrongSell"))
+        # Bullish count ~3 entries (months) earlier for a simple trend read.
+        if len(grades) > 3:
+            prior = grades[3]
+            row.prev_bullish = (_i(prior.get("analystRatingsStrongBuy")) or 0) + (
+                _i(prior.get("analystRatingsBuy")) or 0
+            )
+
+    row.updated_at = datetime.utcnow()
+
+
+def _ingest_prices(db: Session, ticker: str, history_years: int) -> None:
+    end = date.today() + timedelta(days=1)
+    start = end - timedelta(days=int(history_years * 365.25) + 10)
+    bars = yahoo.get_prices(ticker, start, end)
+    if not bars:
+        return
+    # Replace the full window so corporate-action adjustments stay consistent.
+    db.execute(delete(PriceBar).where(PriceBar.ticker == ticker))
+    db.add_all(
+        PriceBar(
+            ticker=ticker,
+            date=b["date"],
+            open=b["open"],
+            high=b["high"],
+            low=b["low"],
+            close=b["close"],
+            adj_close=b["adj_close"],
+            volume=b["volume"],
+        )
+        for b in bars
+    )
+
+
+def _ingest_implied_move(db: Session, ticker: str) -> None:
+    next_event = db.scalars(
+        select(EarningsEvent)
+        .where(EarningsEvent.ticker == ticker, EarningsEvent.date >= date.today())
+        .order_by(EarningsEvent.date.asc())
+    ).first()
+    after = next_event.date if next_event else None
+    result = yahoo.get_implied_move(ticker, after_date=after)
+    if result.expected_move_pct is None:
+        return
+    row = db.get(ImpliedMove, ticker)
+    if row is None:
+        row = ImpliedMove(ticker=ticker)
+        db.add(row)
+    row.expiry = result.expiry
+    row.underlying_price = result.underlying_price
+    row.atm_strike = result.atm_strike
+    row.straddle_price = result.straddle_price
+    row.expected_move_pct = result.expected_move_pct
+    row.computed_at = datetime.utcnow()
+
+    # Snapshot the priced-in move against the upcoming event so we can later
+    # measure implied-vs-realized accuracy. One row per ticker/event/day.
+    if next_event is not None:
+        today = date.today()
+        exists = db.scalars(
+            select(ImpliedMoveSnapshot).where(
+                ImpliedMoveSnapshot.ticker == ticker,
+                ImpliedMoveSnapshot.event_date == next_event.date,
+                ImpliedMoveSnapshot.snapshot_date == today,
+            )
+        ).first()
+        if exists is None:
+            db.add(
+                ImpliedMoveSnapshot(
+                    ticker=ticker,
+                    event_date=next_event.date,
+                    snapshot_date=today,
+                    expected_move_pct=result.expected_move_pct,
+                    underlying_price=result.underlying_price,
+                )
+            )
+
+
+# --- upsert helpers ----------------------------------------------------------
+
+
+def _ensure_company(db: Session, ticker: str) -> Company:
+    company = db.get(Company, ticker)
+    if company is None:
+        company = Company(ticker=ticker)
+        db.add(company)
+        db.flush()
+    return company
+
+
+def _upsert_peer_link(db: Session, ticker: str, peer: str) -> None:
+    ticker, peer = ticker.upper(), peer.upper()
+    if ticker == peer:
+        return
+    exists = db.scalars(
+        select(PeerLink).where(PeerLink.ticker == ticker, PeerLink.peer == peer)
+    ).first()
+    if exists is None:
+        db.add(PeerLink(ticker=ticker, peer=peer))
+
+
+def _upsert_earnings(
+    db: Session,
+    *,
+    ticker: str,
+    event_date: date,
+    timing: str,
+    eps_estimate: float | None,
+    eps_actual: float | None,
+    revenue_estimate: float | None,
+    revenue_actual: float | None,
+    fiscal_period: str | None,
+) -> None:
+    event = db.scalars(
+        select(EarningsEvent).where(
+            EarningsEvent.ticker == ticker, EarningsEvent.date == event_date
+        )
+    ).first()
+    if event is None:
+        event = EarningsEvent(ticker=ticker, date=event_date)
+        db.add(event)
+        # Session uses autoflush=False; flush now so a later upsert for the same
+        # (ticker, date) within this batch finds it instead of inserting a dup.
+        db.flush()
+    if timing != "unknown":
+        event.timing = timing
+    elif not event.timing:
+        event.timing = "unknown"
+    # Only overwrite with non-null values so we never erase known actuals.
+    if eps_estimate is not None:
+        event.eps_estimate = eps_estimate
+    if eps_actual is not None:
+        event.eps_actual = eps_actual
+    if revenue_estimate is not None:
+        event.revenue_estimate = revenue_estimate
+    if revenue_actual is not None:
+        event.revenue_actual = revenue_actual
+    if fiscal_period:
+        event.fiscal_period = fiscal_period
+
+
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    text = str(value)[:10]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _f(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _i(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None

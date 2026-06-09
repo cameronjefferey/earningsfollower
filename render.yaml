@@ -1,0 +1,62 @@
+# Render Blueprint for earningsfollower
+# Deploy with: https://dashboard.render.com/blueprints (or `render blueprint launch`).
+# Postgres holds the data; a daily cron refreshes it; the API and Next.js UI are web services.
+
+databases:
+  - name: earningsfollower-db
+    plan: free
+    region: oregon
+
+services:
+  # FastAPI backend
+  - type: web
+    name: earningsfollower-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: earningsfollower-db
+          property: connectionString
+      - key: FMP_API_KEY
+        sync: false # set in the dashboard
+      - key: ENABLE_SCHEDULER
+        value: "false" # the cron job below handles refreshes
+      - key: HISTORY_YEARS
+        value: "5"
+
+  # Daily data refresh (earnings, prices, implied move, analyst)
+  - type: cron
+    name: earningsfollower-refresh
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    schedule: "0 10 * * *" # 10:00 UTC daily
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.refresh --no-peers
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: earningsfollower-db
+          property: connectionString
+      - key: FMP_API_KEY
+        sync: false # set in the dashboard
+
+  # Next.js frontend
+  - type: web
+    name: earningsfollower-web
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start -- -p $PORT
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        value: https://earningsfollower-api.onrender.com

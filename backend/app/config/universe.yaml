@@ -1,0 +1,65 @@
+# Curated universe of larger, market-moving names grouped by theme.
+# Edit freely: add/remove tickers, add new themes. Peers are auto-expanded
+# from FMP during ingestion, but anything listed here is always tracked.
+
+themes:
+  ai_tech:
+    label: "AI / Tech"
+    tickers:
+      - NVDA
+      - MSFT
+      - GOOGL
+      - AMZN
+      - META
+      - AAPL
+      - AMD
+      - AVGO
+      - ORCL
+      - SNOW
+      - PLTR
+      - CRM
+      - NOW
+      - MU
+      - TSM
+      - SMCI
+      - DELL
+      - ARM
+      - MRVL
+      - CRWD
+
+  space:
+    label: "Space"
+    tickers:
+      - RKLB
+      - LUNR
+      - ASTS
+      - RDW
+      - PL
+      - SPCE
+      - BKSY
+      - GSAT
+
+  quantum:
+    label: "Quantum"
+    tickers:
+      - IONQ
+      - RGTI
+      - QBTS
+      - QUBT
+      - ARQQ
+
+  semis_hardware:
+    label: "Semis / Hardware"
+    tickers:
+      - INTC
+      - QCOM
+      - TXN
+      - LRCX
+      - AMAT
+      - KLAC
+      - ASML
+      - ON
+
+# When true, ingestion expands each tracked ticker with its FMP stock peers
+# (also tagged to the same theme) so wave detection has more candidates.
+expand_with_fmp_peers: true

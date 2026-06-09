@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Company(Base):
+    __tablename__ = "companies"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    sector: Mapped[str | None] = mapped_column(String(128))
+    industry: Mapped[str | None] = mapped_column(String(128))
+    exchange: Mapped[str | None] = mapped_column(String(32))
+    market_cap: Mapped[float | None] = mapped_column(Float)
+    image: Mapped[str | None] = mapped_column(String(512))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    themes: Mapped[list["ThemeMembership"]] = relationship(
+        back_populates="company", cascade="all, delete-orphan"
+    )
+
+
+class ThemeMembership(Base):
+    __tablename__ = "theme_memberships"
+    __table_args__ = (UniqueConstraint("ticker", "theme_key", name="uq_theme_member"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(
+        ForeignKey("companies.ticker", ondelete="CASCADE"), index=True
+    )
+    theme_key: Mapped[str] = mapped_column(String(64), index=True)
+    theme_label: Mapped[str] = mapped_column(String(128))
+    # True when the ticker was explicitly listed in universe.yaml (vs. peer-expanded).
+    is_seed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    company: Mapped[Company] = relationship(back_populates="themes")
+
+
+class EarningsEvent(Base):
+    __tablename__ = "earnings_events"
+    __table_args__ = (UniqueConstraint("ticker", "date", name="uq_earnings_event"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    # "bmo" (before market open), "amc" (after market close), or "unknown".
+    timing: Mapped[str] = mapped_column(String(16), default="unknown")
+    eps_estimate: Mapped[float | None] = mapped_column(Float)
+    eps_actual: Mapped[float | None] = mapped_column(Float)
+    revenue_estimate: Mapped[float | None] = mapped_column(Float)
+    revenue_actual: Mapped[float | None] = mapped_column(Float)
+    fiscal_period: Mapped[str | None] = mapped_column(String(16))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PriceBar(Base):
+    __tablename__ = "price_bars"
+    __table_args__ = (UniqueConstraint("ticker", "date", name="uq_price_bar"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    open: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+    low: Mapped[float | None] = mapped_column(Float)
+    close: Mapped[float | None] = mapped_column(Float)
+    adj_close: Mapped[float | None] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float)
+
+
+class PeerLink(Base):
+    __tablename__ = "peer_links"
+    __table_args__ = (UniqueConstraint("ticker", "peer", name="uq_peer_link"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    peer: Mapped[str] = mapped_column(String(16), index=True)
+
+
+class ImpliedMove(Base):
+    __tablename__ = "implied_moves"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    expiry: Mapped[date | None] = mapped_column(Date)
+    underlying_price: Mapped[float | None] = mapped_column(Float)
+    atm_strike: Mapped[float | None] = mapped_column(Float)
+    straddle_price: Mapped[float | None] = mapped_column(Float)
+    expected_move_pct: Mapped[float | None] = mapped_column(Float)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ImpliedMoveSnapshot(Base):
+    """Point-in-time implied move logged each refresh, keyed to the upcoming
+    earnings event. Lets us later compare what was priced in vs. the realized
+    move once the event has passed (true implied-vs-realized accuracy)."""
+
+    __tablename__ = "implied_move_snapshots"
+    __table_args__ = (
+        UniqueConstraint("ticker", "event_date", "snapshot_date", name="uq_im_snapshot"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    event_date: Mapped[date] = mapped_column(Date, index=True)
+    snapshot_date: Mapped[date] = mapped_column(Date)
+    expected_move_pct: Mapped[float | None] = mapped_column(Float)
+    underlying_price: Mapped[float | None] = mapped_column(Float)
+
+
+class AnalystSnapshot(Base):
+    """Latest analyst price target + recommendation breakdown from FMP."""
+
+    __tablename__ = "analyst_snapshots"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    price_target: Mapped[float | None] = mapped_column(Float)
+    price_target_high: Mapped[float | None] = mapped_column(Float)
+    price_target_low: Mapped[float | None] = mapped_column(Float)
+    strong_buy: Mapped[int | None] = mapped_column(Integer)
+    buy: Mapped[int | None] = mapped_column(Integer)
+    hold: Mapped[int | None] = mapped_column(Integer)
+    sell: Mapped[int | None] = mapped_column(Integer)
+    strong_sell: Mapped[int | None] = mapped_column(Integer)
+    # Net bullish count (strong_buy+buy) from ~3 months earlier, for trend.
+    prev_bullish: Mapped[int | None] = mapped_column(Integer)
+    eps_estimate_next: Mapped[float | None] = mapped_column(Float)
+    revenue_estimate_next: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RefreshLog(Base):
+    __tablename__ = "refresh_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    detail: Mapped[str | None] = mapped_column(String(1024))

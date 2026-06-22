@@ -121,3 +121,5 @@ after changes.
   per-ticker failures.
 - Designed to deploy on Render later (web service + Postgres + cron) — kept local-first
   for now.
+
+<!-- ci: auto-deploy connectivity check, 2026-06-22 -->

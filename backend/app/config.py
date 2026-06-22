@@ -28,8 +28,11 @@ class Settings(BaseSettings):
     alpaca_api_key: str = ""
     alpaca_api_secret: str = ""
     alpaca_paper: bool = True
-    # Fraction of account equity to risk as max-loss per trade (0.02 = 2%).
-    paper_risk_per_trade: float = 0.02
+    # Conviction-weighted max-loss per trade, as a fraction of account equity.
+    # High conviction risks the most (the ceiling); low risks the least.
+    paper_risk_high: float = 0.05
+    paper_risk_medium: float = 0.03
+    paper_risk_low: float = 0.015
     # Max number of contracts per position (sanity cap).
     paper_max_contracts: int = 25
     # Max simultaneous open paper positions.
@@ -38,6 +41,14 @@ class Settings(BaseSettings):
     paper_entry_window_days: int = 3
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
+
+    def paper_risk_fraction(self, conviction: str) -> float:
+        """Map a playbook conviction tier to the fraction of equity to risk."""
+        return {
+            "high": self.paper_risk_high,
+            "medium": self.paper_risk_medium,
+            "low": self.paper_risk_low,
+        }.get(conviction, self.paper_risk_low)
 
     @property
     def alpaca_trading_base(self) -> str:

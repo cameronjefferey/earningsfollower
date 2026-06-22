@@ -164,8 +164,9 @@ export default function PaperPage() {
           An autonomous worker trades the company-page playbook&apos;s{" "}
           <span className="text-white">premium-selling setups</span> (rich-IV credit
           spreads &amp; iron condors) on an Alpaca paper account: it enters 1–3 days
-          before each print, risks ~2% of equity per trade, and closes after the report
-          to harvest the IV crush. This is the live scorecard.
+          before each print, sizes each trade by the playbook&apos;s conviction (
+          <span className="text-white">1.5–5% of equity</span> at risk), and closes after
+          the report to harvest the IV crush. This is the live scorecard.
         </p>
       </div>
 

@@ -75,8 +75,13 @@ services:
         sync: false # paper secret; set in the dashboard
       - key: ALPACA_PAPER
         value: "true"
-      - key: PAPER_RISK_PER_TRADE
-        value: "0.02"
+      # Conviction-weighted risk per trade (defaults: high 5% / med 3% / low 1.5%).
+      - key: PAPER_RISK_HIGH
+        value: "0.05"
+      - key: PAPER_RISK_MEDIUM
+        value: "0.03"
+      - key: PAPER_RISK_LOW
+        value: "0.015"
 
   # Next.js frontend
   - type: web

@@ -57,11 +57,10 @@ def run(db: Session, dry_run: bool = False) -> dict:
     try:
         equity = client.equity()
         summary["equity"] = equity
-        budget = equity * settings.paper_risk_per_trade
 
         summary["reconciled"] = _reconcile(db, client, dry_run)
         summary["closed"] = _manage_exits(db, client, dry_run)
-        opened, skipped = _scan_entries(db, client, budget, settings, dry_run)
+        opened, skipped = _scan_entries(db, client, equity, settings, dry_run)
         summary["opened"] = opened
         summary["skipped"] = skipped
     except AlpacaError as e:
@@ -185,7 +184,7 @@ def _finalize_pnl(t: PaperTrade) -> None:
 
 
 def _scan_entries(
-    db: Session, client: AlpacaClient, budget: float, settings, dry_run: bool
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
 ) -> tuple[int, list]:
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
@@ -244,11 +243,20 @@ def _scan_entries(
             skipped.append({"ticker": ticker, "reason": f"credit too thin ({spec.net_credit})"})
             continue
 
+        # Size by the playbook's conviction: risk more when the signals agree.
+        risk_frac = settings.paper_risk_fraction(pb["conviction"])
+        budget = equity * risk_frac
         contracts = int(budget // spec.max_risk_per_contract)
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:
             skipped.append(
-                {"ticker": ticker, "reason": f"spread too wide for budget (risk ${spec.max_risk_per_contract:.0f}/ct)"}
+                {
+                    "ticker": ticker,
+                    "reason": (
+                        f"spread too wide for {pb['conviction']} budget "
+                        f"({risk_frac:.1%} = ${budget:.0f}; risk ${spec.max_risk_per_contract:.0f}/ct)"
+                    ),
+                }
             )
             continue
 
@@ -256,9 +264,9 @@ def _scan_entries(
 
         if dry_run:
             logger.info(
-                "[dry-run] %s %s x%d @ credit %.2f (risk $%.0f)",
-                ticker, pb["structure"], contracts, spec.net_credit,
-                spec.max_risk_per_contract * contracts,
+                "[dry-run] %s %s [%s %.1f%%] x%d @ credit %.2f (risk $%.0f)",
+                ticker, pb["structure"], pb["conviction"], risk_frac * 100,
+                contracts, spec.net_credit, spec.max_risk_per_contract * contracts,
             )
             trade.note = "dry-run (not submitted)"
             opened += 1

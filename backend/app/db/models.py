@@ -180,10 +180,22 @@ class PaperTrade(Base):
     contracts: Mapped[int | None] = mapped_column(Integer)
     expiration: Mapped[date | None] = mapped_column(Date)
     width: Mapped[float | None] = mapped_column(Float)
-    entry_credit: Mapped[float | None] = mapped_column(Float)  # per share
+    entry_credit: Mapped[float | None] = mapped_column(Float)  # per share (actual fill)
+    modeled_credit: Mapped[float | None] = mapped_column(Float)  # per share (mid at entry)
     exit_debit: Mapped[float | None] = mapped_column(Float)    # per share
     max_risk: Mapped[float | None] = mapped_column(Float)      # total $ at risk
     realized_pnl: Mapped[float | None] = mapped_column(Float)  # total $
+
+    # Entry-time conditions (features for later calibration/training).
+    expected_move_pct: Mapped[float | None] = mapped_column(Float)  # implied move at entry
+    spot_entry: Mapped[float | None] = mapped_column(Float)
+    equity_at_entry: Mapped[float | None] = mapped_column(Float)
+
+    # Realized outcome (labels), captured at exit.
+    spot_at_exit: Mapped[float | None] = mapped_column(Float)
+    realized_move_pct: Mapped[float | None] = mapped_column(Float)  # signed, entry->exit
+    breached_short: Mapped[bool | None] = mapped_column(Boolean)    # price crossed a short strike
+    outcome: Mapped[str | None] = mapped_column(String(16))         # "win" | "loss"
 
     entry_order_id: Mapped[str | None] = mapped_column(String(64))
     exit_order_id: Mapped[str | None] = mapped_column(String(64))

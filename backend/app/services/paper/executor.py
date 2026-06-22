@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.alpaca import AlpacaClient, AlpacaError
 from app.config import get_settings
-from app.db.models import EarningsEvent, PaperTrade
+from app.db.models import EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.paper.contracts import TradeSpec, build_trade_spec
 
@@ -167,6 +167,7 @@ def _manage_exits(db: Session, client: AlpacaClient, dry_run: bool) -> int:
         t.exit_order_id = order.get("id")
         t.exit_debit = exit_net
         t.status = "closing"
+        _record_outcome(db, t, legs)  # realized move + breach labels
         _finalize_pnl(t)  # provisional, refined on fill
         closed += 1
     if not dry_run:
@@ -178,6 +179,38 @@ def _finalize_pnl(t: PaperTrade) -> None:
     if t.entry_credit is None or t.exit_debit is None or not t.contracts:
         return
     t.realized_pnl = round((t.entry_credit - t.exit_debit) * 100 * t.contracts, 2)
+    t.outcome = "win" if t.realized_pnl > 0 else "loss"
+
+
+def _record_outcome(db: Session, t: PaperTrade, legs: list[dict]) -> None:
+    """Capture the realized labels for later model calibration: the underlying's
+    move from entry to exit, and whether it breached a short strike (the clean
+    'was the sell-vol thesis right' signal, independent of fill quality)."""
+    bar = db.scalars(
+        select(PriceBar)
+        .where(PriceBar.ticker == t.ticker)
+        .order_by(PriceBar.date.desc())
+    ).first()
+    spot_exit = bar.close if bar else None
+    if spot_exit:
+        t.spot_at_exit = round(spot_exit, 2)
+        if t.spot_entry:
+            t.realized_move_pct = round(spot_exit / t.spot_entry - 1, 4)
+        t.breached_short = _breached_short(legs, spot_exit)
+
+
+def _breached_short(legs: list[dict], spot: float) -> bool:
+    for leg in legs:
+        if leg.get("side") != "sell":
+            continue
+        strike = leg.get("strike")
+        if strike is None:
+            continue
+        if leg.get("type") == "call" and spot > strike:
+            return True
+        if leg.get("type") == "put" and spot < strike:
+            return True
+    return False
 
 
 # --- entries -----------------------------------------------------------------
@@ -260,7 +293,13 @@ def _scan_entries(
             )
             continue
 
-        trade = _record_trade(db, ticker, ev, pb, spec, contracts)
+        im = (detail or {}).get("implied_move") or {}
+        trade = _record_trade(
+            db, ticker, ev, pb, spec, contracts,
+            expected_move_pct=im.get("expected_move_pct"),
+            spot_entry=im.get("underlying_price") or pb.get("spot"),
+            equity=equity,
+        )
 
         if dry_run:
             logger.info(
@@ -309,6 +348,9 @@ def _record_trade(
     pb: dict,
     spec: TradeSpec,
     contracts: int,
+    expected_move_pct: float | None = None,
+    spot_entry: float | None = None,
+    equity: float | None = None,
 ) -> PaperTrade:
     signal_id = _next_signal_id(db)
     thesis = {
@@ -347,7 +389,11 @@ def _record_trade(
         expiration=spec.expiration,
         width=spec.width,
         entry_credit=spec.net_credit,
+        modeled_credit=spec.net_credit,
         max_risk=round(spec.max_risk_per_contract * contracts, 2),
+        expected_move_pct=expected_move_pct,
+        spot_entry=round(spot_entry, 2) if spot_entry else None,
+        equity_at_entry=round(equity, 2) if equity else None,
     )
     db.add(trade)
     db.flush()

@@ -275,9 +275,16 @@ export interface PaperTrade {
   expiration: string | null;
   width: number | null;
   entry_credit: number | null;
+  modeled_credit: number | null;
   exit_debit: number | null;
   max_risk: number | null;
   realized_pnl: number | null;
+  expected_move_pct: number | null;
+  spot_entry: number | null;
+  spot_at_exit: number | null;
+  realized_move_pct: number | null;
+  breached_short: boolean | null;
+  outcome: "win" | "loss" | null;
   legs: PaperTradeLeg[];
   thesis: string | null;
   opened_at: string | null;

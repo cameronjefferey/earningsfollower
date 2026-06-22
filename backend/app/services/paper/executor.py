@@ -315,6 +315,7 @@ def _record_trade(
         "headline": pb.get("headline"),
         "bias_reasons": pb.get("bias_reasons"),
         "vol_reasons": pb.get("vol_reasons"),
+        "conviction_basis": pb.get("conviction_basis"),
         "timing": pb.get("timing"),
         "spot": pb.get("spot"),
         "expected_range": [pb.get("expected_range_low"), pb.get("expected_range_high")],

@@ -29,6 +29,7 @@ class EarningsPlay:
     headline: str                 # one-line recommendation
     direction: str                # "bearish" | "bullish" | "neutral"
     conviction: str               # "low" | "medium" | "high"
+    conviction_basis: dict        # the edge/features that set conviction
     vol_stance: str               # "sell" | "buy" | "neutral"
     structure: str                # human name of the recommended structure
     structure_detail: str         # explicit how-to sentence
@@ -61,7 +62,9 @@ def build_playbook(
 
     direction, dir_score, bias_reasons = _direction(summary, analyst, prices)
     vol_stance, vol_reasons = _vol_stance(implied)
-    conviction = _conviction(dir_score, vol_stance, summary, implied)
+    conviction, conviction_basis = _conviction(
+        direction, vol_stance, summary, implied, dir_score
+    )
 
     structure, structure_detail, legs = _structure(
         direction, vol_stance, spot, em
@@ -79,6 +82,7 @@ def build_playbook(
         headline=headline,
         direction=direction,
         conviction=conviction,
+        conviction_basis=conviction_basis,
         vol_stance=vol_stance,
         structure=structure,
         structure_detail=structure_detail,
@@ -223,18 +227,89 @@ def _vol_stance(implied: dict | None) -> tuple[str, list[str]]:
     return "neutral", reasons
 
 
+# Above this implied/realized ratio the implied move is almost certainly a data
+# artifact (bad historical average or stale implied), not a genuine 5x-rich
+# option. Real earnings richness tops out around 2-3x.
+RICHNESS_SUSPECT = 3.0
+
+
 def _conviction(
-    dir_score: float, vol_stance: str, summary: dict, implied: dict | None
-) -> str:
-    strength = abs(dir_score)
-    sample = summary.get("sample_size", 0)
-    edge_sample = (implied or {}).get("edge_sample", 0) or 0
-    aligned = vol_stance in ("sell", "buy")
-    if strength >= 2.5 and sample >= 12 and aligned and edge_sample >= 8:
-        return "high"
-    if strength >= 1.5 and sample >= 8:
-        return "medium"
-    return "low"
+    direction: str,
+    vol_stance: str,
+    summary: dict,
+    implied: dict | None,
+    dir_score: float,
+) -> tuple[str, dict]:
+    """Conviction grounded in the trade's actual edge, plus the basis behind it
+    (so the paper-trading loop can later check whether each tier was earned).
+
+    For premium-selling trades the edge is the *empirical seller edge* -
+    1 - exceed_rate, i.e. how often the realized move historically stayed inside
+    the move now priced in. Direction only modulates: a directional credit spread
+    wants trend support; an iron condor wants the opposite (range-bound)."""
+    im = implied or {}
+    exceed = im.get("exceed_rate")
+    edge_n = im.get("edge_sample") or 0
+    richness = im.get("richness")
+    seller_edge = round(1 - exceed, 3) if exceed is not None else None
+    suspect = richness is not None and richness > RICHNESS_SUSPECT
+
+    basis = {
+        "vol_stance": vol_stance,
+        "exceed_rate": exceed,
+        "seller_edge": seller_edge,
+        "edge_sample": edge_n,
+        "richness": richness,
+        "dir_score": round(dir_score, 2),
+        "data_suspect": suspect,
+    }
+
+    if vol_stance != "sell":
+        # Debit / directional trades: conviction is directional confidence.
+        strength = abs(dir_score)
+        sample = summary.get("sample_size", 0)
+        if strength >= 2.5 and sample >= 12:
+            tier = "high"
+        elif strength >= 1.5 and sample >= 8:
+            tier = "medium"
+        else:
+            tier = "low"
+        basis["tier_reason"] = f"directional strength {strength:.1f}, n={sample}"
+        return tier, basis
+
+    # Premium-selling conviction, driven by the empirical seller edge.
+    if seller_edge is None or edge_n < 8:
+        basis["tier_reason"] = "insufficient vol-edge sample"
+        return "low", basis
+
+    if seller_edge >= 0.80 and edge_n >= 10:
+        tier = "high"
+    elif seller_edge >= 0.65 and edge_n >= 8:
+        tier = "medium"
+    else:
+        tier = "low"
+
+    # Directional fit: a condor wants calm; a directional credit spread wants a
+    # trend behind it.
+    if direction == "neutral":
+        if abs(dir_score) >= 2.0:  # strong trend is hostile to a condor
+            tier = "low"
+        elif tier == "high" and abs(dir_score) > 1.0:
+            tier = "medium"
+    else:
+        if tier == "high" and abs(dir_score) < 1.5:
+            tier = "medium"  # weak directional support for a directional sell
+
+    # Data-quality guard: never bet max size on an implausibly rich implied move.
+    if suspect and tier == "high":
+        tier = "medium"
+
+    basis["tier_reason"] = (
+        f"seller edge {seller_edge:.0%} (n={edge_n}), richness "
+        f"{richness if richness is not None else '—'}"
+        + (", richness suspect → capped" if suspect else "")
+    )
+    return tier, basis
 
 
 # --- structure ---------------------------------------------------------------
@@ -414,6 +489,14 @@ def _caveats(summary: dict, implied: dict | None, analyst: dict | None) -> list[
     sample = summary.get("sample_size", 0)
     if sample < 8:
         caveats.append(f"Small sample: only {sample} past prints in the history.")
+
+    richness = (implied or {}).get("richness")
+    if richness is not None and richness > RICHNESS_SUSPECT:
+        caveats.append(
+            f"Implied move looks implausibly rich ({richness:.1f}x its historical "
+            "average) — likely a data artifact, so conviction is capped until the "
+            "inputs are validated."
+        )
 
     # Flag a price-scale mismatch between the options spot and the analyst target
     # (e.g. a split-adjusted price feed vs. unadjusted consensus), which makes the

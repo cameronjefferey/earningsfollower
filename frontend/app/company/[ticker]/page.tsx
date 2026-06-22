@@ -372,6 +372,11 @@ function PlaybookCard({ play, ticker }: { play: EarningsPlay; ticker: string }) 
         <div className="mt-1.5 text-lg font-bold" style={{ color: dirColor }}>
           {play.headline}
         </div>
+        {play.conviction_basis?.tier_reason ? (
+          <div className="mt-1 text-xs text-[var(--color-muted)]">
+            Conviction basis: {play.conviction_basis.tier_reason}
+          </div>
+        ) : null}
       </div>
 
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-5">

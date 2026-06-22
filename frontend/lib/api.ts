@@ -129,10 +129,22 @@ export interface PlayLeg {
   note: string;
 }
 
+export interface ConvictionBasis {
+  vol_stance: string;
+  exceed_rate: number | null;
+  seller_edge: number | null;
+  edge_sample: number;
+  richness: number | null;
+  dir_score: number;
+  data_suspect: boolean;
+  tier_reason?: string;
+}
+
 export interface EarningsPlay {
   headline: string;
   direction: "bearish" | "bullish" | "neutral";
   conviction: "low" | "medium" | "high";
+  conviction_basis: ConvictionBasis;
   vol_stance: "sell" | "buy" | "neutral";
   structure: string;
   structure_detail: string;

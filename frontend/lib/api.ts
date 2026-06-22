@@ -121,6 +121,32 @@ export interface PricePoint {
   close: number;
 }
 
+export interface PlayLeg {
+  action: "Sell" | "Buy";
+  option: "call" | "put";
+  label: string;
+  strike: number | null;
+  note: string;
+}
+
+export interface EarningsPlay {
+  headline: string;
+  direction: "bearish" | "bullish" | "neutral";
+  conviction: "low" | "medium" | "high";
+  vol_stance: "sell" | "buy" | "neutral";
+  structure: string;
+  structure_detail: string;
+  timing: string;
+  legs: PlayLeg[];
+  expected_range_low: number | null;
+  expected_range_high: number | null;
+  spot: number | null;
+  invalidation: string;
+  bias_reasons: string[];
+  vol_reasons: string[];
+  caveats: string[];
+}
+
 export interface CompanyDetail {
   ticker: string;
   name: string | null;
@@ -134,6 +160,7 @@ export interface CompanyDetail {
   next_earnings_timing: string | null;
   implied_move: ImpliedMove | null;
   analyst: Analyst | null;
+  playbook: EarningsPlay | null;
   price_history: PricePoint[];
   reactions: { summary: ReactionSummary; events: ReactionEvent[] };
   peers: LeadLag[];

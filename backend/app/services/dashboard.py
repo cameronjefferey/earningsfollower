@@ -9,6 +9,7 @@ from app.db.models import Company, EarningsEvent, ImpliedMove, ThemeMembership
 from app.services.analyst import analyst_payload
 from app.services.implied import implied_payload
 from app.services.peers import get_peers, shared_themes
+from app.services.playbook import build_playbook
 from app.services.prices import load_price_series
 from app.services.reactions import reaction_payload, summarize, compute_reactions
 from app.services.waves import peers_lead_lag
@@ -135,6 +136,16 @@ def company_detail(db: Session, ticker: str) -> dict | None:
         .order_by(EarningsEvent.date.asc())
     ).first()
 
+    price_history = recent_prices(db, ticker)
+    playbook = build_playbook(
+        summary=summary,
+        implied=implied,
+        analyst=analyst,
+        prices=price_history,
+        next_earnings_date=next_event.date.isoformat() if next_event else None,
+        next_earnings_timing=next_event.timing if next_event else None,
+    )
+
     return {
         "ticker": ticker,
         "name": company.name if company else None,
@@ -148,7 +159,8 @@ def company_detail(db: Session, ticker: str) -> dict | None:
         "next_earnings_timing": next_event.timing if next_event else None,
         "implied_move": implied,
         "analyst": analyst,
-        "price_history": recent_prices(db, ticker),
+        "playbook": playbook,
+        "price_history": price_history,
         "reactions": reactions,
         "peers": peers_lead_lag(db, ticker),
     }

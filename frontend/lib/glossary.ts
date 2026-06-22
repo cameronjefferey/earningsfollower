@@ -34,6 +34,8 @@ export const glossary = {
     "Consensus analyst price target and its implied upside/downside vs. the current price.",
   analyst_ratings:
     "Current breakdown of analyst ratings (strong buy → strong sell). 'Trend' compares the count of bullish analysts to roughly three months ago.",
+  playbook:
+    "An explicit, synthesized earnings trade built from this stock's own data: a direction (from price trend, how it reacts to beats, recent prints, post-beat drift, and analyst trend), a volatility stance (sell premium when options look rich vs. realized history, buy when cheap), and a concrete defined-risk options structure with strikes sized to the options-implied expected move. Includes when to put it on, what invalidates it, and the reasoning. Research, not advice.",
 } as const;
 
 export type GlossaryKey = keyof typeof glossary;

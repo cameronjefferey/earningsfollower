@@ -153,6 +153,52 @@ class AnalystSnapshot(Base):
     )
 
 
+class PaperTrade(Base):
+    """A paper earnings trade placed on Alpaca from the playbook engine.
+
+    Stores the full thesis and the chosen option legs so every fill is
+    journalable (the `signal_id` is the unique tag to cross-reference elsewhere).
+    """
+
+    __tablename__ = "paper_trades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    signal_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    earnings_date: Mapped[date | None] = mapped_column(Date, index=True)
+
+    # Playbook snapshot at entry.
+    structure: Mapped[str] = mapped_column(String(64))
+    direction: Mapped[str] = mapped_column(String(16))
+    vol_stance: Mapped[str] = mapped_column(String(16))
+    conviction: Mapped[str] = mapped_column(String(16))
+    thesis: Mapped[str | None] = mapped_column(String(2048))  # JSON
+
+    # Execution.
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    legs: Mapped[str | None] = mapped_column(String(2048))  # JSON of leg dicts
+    contracts: Mapped[int | None] = mapped_column(Integer)
+    expiration: Mapped[date | None] = mapped_column(Date)
+    width: Mapped[float | None] = mapped_column(Float)
+    entry_credit: Mapped[float | None] = mapped_column(Float)  # per share
+    exit_debit: Mapped[float | None] = mapped_column(Float)    # per share
+    max_risk: Mapped[float | None] = mapped_column(Float)      # total $ at risk
+    realized_pnl: Mapped[float | None] = mapped_column(Float)  # total $
+
+    entry_order_id: Mapped[str | None] = mapped_column(String(64))
+    exit_order_id: Mapped[str | None] = mapped_column(String(64))
+
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    note: Mapped[str | None] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class RefreshLog(Base):
     __tablename__ = "refresh_logs"
 

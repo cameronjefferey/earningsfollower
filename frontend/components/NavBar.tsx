@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Calendar" },
   { href: "/waves", label: "Waves" },
   { href: "/drift", label: "Drift" },
+  { href: "/paper", label: "Paper" },
 ];
 
 export function NavBar() {

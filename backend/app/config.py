@@ -22,6 +22,35 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     enable_scheduler: bool = True
 
+    # --- Alpaca paper trading -------------------------------------------------
+    # Paper accounts get Level 3 (multi-leg) options automatically. These come
+    # from a *paper* key pair at https://app.alpaca.markets/paper/dashboard/overview.
+    alpaca_api_key: str = ""
+    alpaca_api_secret: str = ""
+    alpaca_paper: bool = True
+    # Fraction of account equity to risk as max-loss per trade (0.02 = 2%).
+    paper_risk_per_trade: float = 0.02
+    # Max number of contracts per position (sanity cap).
+    paper_max_contracts: int = 25
+    # Max simultaneous open paper positions.
+    paper_max_open: int = 12
+    # Enter a setup only when earnings is within this many calendar days.
+    paper_entry_window_days: int = 3
+    # Floor on the modeled credit (per share) worth trading.
+    paper_min_credit: float = 0.10
+
+    @property
+    def alpaca_trading_base(self) -> str:
+        return (
+            "https://paper-api.alpaca.markets"
+            if self.alpaca_paper
+            else "https://api.alpaca.markets"
+        )
+
+    @property
+    def alpaca_data_base(self) -> str:
+        return "https://data.alpaca.markets"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

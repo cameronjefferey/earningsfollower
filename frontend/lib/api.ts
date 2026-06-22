@@ -243,6 +243,70 @@ export interface DriftResponse {
   setups: DriftSetup[];
 }
 
+export interface PaperTradeLeg {
+  symbol: string;
+  type: "call" | "put";
+  side: "buy" | "sell";
+  strike: number;
+  mid: number;
+}
+
+export interface PaperTrade {
+  signal_id: string;
+  ticker: string;
+  structure: string;
+  direction: "bearish" | "bullish" | "neutral";
+  conviction: "low" | "medium" | "high";
+  status: "pending" | "open" | "closing" | "closed" | "canceled";
+  contracts: number | null;
+  earnings_date: string | null;
+  expiration: string | null;
+  width: number | null;
+  entry_credit: number | null;
+  exit_debit: number | null;
+  max_risk: number | null;
+  realized_pnl: number | null;
+  legs: PaperTradeLeg[];
+  thesis: string | null;
+  opened_at: string | null;
+  closed_at: string | null;
+  note: string | null;
+}
+
+export interface PaperBucket {
+  n: number;
+  pnl: number;
+  wins: number;
+}
+
+export interface PaperStats {
+  open_count: number;
+  closed_count: number;
+  wins: number;
+  win_rate: number | null;
+  total_pnl: number;
+  avg_pnl: number | null;
+  open_risk: number;
+  by_structure: Record<string, PaperBucket>;
+  by_direction: Record<string, PaperBucket>;
+  by_conviction: Record<string, PaperBucket>;
+}
+
+export interface PaperAccount {
+  equity: number | null;
+  cash: number | null;
+  buying_power: number | null;
+  status: string | null;
+}
+
+export interface PaperResponse {
+  generated_at: string;
+  account: PaperAccount | null;
+  stats: PaperStats;
+  open: PaperTrade[];
+  closed: PaperTrade[];
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -265,4 +329,5 @@ export const api = {
     ),
   drift: (lookbackDays = 12) =>
     getJSON<DriftResponse>(`/drift?lookback_days=${lookbackDays}`),
+  paper: () => getJSON<PaperResponse>("/paper"),
 };

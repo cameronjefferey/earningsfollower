@@ -10,6 +10,7 @@ from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
 from app.services import dashboard, drift, waves
 from app.services.ingest import refresh_all
+from app.services.paper import report as paper_report
 
 router = APIRouter()
 
@@ -75,6 +76,11 @@ def get_drift(
         "count": len(setups),
         "setups": setups,
     }
+
+
+@router.get("/paper", tags=["paper"])
+def get_paper(db: Session = Depends(get_db)) -> dict:
+    return paper_report.scorecard(db)
 
 
 def _run_refresh() -> None:

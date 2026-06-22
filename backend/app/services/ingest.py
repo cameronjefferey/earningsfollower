@@ -50,31 +50,37 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
 
     processed = 0
     errors: list[str] = []
+    # Data-quality counters: pieces that silently came back empty (vs. crashed).
+    no_prices: list[str] = []
+    no_earnings: list[str] = []
+    no_implied: list[str] = []
 
     with FMPClient() as fmp:
         tracked = _build_universe(db, fmp, expand_peers=expand_peers)
         logger.info("Tracking %d tickers", len(tracked))
 
-        # Earnings come from FMP's bulk calendar (cloud-reliable, few calls)
-        # rather than per-ticker yfinance scraping (blocked on datacenter IPs).
-        try:
-            _ingest_earnings_calendar(db, fmp, tracked, settings.history_years)
-            db.commit()
-        except Exception as exc:  # noqa: BLE001
-            db.rollback()
-            logger.warning("Earnings calendar ingest failed: %s", exc, exc_info=True)
-
+        # Earnings now come from FMP's per-symbol endpoint (full multi-year
+        # history + upcoming estimates), set inside ingest_company. The bulk
+        # calendar is intentionally not used: paid tiers cap its history at a
+        # few months, so it can't backfill the reaction stats the app needs.
         for ticker in tracked:
             try:
-                ingest_company(
+                report = ingest_company(
                     db,
                     fmp,
                     ticker,
                     history_years=settings.history_years,
+                    fmp_earnings=fmp.enabled,
                     fetch_earnings=not fmp.enabled,
                 )
                 db.commit()
                 processed += 1
+                if not report["prices"]:
+                    no_prices.append(ticker)
+                if not report["earnings"]:
+                    no_earnings.append(ticker)
+                if not report["implied"]:
+                    no_implied.append(ticker)
             except FMPError as exc:
                 # Likely a bad key / hard rate-limit; stop hammering FMP but keep
                 # whatever we already ingested.
@@ -90,16 +96,33 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
                 errors.append(msg)
 
     log.finished_at = datetime.utcnow()
-    log.status = "ok" if not errors else "partial"
-    log.detail = (
-        f"processed={processed}; tracked={len(tracked)}; errors={len(errors)}"
-        + ("; " + " | ".join(errors[:5]) if errors else "")
-    )
+    # "ok" only when nothing crashed AND core data (prices, earnings) landed for
+    # every tracked ticker. Missing implied moves alone is a soft/expected gap.
+    core_complete = not errors and not no_prices and not no_earnings
+    log.status = "ok" if core_complete else "partial"
+    detail_parts = [
+        f"processed={processed}",
+        f"tracked={len(tracked)}",
+        f"errors={len(errors)}",
+        f"no_prices={len(no_prices)}",
+        f"no_earnings={len(no_earnings)}",
+        f"no_implied={len(no_implied)}",
+    ]
+    if no_prices:
+        detail_parts.append("prices_missing: " + ",".join(no_prices[:10]))
+    if no_earnings:
+        detail_parts.append("earnings_missing: " + ",".join(no_earnings[:10]))
+    if errors:
+        detail_parts.append("err: " + " | ".join(errors[:3]))
+    log.detail = "; ".join(detail_parts)
     db.commit()
     return {
         "processed": processed,
         "tracked": len(tracked),
         "errors": errors,
+        "no_prices": no_prices,
+        "no_earnings": no_earnings,
+        "no_implied": no_implied,
         "status": log.status,
     }
 
@@ -166,19 +189,25 @@ def ingest_company(
     ticker: str,
     *,
     history_years: int = 5,
-    fmp_earnings: bool = False,
+    fmp_earnings: bool | None = None,
     fetch_earnings: bool = True,
-) -> None:
+) -> dict[str, Any]:
+    """Ingest one company's profile, earnings, prices, and implied move.
+
+    Returns a quality report so the caller can tell whether each piece of data
+    actually landed (vs. silently failing). On a paid FMP plan the per-symbol
+    earnings endpoint is the primary source (full multi-year history); yfinance
+    remains the fallback when FMP is unavailable.
+    """
     ticker = ticker.upper()
     _ensure_company(db, ticker)
+    if fmp_earnings is None:
+        fmp_earnings = fmp.enabled
 
     got_fmp_earnings = False
     if fmp.enabled:
         try:
             _ingest_profile(db, fmp, ticker)
-            # FMP gates the per-symbol earnings endpoint on the free tier; it's
-            # only worth using on a paid plan. The bulk earnings calendar
-            # (see _ingest_earnings_calendar) is the default earnings source.
             if fmp_earnings:
                 got_fmp_earnings = _ingest_earnings_fmp(
                     db, fmp, ticker, history_years
@@ -195,12 +224,20 @@ def ingest_company(
                 raise
 
     # yfinance earnings scraping is unreliable on cloud IPs, so it's only a
-    # fallback when the FMP calendar isn't available (e.g. no API key).
+    # fallback when FMP earnings aren't available (e.g. no API key).
+    got_yahoo_earnings = False
     if fetch_earnings and not got_fmp_earnings:
-        _ingest_earnings_yahoo(db, ticker)
+        got_yahoo_earnings = _ingest_earnings_yahoo(db, ticker)
 
-    _ingest_prices(db, ticker, history_years)
-    _ingest_implied_move(db, ticker)
+    price_source = _ingest_prices(db, ticker, history_years, fmp)
+    got_implied = _ingest_implied_move(db, ticker)
+
+    return {
+        "earnings": got_fmp_earnings or got_yahoo_earnings,
+        "prices": price_source != "none",
+        "price_source": price_source,
+        "implied": got_implied,
+    }
 
 
 def _ingest_earnings_calendar(
@@ -306,8 +343,9 @@ def _ingest_earnings_fmp(
     return count > 0
 
 
-def _ingest_earnings_yahoo(db: Session, ticker: str) -> None:
-    for row in yahoo.get_earnings_dates(ticker, limit=28):
+def _ingest_earnings_yahoo(db: Session, ticker: str) -> bool:
+    rows = yahoo.get_earnings_dates(ticker, limit=28)
+    for row in rows:
         _upsert_earnings(
             db,
             ticker=ticker,
@@ -319,6 +357,7 @@ def _ingest_earnings_yahoo(db: Session, ticker: str) -> None:
             revenue_actual=None,
             fiscal_period=None,
         )
+    return bool(rows)
 
 
 def _ingest_analyst(db: Session, fmp: FMPClient, ticker: str) -> None:
@@ -355,12 +394,37 @@ def _ingest_analyst(db: Session, fmp: FMPClient, ticker: str) -> None:
     row.updated_at = datetime.utcnow()
 
 
-def _ingest_prices(db: Session, ticker: str, history_years: int) -> None:
+def _ingest_prices(
+    db: Session, ticker: str, history_years: int, fmp: FMPClient | None = None
+) -> str:
+    """Ingest daily price bars. Prefers FMP (cloud-IP reliable) and falls back
+    to yfinance. Returns the source actually used: "fmp", "yahoo", or "none"."""
     end = date.today() + timedelta(days=1)
     start = end - timedelta(days=int(history_years * 365.25) + 10)
-    bars = yahoo.get_prices(ticker, start, end)
+
+    bars: list[dict[str, Any]] = []
+    source = "none"
+    if fmp is not None and fmp.enabled:
+        try:
+            raw = fmp.historical_prices(ticker, start.isoformat(), end.isoformat())
+            bars = _map_fmp_prices(raw)
+            if bars:
+                source = "fmp"
+        except FMPError as exc:
+            if "429" in str(exc):
+                logger.warning("FMP quota hit on %s prices; continuing", ticker)
+                fmp.disable()
+            else:
+                logger.warning("FMP price fetch failed for %s: %s", ticker, exc)
+
     if not bars:
-        return
+        bars = yahoo.get_prices(ticker, start, end)
+        if bars:
+            source = "yahoo"
+
+    if not bars:
+        return "none"
+
     # Replace the full window so corporate-action adjustments stay consistent.
     db.execute(delete(PriceBar).where(PriceBar.ticker == ticker))
     db.add_all(
@@ -376,9 +440,32 @@ def _ingest_prices(db: Session, ticker: str, history_years: int) -> None:
         )
         for b in bars
     )
+    return source
 
 
-def _ingest_implied_move(db: Session, ticker: str) -> None:
+def _map_fmp_prices(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    bars: list[dict[str, Any]] = []
+    for r in raw:
+        d = _parse_date(r.get("date"))
+        if d is None:
+            continue
+        close = _f(r.get("close"))
+        bars.append(
+            {
+                "date": d,
+                "open": _f(r.get("open")),
+                "high": _f(r.get("high")),
+                "low": _f(r.get("low")),
+                "close": close,
+                # FMP's stable EOD close is split-adjusted; no separate adj field.
+                "adj_close": close,
+                "volume": _f(r.get("volume")),
+            }
+        )
+    return bars
+
+
+def _ingest_implied_move(db: Session, ticker: str) -> bool:
     next_event = db.scalars(
         select(EarningsEvent)
         .where(EarningsEvent.ticker == ticker, EarningsEvent.date >= date.today())
@@ -387,7 +474,7 @@ def _ingest_implied_move(db: Session, ticker: str) -> None:
     after = next_event.date if next_event else None
     result = yahoo.get_implied_move(ticker, after_date=after)
     if result.expected_move_pct is None:
-        return
+        return False
     row = db.get(ImpliedMove, ticker)
     if row is None:
         row = ImpliedMove(ticker=ticker)
@@ -420,6 +507,7 @@ def _ingest_implied_move(db: Session, ticker: str) -> None:
                     underlying_price=result.underlying_price,
                 )
             )
+    return True
 
 
 # --- upsert helpers ----------------------------------------------------------

@@ -10,6 +10,9 @@ larger, market-moving names in **tech/AI, space, quantum, and semis**, and tells
   post-earnings drift, with a reaction-history chart.
 - **Peer "waves"** — when a peer reports, how the target has historically drifted into
   its own print. This is the SNOW → ORCL setup, quantified.
+- **Post-earnings drift (PEAD)** — live setups on stocks that just delivered a strong
+  print (beat + up move, or miss + down move), backed by that stock's own historical
+  drift behavior, with a concrete entry / exit / stop plan for each.
 
 > For research and educational purposes only. **Not financial advice.** Data may be
 > delayed or inaccurate. Options-implied moves are estimates from ATM straddles.
@@ -87,6 +90,7 @@ after changes.
 | GET | `/earnings?window=today\|week\|last_week\|upcoming&theme=` | Earnings cards for a window |
 | GET | `/company/{ticker}` | Reaction history, implied move, peer waves |
 | GET | `/waves?recent_days=14&upcoming_days=21` | Live ride-the-wave setups |
+| GET | `/drift?lookback_days=12` | Live post-earnings drift setups with trade plans |
 | POST | `/refresh?background=true` | Trigger a data refresh |
 | GET | `/refresh/status` | Last refresh result |
 
@@ -102,6 +106,12 @@ after changes.
   from the peer's report date to the close just before the target's own report. Aggregated
   across cycles into an average run-up, win rate, and sample size, conditioned on whether
   the peer's reaction was up or down.
+- **Drift setups (PEAD):** a stock qualifies only if it (1) beat and jumped ≥2% (long)
+  or missed and dropped ≥2% (short), (2) drifted the same way after ≥3 similar past
+  prints (avg ≥0.5% in the trade direction), (3) hasn't closed back through its
+  earnings-day pivot (thesis intact), and (4) is within the 5-trading-day drift window
+  (or 10 days when its own history supports the extension). Each setup ships with a
+  plain-English entry / exit / stop plan and the "why" behind it.
 
 ## Notes & limits
 

@@ -161,6 +161,61 @@ export interface WavesResponse {
   signals: WaveSignal[];
 }
 
+export interface DriftHistory {
+  sample_size: number;
+  avg_drift_5d_pct: number | null;
+  win_rate_5d: number | null;
+  avg_drift_10d_pct: number | null;
+  win_rate_10d: number | null;
+}
+
+export interface DriftLive {
+  anchor_date: string;
+  anchor_open: number | null;
+  anchor_close: number | null;
+  last_date: string;
+  last_close: number | null;
+  drift_so_far_pct: number | null;
+  trading_days_in: number;
+  trading_days_left: number;
+  stop_level: number | null;
+}
+
+export interface DriftPlan {
+  entry: string;
+  exit: string;
+  stop: string;
+  entry_quality: "fresh" | "ok" | "late";
+}
+
+export interface DriftSetup {
+  ticker: string;
+  name: string | null;
+  sector: string | null;
+  market_cap: number | null;
+  themes: ThemeTag[];
+  direction: "long" | "short";
+  score: number;
+  report_date: string;
+  timing: string;
+  beat: boolean;
+  surprise_pct: number | null;
+  revenue_beat: boolean | null;
+  move_pct: number | null;
+  gap_pct: number | null;
+  held_gap: boolean | null;
+  history: DriftHistory;
+  live: DriftLive;
+  plan: DriftPlan;
+  why: string[];
+}
+
+export interface DriftResponse {
+  lookback_days: number;
+  count: number;
+  setups: DriftSetup[];
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -181,4 +236,6 @@ export const api = {
     getJSON<WavesResponse>(
       `/waves?recent_days=${recentDays}&upcoming_days=${upcomingDays}`
     ),
+  drift: (lookbackDays = 12) =>
+    getJSON<DriftResponse>(`/drift?lookback_days=${lookbackDays}`),
 };

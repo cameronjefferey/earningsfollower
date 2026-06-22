@@ -95,6 +95,24 @@ class FMPClient:
         rows = self._get("earnings", {"symbol": symbol}) or []
         return rows[:limit] if limit else rows
 
+    # --- Prices --------------------------------------------------------------
+
+    def historical_prices(
+        self, symbol: str, from_date: str, to_date: str
+    ) -> list[dict[str, Any]]:
+        """Daily OHLCV bars for a symbol over a date window.
+
+        FMP's EOD prices are served from their own infrastructure, so unlike
+        yfinance this works reliably from datacenter IPs (e.g. Render).
+        """
+        return (
+            self._get(
+                "historical-price-eod/full",
+                {"symbol": symbol, "from": from_date, "to": to_date},
+            )
+            or []
+        )
+
     # --- Reference -----------------------------------------------------------
 
     def stock_peers(self, symbol: str) -> list[str]:

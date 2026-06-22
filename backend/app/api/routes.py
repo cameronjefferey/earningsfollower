@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
-from app.services import dashboard, waves
+from app.services import dashboard, drift, waves
 from app.services.ingest import refresh_all
 
 router = APIRouter()
@@ -61,6 +61,19 @@ def get_waves(
         "upcoming_days": upcoming_days,
         "count": len(signals),
         "signals": signals,
+    }
+
+
+@router.get("/drift", tags=["drift"])
+def get_drift(
+    lookback_days: int = Query(12, ge=3, le=45),
+    db: Session = Depends(get_db),
+) -> dict:
+    setups = drift.drift_setups(db, lookback_days=lookback_days)
+    return {
+        "lookback_days": lookback_days,
+        "count": len(setups),
+        "setups": setups,
     }
 
 

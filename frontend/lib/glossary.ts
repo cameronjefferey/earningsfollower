@@ -24,6 +24,12 @@ export const glossary = {
     "How often this stock's actual earnings move reached the move currently priced in by options. A low rate means options look expensive (premium-seller edge); a high rate favors buyers.",
   pead:
     "Post-earnings drift: the average move over the 5 trading days AFTER the report, split by whether the company beat or missed. 'Continuation' is how often that drift kept going in the same direction as the earnings-day move.",
+  drift_playbook:
+    "Post-earnings announcement drift (PEAD): after a strong print, stocks tend to keep moving the same direction for days. Setups appear here only when the stock beat AND jumped (long) or missed AND dropped (short), its own history shows the drift continued after similar prints, and the price hasn't already broken the earnings-day pivot.",
+  drift_hist_edge:
+    "This stock's average move over the 5 trading days AFTER past prints similar to the current one (beat + up move for longs, miss + down move for shorts). The 'win' rate is how often that drift continued in the trade's direction.",
+  drift_entry_quality:
+    "Fresh = drift window just opened (day 0-1), best entry. Still tradeable = some days used, buy pullbacks only. Late = most of the window is gone; only enter on a fresh breakout, sized down.",
   price_target:
     "Consensus analyst price target and its implied upside/downside vs. the current price.",
   analyst_ratings:

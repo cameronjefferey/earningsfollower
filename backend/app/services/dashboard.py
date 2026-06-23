@@ -37,7 +37,11 @@ def date_range_for_window(window: str) -> tuple[date, date]:
         start = today - timedelta(days=today.weekday() + 7)
         return start, start + timedelta(days=6)
     if window == "upcoming":
-        return today + timedelta(days=1), today + timedelta(days=30)
+        # Future-only: next week plus the week after (two full Mon–Sun weeks).
+        # This week's prints live in the "This week" tab, so "Upcoming" never
+        # shows reports that are already here.
+        next_monday = today + timedelta(days=7 - today.weekday())
+        return next_monday, next_monday + timedelta(days=13)
     # default: a rolling 2-week window around today
     return today - timedelta(days=3), today + timedelta(days=11)
 

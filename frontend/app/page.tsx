@@ -127,6 +127,7 @@ export default function DashboardPage() {
   // If the focused symbol has no report in this window, fall back to the full
   // (unfiltered) calendar rather than showing an empty/error state.
   const shownCards = symbolMissing ? cards : focusedCards;
+  const weekGroups = windowKey === "upcoming" ? groupByWeek(shownCards) : null;
 
   return (
     <div>
@@ -204,6 +205,26 @@ export default function DashboardPage() {
           title="No earnings in this window."
           hint="Try a different window, or run a data refresh in the backend (python -m app.refresh)."
         />
+      ) : weekGroups ? (
+        <div className="space-y-8">
+          {weekGroups.map((g) => (
+            <div key={g.label}>
+              <div className="flex items-baseline gap-2 mb-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                  {g.label}
+                </h2>
+                <span className="text-xs text-[var(--color-muted)]">
+                  {g.cards.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {g.cards.map((c) => (
+                  <EarningsCardItem key={`${c.ticker}-${c.date}`} card={c} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {shownCards.map((c) => (
@@ -213,6 +234,34 @@ export default function DashboardPage() {
       )}
     </div>
   );
+}
+
+// Bucket upcoming cards by calendar week relative to today: 0 = this week,
+// 1 = next week, 2+ = later. Weeks start Monday. Empty buckets are dropped.
+function groupByWeek(
+  cards: EarningsCard[]
+): { label: string; cards: EarningsCard[] }[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - mondayOffset);
+
+  const buckets: Record<number, EarningsCard[]> = {};
+  for (const c of cards) {
+    const d = new Date(`${c.date}T00:00:00`);
+    const diffDays = Math.floor((d.getTime() - weekStart.getTime()) / 86400000);
+    const idx = Math.min(2, Math.max(0, Math.floor(diffDays / 7)));
+    (buckets[idx] ??= []).push(c);
+  }
+
+  const labelFor = (idx: number) =>
+    idx === 0 ? "This week" : idx === 1 ? "Next week" : "Later";
+
+  return Object.keys(buckets)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((idx) => ({ label: labelFor(idx), cards: buckets[idx] }));
 }
 
 function ThemeChip({

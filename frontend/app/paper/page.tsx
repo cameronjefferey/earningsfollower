@@ -63,9 +63,152 @@ function Legs({ trade }: { trade: PaperTrade }) {
   );
 }
 
+const PROFIT = "#28c08a";
+const LOSS = "#f0556d";
+
+// Derive the payoff geometry of a credit spread / iron condor from its legs so
+// we can show, in price terms, where the position makes or loses money.
+function payoffGeometry(trade: PaperTrade) {
+  const legs = trade.legs ?? [];
+  const find = (type: "call" | "put", side: "buy" | "sell") =>
+    legs.find((l) => l.type === type && l.side === side)?.strike ?? null;
+  const sc = find("call", "sell"); // short call
+  const lc = find("call", "buy"); // long call (cap)
+  const sp = find("put", "sell"); // short put
+  const lp = find("put", "buy"); // long put (cap)
+  const credit = trade.entry_credit ?? 0;
+  const contracts = trade.contracts ?? 1;
+  if (credit <= 0 || (sc === null && sp === null)) return null;
+
+  const maxProfit = credit * 100 * contracts;
+  const maxLoss = trade.max_risk ?? null;
+  const upperBE = sc !== null ? sc + credit : null;
+  const lowerBE = sp !== null ? sp - credit : null;
+  const spot = trade.spot_entry ?? null;
+
+  const strikes = [sc, lc, sp, lp].filter((x): x is number => x !== null);
+  const loS = Math.min(...strikes);
+  const hiS = Math.max(...strikes);
+  const pad = Math.max((hiS - loS) * 0.18, 1);
+  const domLo = Math.min(loS, spot ?? loS) - pad;
+  const domHi = Math.max(hiS, spot ?? hiS) + pad;
+
+  const pnlPerShare = (S: number) => {
+    let loss = 0;
+    if (sc !== null && lc !== null) loss += Math.min(Math.max(S - sc, 0), lc - sc);
+    if (sp !== null && lp !== null) loss += Math.min(Math.max(sp - S, 0), sp - lp);
+    return credit - loss;
+  };
+
+  return {
+    sc, lc, sp, lp, credit, contracts, maxProfit, maxLoss,
+    upperBE, lowerBE, spot, domLo, domHi, pnlPerShare,
+  };
+}
+
+type Geometry = NonNullable<ReturnType<typeof payoffGeometry>>;
+
+function PayoffBar({ g, ticker }: { g: Geometry; ticker: string }) {
+  const N = 48;
+  const span = g.domHi - g.domLo || 1;
+  const pct = (x: number) => Math.max(0, Math.min(100, ((x - g.domLo) / span) * 100));
+  const cells = Array.from({ length: N }, (_, i) => {
+    const S = g.domLo + ((i + 0.5) / N) * span;
+    const profit = g.pnlPerShare(S) > 0;
+    const full = (g.sp === null || S >= g.sp) && (g.sc === null || S <= g.sc);
+    return profit ? (full ? PROFIT : `${PROFIT}66`) : `${LOSS}3a`;
+  });
+
+  return (
+    <div className="mt-3">
+      <div className="relative">
+        {g.spot != null ? (
+          <div
+            className="absolute -top-4 -translate-x-1/2 text-[10px] font-semibold whitespace-nowrap text-white"
+            style={{ left: `${pct(g.spot)}%` }}
+          >
+            now {money(g.spot)}
+          </div>
+        ) : null}
+        <div className="flex h-7 w-full overflow-hidden rounded">
+          {cells.map((c, i) => (
+            <div key={i} style={{ width: `${100 / N}%`, backgroundColor: c }} />
+          ))}
+        </div>
+        {g.spot != null ? (
+          <div
+            className="absolute top-0 bottom-0 w-px bg-white"
+            style={{ left: `${pct(g.spot)}%` }}
+          />
+        ) : null}
+      </div>
+      <div className="relative mt-1 h-3 text-[10px] text-[var(--color-muted)]">
+        {g.lowerBE != null ? (
+          <span className="absolute -translate-x-1/2" style={{ left: `${pct(g.lowerBE)}%` }}>
+            {money(g.lowerBE)}
+          </span>
+        ) : null}
+        {g.upperBE != null ? (
+          <span className="absolute -translate-x-1/2" style={{ left: `${pct(g.upperBE)}%` }}>
+            {money(g.upperBE)}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-muted)]">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: PROFIT }} />
+          profit
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: `${LOSS}3a` }} />
+          loss
+        </span>
+        <span className="ml-auto">break-even prices ↑</span>
+      </div>
+    </div>
+  );
+}
+
+function PlainEnglish({ g, trade }: { g: Geometry; trade: PaperTrade }) {
+  const exp = fmtDate(trade.expiration);
+  const band =
+    g.sp != null && g.sc != null
+      ? `between ${money(g.sp)} and ${money(g.sc)}`
+      : g.sc != null
+      ? `below ${money(g.sc)}`
+      : `above ${money(g.sp)}`;
+  const movePct =
+    trade.expected_move_pct != null
+      ? `±${(trade.expected_move_pct * 100).toFixed(1)}%`
+      : null;
+  return (
+    <p className="mt-2 text-xs leading-relaxed text-[var(--color-muted)]">
+      Keep the full{" "}
+      <span className="font-semibold" style={{ color: PROFIT }}>
+        {money(g.maxProfit)}
+      </span>{" "}
+      if {trade.ticker} closes {band} by {exp}. Start losing past{" "}
+      <span className="text-white">{money(g.lowerBE)}</span> /{" "}
+      <span className="text-white">{money(g.upperBE)}</span>; full{" "}
+      <span className="font-semibold" style={{ color: LOSS }}>
+        {money(g.maxLoss)}
+      </span>{" "}
+      loss beyond {money(g.lp)} / {money(g.lc)}.
+      {movePct ? (
+        <>
+          {" "}
+          The options price a {movePct} move by then — this wins if the actual move
+          comes in smaller.
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 function OpenCard({ trade }: { trade: PaperTrade }) {
   const dir = DIR_COLOR[trade.direction] ?? "#8a97b1";
   const status = STATUS_COLOR[trade.status] ?? "#8a97b1";
+  const g = payoffGeometry(trade);
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2">
@@ -81,26 +224,81 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
         </div>
       </div>
       <div className="text-sm text-[var(--color-muted)] mt-0.5">{trade.structure}</div>
-      {trade.thesis ? (
-        <div className="text-xs mt-1" style={{ color: dir }}>
-          {trade.thesis}
-        </div>
-      ) : null}
-      <Legs trade={trade} />
-      <div className="grid grid-cols-3 gap-2 mt-3 text-sm">
-        <div>
-          <div className="text-[10px] uppercase text-[var(--color-muted)]">Credit</div>
-          <div className="font-semibold">${trade.entry_credit?.toFixed(2) ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase text-[var(--color-muted)]">Contracts</div>
-          <div className="font-semibold">{trade.contracts ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase text-[var(--color-muted)]">Max risk</div>
-          <div className="font-semibold">{money(trade.max_risk)}</div>
-        </div>
-      </div>
+
+      {g ? (
+        <>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div
+              className="rounded-lg border px-3 py-2"
+              style={{ borderColor: `${PROFIT}40`, background: `${PROFIT}12` }}
+            >
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Max profit
+              </div>
+              <div className="font-bold" style={{ color: PROFIT }}>
+                {money(g.maxProfit)}
+              </div>
+            </div>
+            <div
+              className="rounded-lg border px-3 py-2"
+              style={{ borderColor: `${LOSS}40`, background: `${LOSS}12` }}
+            >
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Max loss
+              </div>
+              <div className="font-bold" style={{ color: LOSS }}>
+                {money(g.maxLoss)}
+              </div>
+            </div>
+          </div>
+
+          <PayoffBar g={g} ticker={trade.ticker} />
+          <PlainEnglish g={g} trade={trade} />
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
+            <span>
+              Credit{" "}
+              <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "—"}</span>
+            </span>
+            <span>·</span>
+            <span>
+              <span className="text-white">{trade.contracts ?? "—"}</span> contract
+              {trade.contracts === 1 ? "" : "s"}
+            </span>
+          </div>
+          <Legs trade={trade} />
+        </>
+      ) : (
+        <>
+          {trade.thesis ? (
+            <div className="text-xs mt-1" style={{ color: dir }}>
+              {trade.thesis}
+            </div>
+          ) : null}
+          <Legs trade={trade} />
+          <div className="grid grid-cols-3 gap-2 mt-3 text-sm">
+            <div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">Credit</div>
+              <div className="font-semibold">
+                ${trade.entry_credit?.toFixed(2) ?? "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Contracts
+              </div>
+              <div className="font-semibold">{trade.contracts ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Max risk
+              </div>
+              <div className="font-semibold">{money(trade.max_risk)}</div>
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="text-[11px] text-[var(--color-muted)] mt-3 flex justify-between">
         <span>Reports {fmtDate(trade.earnings_date)}</span>
         <span>Exp {fmtDate(trade.expiration)}</span>

@@ -164,6 +164,9 @@ class PaperTrade(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     signal_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    # Which strategy placed this: "earnings" (sell-vol around the print) or
+    # "waves" (directional sympathy drift into a peer-driven build-up).
+    strategy: Mapped[str] = mapped_column(String(16), default="earnings", index=True)
     ticker: Mapped[str] = mapped_column(String(16), index=True)
     earnings_date: Mapped[date | None] = mapped_column(Date, index=True)
 

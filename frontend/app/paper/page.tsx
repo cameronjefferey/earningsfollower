@@ -253,6 +253,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           {trade.ticker}
         </Link>
         <div className="flex items-center gap-1.5">
+          {trade.strategy === "waves" ? <Pill text="wave" color="#b06bff" /> : null}
           <Pill text={trade.status} color={status} />
           <Pill text={trade.direction} color={dir} />
         </div>
@@ -312,7 +313,9 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           <Legs trade={trade} />
           <div className="grid grid-cols-3 gap-2 mt-3 text-sm">
             <div>
-              <div className="text-[10px] uppercase text-[var(--color-muted)]">Credit</div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                {trade.strategy === "waves" ? "Debit" : "Credit"}
+              </div>
               <div className="font-semibold">
                 ${trade.entry_credit?.toFixed(2) ?? "—"}
               </div>

@@ -52,6 +52,24 @@ class Settings(BaseSettings):
     paper_late_dte: int = 1
     paper_late_stop_frac: float = 0.10
 
+    # --- Waves strategy (directional sympathy drift) --------------------------
+    # A separate, directional strategy: when a peer reports, buy a slightly-ITM
+    # call/put on a themed name that reports soon, ride the pre-earnings drift,
+    # and exit on an underlying-move bracket or the day before its own print.
+    paper_waves_enabled: bool = True
+    # Bracket on the *underlying's* move from entry (favorable / adverse).
+    paper_wave_gain_pct: float = 0.10
+    paper_wave_loss_pct: float = 0.05
+    # Quality filters on the historical lead-lag before we'll trade a wave.
+    paper_wave_min_winrate: float = 0.60
+    paper_wave_min_samples: int = 4
+    # Need at least this much runway before the target's own earnings (so there's
+    # room to drift, and the exit-before-print rule leaves a real holding period).
+    paper_wave_min_runway_days: int = 3
+    # Premium budget per wave trade, as a fraction of equity, and a position cap.
+    paper_wave_risk_frac: float = 0.01
+    paper_wave_max_open: int = 6
+
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""
         return {

@@ -19,14 +19,23 @@ OPEN_STATES = ("pending", "open", "closing")
 
 def _thesis_headline(t: PaperTrade) -> str | None:
     try:
-        return (json.loads(t.thesis or "{}") or {}).get("headline")
+        data = json.loads(t.thesis or "{}") or {}
     except json.JSONDecodeError:
         return None
+    if (t.strategy or "earnings") == "waves":
+        trig = data.get("trigger")
+        if not trig:
+            return None
+        rr = data.get("expected_runup_pct")
+        drift = f"{rr * 100:+.1f}% drift" if isinstance(rr, (int, float)) else "sympathy drift"
+        return f"Rides {trig} · {drift} into its print"
+    return data.get("headline")
 
 
 def _trade_dict(t: PaperTrade) -> dict:
     return {
         "signal_id": t.signal_id,
+        "strategy": t.strategy or "earnings",
         "ticker": t.ticker,
         "structure": t.structure,
         "direction": t.direction,

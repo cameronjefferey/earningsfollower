@@ -26,6 +26,8 @@ from app.config import get_settings
 from app.db.models import EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.paper.contracts import TradeSpec, build_trade_spec
+from app.services.paper.waves_trader import WaveSpec, build_wave_spec, wave_conviction
+from app.services.waves import current_waves
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +62,11 @@ def run(db: Session, dry_run: bool = False) -> dict:
 
         summary["reconciled"] = _reconcile(db, client, dry_run)
         summary["closed"] = _manage_exits(db, client, settings, dry_run)
+        summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
         opened, skipped = _scan_entries(db, client, equity, settings, dry_run)
-        summary["opened"] = opened
-        summary["skipped"] = skipped
+        w_opened, w_skipped = _scan_wave_entries(db, client, equity, settings, dry_run)
+        summary["opened"] = opened + w_opened
+        summary["skipped"] = skipped + w_skipped
     except AlpacaError as e:
         logger.error("Alpaca error during paper run: %s", e)
         summary["status"] = "error"
@@ -209,7 +213,12 @@ def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str |
 def _finalize_pnl(t: PaperTrade) -> None:
     if t.entry_credit is None or t.exit_debit is None or not t.contracts:
         return
-    t.realized_pnl = round((t.entry_credit - t.exit_debit) * 100 * t.contracts, 2)
+    if (t.strategy or "earnings") == "waves":
+        # Long option: profit = proceeds on close - premium paid at entry.
+        t.realized_pnl = round((t.exit_debit - t.entry_credit) * 100 * t.contracts, 2)
+    else:
+        # Credit structure: profit = credit collected - cost to close.
+        t.realized_pnl = round((t.entry_credit - t.exit_debit) * 100 * t.contracts, 2)
     t.outcome = "win" if t.realized_pnl > 0 else "loss"
 
 
@@ -447,3 +456,262 @@ def _to_float(value) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+# --- waves strategy ----------------------------------------------------------
+
+
+def _parse_iso(value) -> date | None:
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _manage_wave_exits(
+    db: Session, client: AlpacaClient, settings, dry_run: bool
+) -> int:
+    """Close open wave trades on the underlying-move bracket or the day before
+    the target's own earnings (ride the build-up, not the print)."""
+    today = date.today()
+    closed = 0
+    trades = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == "waves", PaperTrade.status == "open"
+        )
+    ).all()
+    for t in trades:
+        legs = json.loads(t.legs or "[]")
+        if not legs:
+            continue
+        sym = legs[0]["symbol"]
+        spot_now = client.stock_price(t.ticker)
+        reason = _wave_exit_reason(t, spot_now, today, settings)
+        if reason is None:
+            continue
+        mid = float(client.option_quotes([sym]).get(sym, {}).get("mid") or 0.0)
+        if mid <= 0:
+            continue  # can't price the close right now; retry next run
+        if dry_run:
+            logger.info(
+                "[dry-run] would close wave %s (%s) at %.2f", t.signal_id, reason, mid
+            )
+            continue
+        try:
+            order = client.submit_option_order(
+                symbol=sym,
+                qty=t.contracts or 1,
+                side="sell",
+                position_intent="sell_to_close",
+                limit_price=max(0.01, mid),
+                client_order_id=f"{t.signal_id}-x",
+            )
+        except AlpacaError as e:
+            logger.error("Wave close failed for %s: %s", t.signal_id, e)
+            continue
+        t.exit_order_id = order.get("id")
+        t.exit_debit = round(mid, 2)  # proceeds per share on close
+        t.status = "closing"
+        t.note = reason
+        if spot_now:
+            t.spot_at_exit = round(spot_now, 2)
+            if t.spot_entry:
+                t.realized_move_pct = round(spot_now / t.spot_entry - 1, 4)
+        _finalize_pnl(t)
+        closed += 1
+    if not dry_run:
+        db.commit()
+    return closed
+
+
+def _wave_exit_reason(t: PaperTrade, spot_now: float | None, today: date, settings) -> str | None:
+    if t.earnings_date and (t.earnings_date - today).days <= 1:
+        return "pre-earnings exit"
+    if spot_now and t.spot_entry:
+        move = spot_now / t.spot_entry - 1.0
+        favorable = move if t.direction == "bullish" else -move
+        if favorable >= settings.paper_wave_gain_pct:
+            return f"take-profit (+{favorable:.1%} underlying)"
+        if favorable <= -settings.paper_wave_loss_pct:
+            return f"stop-loss ({favorable:.1%} underlying)"
+    return None
+
+
+def _scan_wave_entries(
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+) -> tuple[int, list]:
+    if not settings.paper_waves_enabled:
+        return 0, []
+    today = date.today()
+    try:
+        signals = current_waves(db)
+    except Exception as e:  # noqa: BLE001 - never let a signal error break the run
+        logger.warning("waves signal build failed: %s", e)
+        return 0, []
+
+    open_n = len(
+        db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.strategy == "waves",
+                PaperTrade.status.in_(OPEN_STATES),
+            )
+        ).all()
+    )
+
+    opened = 0
+    skipped: list[dict] = []
+    seen: set[str] = set()
+    for sig in signals:
+        target = sig.get("target")
+        if not target or target in seen:
+            continue
+        seen.add(target)
+
+        if open_n + opened >= settings.paper_wave_max_open:
+            skipped.append({"ticker": target, "reason": "max open wave positions"})
+            continue
+
+        stats = sig.get("stats") or {}
+        wr, n = stats.get("win_rate"), stats.get("sample_size")
+        if wr is None or wr < settings.paper_wave_min_winrate:
+            skipped.append({"ticker": target, "reason": f"win rate too low ({wr})"})
+            continue
+        if n is None or n < settings.paper_wave_min_samples:
+            skipped.append({"ticker": target, "reason": f"too few samples ({n})"})
+            continue
+
+        tgt_date = _parse_iso(sig.get("target_report_date"))
+        if tgt_date is None:
+            continue
+        runway = (tgt_date - today).days
+        if runway < settings.paper_wave_min_runway_days:
+            skipped.append({"ticker": target, "reason": f"too close to print ({runway}d)"})
+            continue
+
+        existing = db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.ticker == target,
+                PaperTrade.earnings_date == tgt_date,
+                PaperTrade.strategy == "waves",
+            )
+        ).first()
+        if existing:
+            continue
+
+        spec, reason = build_wave_spec(client, sig, tgt_date)
+        if spec is None:
+            skipped.append({"ticker": target, "reason": reason})
+            continue
+
+        budget = equity * settings.paper_wave_risk_frac
+        per_contract = spec.premium * 100
+        contracts = int(budget // per_contract) if per_contract > 0 else 0
+        contracts = min(contracts, settings.paper_max_contracts)
+        if contracts < 1:
+            skipped.append(
+                {
+                    "ticker": target,
+                    "reason": f"premium too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
+                }
+            )
+            continue
+
+        trade = _record_wave_trade(db, sig, spec, tgt_date, contracts, equity)
+        if dry_run:
+            logger.info(
+                "[dry-run] WAVE %s long %s x%d @ %.2f (trigger %s)",
+                target, spec.option_type, contracts, spec.premium, sig.get("trigger"),
+            )
+            trade.note = "dry-run (not submitted)"
+            opened += 1
+            continue
+
+        try:
+            order = client.submit_option_order(
+                symbol=spec.symbol,
+                qty=contracts,
+                side="buy",
+                position_intent="buy_to_open",
+                limit_price=max(0.01, spec.premium),
+                client_order_id=trade.signal_id,
+            )
+        except AlpacaError as e:
+            logger.error("Wave order failed for %s: %s", target, e)
+            trade.status = "canceled"
+            trade.note = f"submit error: {e}"[:500]
+            skipped.append({"ticker": target, "reason": f"submit error: {e}"})
+            continue
+        trade.entry_order_id = order.get("id")
+        opened += 1
+
+    if not dry_run:
+        db.commit()
+    return opened, skipped
+
+
+def _record_wave_trade(
+    db: Session,
+    sig: dict,
+    spec: WaveSpec,
+    tgt_date: date,
+    contracts: int,
+    equity: float | None,
+) -> PaperTrade:
+    signal_id = _next_wave_signal_id(db)
+    direction = sig.get("direction") or (
+        "bullish" if spec.option_type == "call" else "bearish"
+    )
+    stats = sig.get("stats") or {}
+    thesis = {
+        "trigger": sig.get("trigger"),
+        "trigger_move_pct": sig.get("trigger_move_pct"),
+        "expected_runup_pct": sig.get("expected_runup_pct"),
+        "win_rate": stats.get("win_rate"),
+        "samples": stats.get("sample_size"),
+        "target_report_date": sig.get("target_report_date"),
+    }
+    legs_json = json.dumps(
+        [
+            {
+                "symbol": spec.symbol,
+                "type": spec.option_type,
+                "side": "buy",
+                "strike": spec.strike,
+                "mid": spec.premium,
+            }
+        ]
+    )
+    trade = PaperTrade(
+        signal_id=signal_id,
+        strategy="waves",
+        ticker=sig["target"],
+        earnings_date=tgt_date,
+        structure=f"Long {spec.option_type}",
+        direction=direction,
+        vol_stance="buy",
+        conviction=wave_conviction(sig),
+        thesis=json.dumps(thesis)[:2048],
+        status="pending",
+        legs=legs_json[:2048],
+        contracts=contracts,
+        expiration=spec.expiration,
+        entry_credit=spec.premium,  # premium paid (debit) per share
+        modeled_credit=spec.premium,
+        max_risk=round(spec.premium * 100 * contracts, 2),
+        spot_entry=spec.spot,
+        equity_at_entry=round(equity, 2) if equity else None,
+    )
+    db.add(trade)
+    db.flush()
+    return trade
+
+
+def _next_wave_signal_id(db: Session) -> str:
+    stamp = date.today().strftime("%Y%m%d")
+    prefix = f"WV-{stamp}-"
+    n = len(
+        db.scalars(
+            select(PaperTrade).where(PaperTrade.signal_id.like(f"{prefix}%"))
+        ).all()
+    )
+    return f"{prefix}{n + 1:03d}"

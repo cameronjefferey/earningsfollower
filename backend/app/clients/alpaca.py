@@ -133,6 +133,21 @@ class AlpacaClient:
         )
         return (data or {}).get("option_contracts", []) if isinstance(data, dict) else []
 
+    def stock_price(self, symbol: str) -> float | None:
+        """Latest trade price for an underlying (intraday). Uses the free IEX
+        feed, which paper accounts have access to."""
+        data = self._request(
+            "GET",
+            self.data_base,
+            f"/v2/stocks/{symbol.upper()}/trades/latest",
+            params={"feed": "iex"},
+        )
+        try:
+            px = (data or {}).get("trade", {}).get("p")
+            return float(px) if px else None
+        except (TypeError, ValueError):
+            return None
+
     def option_quotes(self, symbols: list[str]) -> dict[str, dict[str, float]]:
         """Latest bid/ask/mid for a list of OCC option symbols."""
         if not symbols:
@@ -170,6 +185,30 @@ class AlpacaClient:
             "limit_price": f"{limit_price:.2f}",
             "time_in_force": time_in_force,
             "legs": legs,
+        }
+        if client_order_id:
+            body["client_order_id"] = client_order_id
+        return self._request("POST", self.trading_base, "/v2/orders", json=body) or {}
+
+    def submit_option_order(
+        self,
+        symbol: str,
+        qty: int,
+        side: str,                 # "buy" | "sell"
+        position_intent: str,      # "buy_to_open" | "sell_to_close"
+        limit_price: float,
+        time_in_force: str = "day",
+        client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a single-leg option order (used for directional wave trades)."""
+        body: dict[str, Any] = {
+            "symbol": symbol,
+            "qty": str(qty),
+            "side": side,
+            "type": "limit",
+            "limit_price": f"{limit_price:.2f}",
+            "time_in_force": time_in_force,
+            "position_intent": position_intent,
         }
         if client_order_id:
             body["client_order_id"] = client_order_id

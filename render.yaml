@@ -61,7 +61,10 @@ services:
     region: oregon
     plan: starter
     rootDir: backend
-    schedule: "0 18 * * 1-5" # 18:00 UTC (~2pm ET) on weekdays
+    # Every 30 min during US market hours (13:30-20:00 UTC) on weekdays so the
+    # waves bracket (underlying-move take-profit/stop) is checked intraday.
+    # Entries are idempotent (one trade per ticker/event, capped by max-open).
+    schedule: "*/30 13-20 * * 1-5"
     buildCommand: pip install -r requirements.txt
     startCommand: python -m app.paper_run
     envVars:
@@ -82,10 +85,17 @@ services:
         value: "0.03"
       - key: PAPER_RISK_LOW
         value: "0.015"
-      # Proactive loss-cutting — off to start (exit only after the print). Flip
-      # to true to arm the stops; intraday cadence helps once they're on.
+      # Proactive loss-cutting on the sell-vol trades — off to start (exit only
+      # after the print). Flip to true to arm the stops.
       - key: PAPER_STOPS_ENABLED
         value: "false"
+      # Waves: directional sympathy-drift trades with an underlying-move bracket.
+      - key: PAPER_WAVES_ENABLED
+        value: "true"
+      - key: PAPER_WAVE_GAIN_PCT
+        value: "0.10"
+      - key: PAPER_WAVE_LOSS_PCT
+        value: "0.05"
 
   # Next.js frontend
   - type: web

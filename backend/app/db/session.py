@@ -46,6 +46,7 @@ def init_db() -> None:
 # create_all won't ALTER an existing table, and there's no Alembic here, so we
 # add any missing columns idempotently (safe on SQLite and Postgres).
 _PAPER_TRADE_ADDED_COLUMNS = {
+    "strategy": "VARCHAR(16) DEFAULT 'earnings'",
     "modeled_credit": "FLOAT",
     "expected_move_pct": "FLOAT",
     "spot_entry": "FLOAT",

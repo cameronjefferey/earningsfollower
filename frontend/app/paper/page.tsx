@@ -84,14 +84,17 @@ function payoffGeometry(trade: PaperTrade) {
   const maxLoss = trade.max_risk ?? null;
   const upperBE = sc !== null ? sc + credit : null;
   const lowerBE = sp !== null ? sp - credit : null;
-  const spot = trade.spot_entry ?? null;
+  const entry = trade.spot_entry ?? null;
+  const now = trade.spot_now ?? null;
+  const spot = now ?? entry; // current price preferred for positioning
 
   const strikes = [sc, lc, sp, lp].filter((x): x is number => x !== null);
-  const loS = Math.min(...strikes);
-  const hiS = Math.max(...strikes);
-  const pad = Math.max((hiS - loS) * 0.18, 1);
-  const domLo = Math.min(loS, spot ?? loS) - pad;
-  const domHi = Math.max(hiS, spot ?? hiS) + pad;
+  const marks = [...strikes, entry, now].filter((x): x is number => x !== null);
+  const loS = Math.min(...marks);
+  const hiS = Math.max(...marks);
+  const pad = Math.max((hiS - loS) * 0.12, 1);
+  const domLo = loS - pad;
+  const domHi = hiS + pad;
 
   const pnlPerShare = (S: number) => {
     let loss = 0;
@@ -102,13 +105,13 @@ function payoffGeometry(trade: PaperTrade) {
 
   return {
     sc, lc, sp, lp, credit, contracts, maxProfit, maxLoss,
-    upperBE, lowerBE, spot, domLo, domHi, pnlPerShare,
+    upperBE, lowerBE, spot, entry, now, domLo, domHi, pnlPerShare,
   };
 }
 
 type Geometry = NonNullable<ReturnType<typeof payoffGeometry>>;
 
-function PayoffBar({ g, ticker }: { g: Geometry; ticker: string }) {
+function PayoffBar({ g }: { g: Geometry }) {
   const N = 48;
   const span = g.domHi - g.domLo || 1;
   const pct = (x: number) => Math.max(0, Math.min(100, ((x - g.domLo) / span) * 100));
@@ -119,15 +122,32 @@ function PayoffBar({ g, ticker }: { g: Geometry; ticker: string }) {
     return profit ? (full ? PROFIT : `${PROFIT}66`) : `${LOSS}3a`;
   });
 
+  // Show the entry marker only when it's drifted a visible distance from now.
+  const showEntry =
+    g.entry != null && g.now != null && Math.abs(g.now - g.entry) / span > 0.02;
+  const nowLabel = g.now != null;
+  const moveFromEntry =
+    g.now != null && g.entry ? (g.now / g.entry - 1) * 100 : null;
+
   return (
     <div className="mt-3">
       <div className="relative">
         {g.spot != null ? (
           <div
-            className="absolute -top-4 -translate-x-1/2 text-[10px] font-semibold whitespace-nowrap text-white"
+            className="absolute -top-4 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold text-white"
             style={{ left: `${pct(g.spot)}%` }}
           >
-            now {money(g.spot)}
+            {nowLabel ? "now " : "entry "}
+            {money(g.spot)}
+            {moveFromEntry != null ? (
+              <span
+                className="ml-1 font-normal"
+                style={{ color: moveFromEntry >= 0 ? PROFIT : LOSS }}
+              >
+                ({moveFromEntry >= 0 ? "+" : ""}
+                {moveFromEntry.toFixed(1)}%)
+              </span>
+            ) : null}
           </div>
         ) : null}
         <div className="flex h-7 w-full overflow-hidden rounded">
@@ -135,6 +155,12 @@ function PayoffBar({ g, ticker }: { g: Geometry; ticker: string }) {
             <div key={i} style={{ width: `${100 / N}%`, backgroundColor: c }} />
           ))}
         </div>
+        {showEntry && g.entry != null ? (
+          <div
+            className="absolute top-0 bottom-0 border-l border-dashed border-[#8a97b1]"
+            style={{ left: `${pct(g.entry)}%` }}
+          />
+        ) : null}
         {g.spot != null ? (
           <div
             className="absolute top-0 bottom-0 w-px bg-white"
@@ -146,6 +172,14 @@ function PayoffBar({ g, ticker }: { g: Geometry; ticker: string }) {
         {g.lowerBE != null ? (
           <span className="absolute -translate-x-1/2" style={{ left: `${pct(g.lowerBE)}%` }}>
             {money(g.lowerBE)}
+          </span>
+        ) : null}
+        {showEntry && g.entry != null ? (
+          <span
+            className="absolute -translate-x-1/2 text-[#8a97b1]"
+            style={{ left: `${pct(g.entry)}%` }}
+          >
+            entry
           </span>
         ) : null}
         {g.upperBE != null ? (
@@ -252,7 +286,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
             </div>
           </div>
 
-          <PayoffBar g={g} ticker={trade.ticker} />
+          <PayoffBar g={g} />
           <PlainEnglish g={g} trade={trade} />
 
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">

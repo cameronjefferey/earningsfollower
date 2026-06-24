@@ -281,6 +281,7 @@ export interface PaperTrade {
   realized_pnl: number | null;
   expected_move_pct: number | null;
   spot_entry: number | null;
+  spot_now: number | null;
   spot_at_exit: number | null;
   realized_move_pct: number | null;
   breached_short: boolean | null;

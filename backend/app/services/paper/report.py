@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.clients.alpaca import AlpacaClient
-from app.db.models import PaperTrade
+from app.db.models import PaperTrade, PriceBar
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ def _trade_dict(t: PaperTrade) -> dict:
         "realized_pnl": t.realized_pnl,
         "expected_move_pct": t.expected_move_pct,
         "spot_entry": t.spot_entry,
+        "spot_now": None,  # filled in for open trades from the latest price bar
         "spot_at_exit": t.spot_at_exit,
         "realized_move_pct": t.realized_move_pct,
         "breached_short": t.breached_short,
@@ -59,6 +60,17 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
     trades = db.scalars(select(PaperTrade).order_by(PaperTrade.id.desc())).all()
 
     open_trades = [_trade_dict(t) for t in trades if t.status in OPEN_STATES]
+    # Mark each open position with the current underlying price (latest daily
+    # close) so the UI can show where the stock sits in the profit zone now.
+    for d in open_trades:
+        bar = db.scalars(
+            select(PriceBar)
+            .where(PriceBar.ticker == d["ticker"])
+            .order_by(PriceBar.date.desc())
+        ).first()
+        if bar and bar.close is not None:
+            d["spot_now"] = round(bar.close, 2)
+
     closed = [t for t in trades if t.status == "closed"]
     closed_dicts = [_trade_dict(t) for t in closed]
 

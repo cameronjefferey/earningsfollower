@@ -52,9 +52,15 @@ def build_trade_spec(
     ticker: str,
     playbook: dict,
     earnings_date: date,
+    risk_budget: float | None = None,
 ) -> tuple[TradeSpec | None, str]:
     """Return (spec, reason). spec is None when we can't responsibly build the
-    trade; reason explains why (for logging/journaling)."""
+    trade; reason explains why (for logging/journaling).
+
+    When ``risk_budget`` (dollars of max loss for one contract) is given and the
+    playbook's full-width wings would put a single contract over budget, the
+    wings are pulled in to the widest spread whose per-contract risk fits — so
+    pricey / high-IV names size to at least one contract instead of skipping."""
     legs = playbook.get("legs") or []
     if len(legs) < 2:
         return None, "playbook has no defined-risk legs"
@@ -103,70 +109,143 @@ def build_trade_spec(
         key=lambda c: float(c["strike_price"]),
     )
 
-    chosen: list[dict] = []
-    for leg in legs:
-        otype = leg["option"]
-        target = leg["strike"]
-        if target is None:
-            return None, "playbook leg missing a strike"
-        candidates = calls if otype == "call" else puts
-        if not candidates:
-            return None, f"no listed {otype}s at {expiration}"
-        best = min(candidates, key=lambda c: abs(float(c["strike_price"]) - target))
-        chosen.append(
-            {
-                "contract": best,
-                "option_type": otype,
-                "side": "sell" if leg["action"] == "Sell" else "buy",
-            }
-        )
+    sell_legs = [l for l in legs if l["action"] == "Sell"]
+    buy_legs = [l for l in legs if l["action"] == "Buy"]
 
-    occ = [c["contract"]["symbol"] for c in chosen]
-    quotes = client.option_quotes(occ)
+    def _nearest(cands: list[dict], target: float) -> dict | None:
+        return min(cands, key=lambda c: abs(float(c["strike_price"]) - target)) if cands else None
 
-    spec_legs: list[SpecLeg] = []
-    for c in chosen:
-        sym = c["contract"]["symbol"]
-        q = quotes.get(sym, {})
-        mid = float(q.get("mid") or 0.0)
-        spec_legs.append(
-            SpecLeg(
-                symbol=sym,
-                option_type=c["option_type"],
-                side=c["side"],
-                position_intent="sell_to_open" if c["side"] == "sell" else "buy_to_open",
-                strike=float(c["contract"]["strike_price"]),
-                mid=mid,
+    # Resolve the short (Sell) legs nearest the playbook targets.
+    short_call = next(
+        (_nearest(calls, l["strike"]) for l in sell_legs if l["option"] == "call" and l["strike"] is not None),
+        None,
+    )
+    short_put = next(
+        (_nearest(puts, l["strike"]) for l in sell_legs if l["option"] == "put" and l["strike"] is not None),
+        None,
+    )
+    want_call = any(l["option"] == "call" for l in buy_legs) and short_call is not None
+    want_put = any(l["option"] == "put" for l in buy_legs) and short_put is not None
+    if not want_call and not want_put:
+        return None, "no defined-risk wing legs to build"
+
+    # Candidate wings beyond each short, ordered nearest -> farthest from it.
+    call_wings = (
+        [c for c in calls if float(c["strike_price"]) > float(short_call["strike_price"])]
+        if want_call
+        else []
+    )
+    put_wings = (
+        [c for c in reversed(puts) if float(c["strike_price"]) < float(short_put["strike_price"])]
+        if want_put
+        else []
+    )
+    if (want_call and not call_wings) or (want_put and not put_wings):
+        return None, "no listed wing strikes beyond the short(s) to cap risk"
+
+    # Price lazily in tiny batches (Alpaca caps symbols/request), caching mids so
+    # each candidate width only fetches the few legs it actually needs.
+    _mid_cache: dict[str, float] = {}
+
+    def _mid(contract: dict) -> float:
+        sym = contract["symbol"]
+        if sym not in _mid_cache:
+            q = client.option_quotes([sym]).get(sym, {})
+            _mid_cache[sym] = float(q.get("mid") or 0.0)
+        return _mid_cache[sym]
+
+    # The playbook's intended (widest) wing is the candidate nearest its target.
+    def _default_idx(wings: list[dict], target: float | None) -> int | None:
+        if not wings or target is None:
+            return None
+        return min(range(len(wings)), key=lambda i: abs(float(wings[i]["strike_price"]) - target))
+
+    call_target = next((l["strike"] for l in buy_legs if l["option"] == "call"), None)
+    put_target = next((l["strike"] for l in buy_legs if l["option"] == "put"), None)
+    call_def = _default_idx(call_wings, call_target) if want_call else None
+    put_def = _default_idx(put_wings, put_target) if want_put else None
+
+    def _build(ci: int | None, pi: int | None) -> list[SpecLeg]:
+        spec_legs: list[SpecLeg] = []
+        if want_call:
+            spec_legs.append(
+                SpecLeg(short_call["symbol"], "call", "sell", "sell_to_open",
+                        float(short_call["strike_price"]), _mid(short_call))
             )
-        )
+            lc = call_wings[ci]
+            spec_legs.append(
+                SpecLeg(lc["symbol"], "call", "buy", "buy_to_open",
+                        float(lc["strike_price"]), _mid(lc))
+            )
+        if want_put:
+            spec_legs.append(
+                SpecLeg(short_put["symbol"], "put", "sell", "sell_to_open",
+                        float(short_put["strike_price"]), _mid(short_put))
+            )
+            lp = put_wings[pi]
+            spec_legs.append(
+                SpecLeg(lp["symbol"], "put", "buy", "buy_to_open",
+                        float(lp["strike_price"]), _mid(lp))
+            )
+        return spec_legs
 
-    if any(l.mid <= 0 for l in spec_legs):
+    def _evaluate(spec_legs: list[SpecLeg]) -> tuple[float, float, float] | None:
+        if any(l.mid <= 0 for l in spec_legs):
+            return None
+        net_credit = round(
+            sum(l.mid for l in spec_legs if l.side == "sell")
+            - sum(l.mid for l in spec_legs if l.side == "buy"),
+            2,
+        )
+        cs = [l.strike for l in spec_legs if l.option_type == "call"]
+        ps = [l.strike for l in spec_legs if l.option_type == "put"]
+        cw = (max(cs) - min(cs)) if len(cs) > 1 else 0
+        pw = (max(ps) - min(ps)) if len(ps) > 1 else 0
+        width = round(max(cw, pw), 2)
+        if width <= 0:
+            return None
+        risk = round((width - net_credit) * 100, 2)
+        if risk <= 0:
+            return None
+        return net_credit, width, risk
+
+    # Walk from the playbook's intended width inward, taking the widest spread
+    # whose one-contract risk fits the budget (or just the intended width when
+    # there's no budget constraint). Step with a stride so dense chains stay to
+    # a couple dozen quote lookups at most.
+    kmax = max(call_def or 0, put_def or 0)
+    stride = max(1, (kmax + 1) // 24)
+    ks = sorted(set(list(range(0, kmax + 1, stride)) + [kmax]))
+    chosen: tuple[list[SpecLeg], float, float, float] | None = None
+    tightest: tuple[list[SpecLeg], float, float, float] | None = None
+    for k in ks:
+        ci = max(0, call_def - k) if want_call else None
+        pi = max(0, put_def - k) if want_put else None
+        spec_legs = _build(ci, pi)
+        ev = _evaluate(spec_legs)
+        if ev is None:
+            continue
+        net_credit, width, risk = ev
+        tightest = (spec_legs, net_credit, width, risk)
+        if risk_budget is None or risk <= risk_budget:
+            chosen = (spec_legs, net_credit, width, risk)
+            break
+
+    if chosen is None:
+        if risk_budget is not None and tightest is not None:
+            return None, (
+                f"spread too wide for budget even at min width "
+                f"(${tightest[3]:.0f}/ct vs ${risk_budget:.0f})"
+            )
         return None, "missing live quotes on one or more legs"
 
-    net_credit = round(
-        sum(l.mid for l in spec_legs if l.side == "sell")
-        - sum(l.mid for l in spec_legs if l.side == "buy"),
-        2,
-    )
-
-    call_strikes = [l.strike for l in spec_legs if l.option_type == "call"]
-    put_strikes = [l.strike for l in spec_legs if l.option_type == "put"]
-    call_width = (max(call_strikes) - min(call_strikes)) if len(call_strikes) > 1 else 0
-    put_width = (max(put_strikes) - min(put_strikes)) if len(put_strikes) > 1 else 0
-    width = round(max(call_width, put_width), 2)
-    if width <= 0:
-        return None, "could not derive a spread width from selected strikes"
-
-    max_risk_per_contract = round((width - net_credit) * 100, 2)
-    if max_risk_per_contract <= 0:
-        return None, "modeled max risk is non-positive (bad quotes)"
-
+    spec_legs, net_credit, width, max_risk = chosen
     spec = TradeSpec(
         expiration=expiration,
         legs=spec_legs,
         net_credit=net_credit,
         width=width,
-        max_risk_per_contract=max_risk_per_contract,
-        occ_symbols=occ,
+        max_risk_per_contract=max_risk,
+        occ_symbols=[l.symbol for l in spec_legs],
     )
     return spec, "ok"

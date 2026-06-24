@@ -313,7 +313,12 @@ def _scan_entries(
             )
             continue
 
-        spec, reason = build_trade_spec(client, ticker, pb, ev.date)
+        # Size by the playbook's conviction: risk more when the signals agree.
+        # The budget also caps the spread width (wings pull in to fit it).
+        risk_frac = settings.paper_risk_fraction(pb["conviction"])
+        budget = equity * risk_frac
+
+        spec, reason = build_trade_spec(client, ticker, pb, ev.date, risk_budget=budget)
         if spec is None:
             skipped.append({"ticker": ticker, "reason": reason})
             continue
@@ -321,9 +326,6 @@ def _scan_entries(
             skipped.append({"ticker": ticker, "reason": f"credit too thin ({spec.net_credit})"})
             continue
 
-        # Size by the playbook's conviction: risk more when the signals agree.
-        risk_frac = settings.paper_risk_fraction(pb["conviction"])
-        budget = equity * risk_frac
         contracts = int(budget // spec.max_risk_per_contract)
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:

@@ -34,6 +34,16 @@ function signedMoney(v: number | null | undefined): string {
   return (v > 0 ? "+" : "") + money(v, 0);
 }
 
+const STRATEGY_META: Record<string, { label: string; color: string }> = {
+  earnings: { label: "earnings", color: "#2dd4bf" },
+  waves: { label: "wave", color: "#b06bff" },
+  drift: { label: "drift", color: "#818cf8" },
+};
+
+function strategyMeta(strategy: string | undefined) {
+  return STRATEGY_META[strategy ?? "earnings"] ?? STRATEGY_META.earnings;
+}
+
 function Pill({ text, color }: { text: string; color: string }) {
   return (
     <span
@@ -242,7 +252,11 @@ function PlainEnglish({ g, trade }: { g: Geometry; trade: PaperTrade }) {
 function OpenCard({ trade }: { trade: PaperTrade }) {
   const dir = DIR_COLOR[trade.direction] ?? "#8a97b1";
   const status = STATUS_COLOR[trade.status] ?? "#8a97b1";
-  const g = payoffGeometry(trade);
+  const strat = strategyMeta(trade.strategy);
+  // The payoff bar models a credit spread / iron condor. Directional debit
+  // trades (waves, drift) don't share that geometry, so fall back to the
+  // simple summary for them.
+  const g = (trade.strategy ?? "earnings") === "earnings" ? payoffGeometry(trade) : null;
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2">
@@ -253,10 +267,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           {trade.ticker}
         </Link>
         <div className="flex items-center gap-1.5">
-          <Pill
-            text={trade.strategy === "waves" ? "wave" : "earnings"}
-            color={trade.strategy === "waves" ? "#b06bff" : "#2dd4bf"}
-          />
+          <Pill text={strat.label} color={strat.color} />
           <Pill text={trade.status} color={status} />
           <Pill text={trade.direction} color={dir} />
         </div>
@@ -317,7 +328,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           <div className="grid grid-cols-3 gap-2 mt-3 text-sm">
             <div>
               <div className="text-[10px] uppercase text-[var(--color-muted)]">
-                {trade.strategy === "waves" ? "Debit" : "Credit"}
+                {(trade.strategy ?? "earnings") === "earnings" ? "Credit" : "Debit"}
               </div>
               <div className="font-semibold">
                 ${trade.entry_credit?.toFixed(2) ?? "—"}
@@ -399,12 +410,13 @@ export default function PaperPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Paper trader</h1>
         <p className="text-[var(--color-muted)] mt-1 max-w-3xl">
-          An autonomous worker trades the company-page playbook&apos;s{" "}
-          <span className="text-white">premium-selling setups</span> (rich-IV credit
-          spreads &amp; iron condors) on an Alpaca paper account: it enters 1–3 days
-          before each print, sizes each trade by the playbook&apos;s conviction (
-          <span className="text-white">1.5–5% of equity</span> at risk), and closes after
-          the report to harvest the IV crush. This is the live scorecard.
+          An autonomous worker runs three strategies on an Alpaca paper account:{" "}
+          <span className="text-white">earnings</span> (sell rich IV into a print and
+          harvest the crush), <span className="text-white">waves</span> (ride a peer-driven
+          drift into a name&apos;s own print), and <span className="text-white">drift</span>{" "}
+          (post-earnings announcement drift via a directional debit spread). Each trade is
+          sized by conviction and journaled with a unique signal id. This is the live
+          scorecard.
         </p>
       </div>
 
@@ -500,10 +512,7 @@ export default function PaperPage() {
                         </Link>
                       </td>
                       <td className="py-2 pr-4">
-                        <Pill
-                          text={t.strategy === "waves" ? "wave" : "earnings"}
-                          color={t.strategy === "waves" ? "#b06bff" : "#2dd4bf"}
-                        />
+                        <Pill text={strategyMeta(t.strategy).label} color={strategyMeta(t.strategy).color} />
                       </td>
                       <td className="py-2 pr-4 text-[var(--color-muted)]">{t.structure}</td>
                       <td className="py-2 pr-4">{fmtDate(t.earnings_date)}</td>

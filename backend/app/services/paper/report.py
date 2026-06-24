@@ -22,13 +22,21 @@ def _thesis_headline(t: PaperTrade) -> str | None:
         data = json.loads(t.thesis or "{}") or {}
     except json.JSONDecodeError:
         return None
-    if (t.strategy or "earnings") == "waves":
+    strategy = t.strategy or "earnings"
+    if strategy == "waves":
         trig = data.get("trigger")
         if not trig:
             return None
         rr = data.get("expected_runup_pct")
         drift = f"{rr * 100:+.1f}% drift" if isinstance(rr, (int, float)) else "sympathy drift"
         return f"Rides {trig} · {drift} into its print"
+    if strategy == "drift":
+        edge = data.get("edge_5d")
+        wr = data.get("win_rate")
+        dir_word = "higher" if t.direction == "bullish" else "lower"
+        edge_txt = f"{abs(edge) * 100:.1f}% avg drift" if isinstance(edge, (int, float)) else "post-earnings drift"
+        wr_txt = f", {wr * 100:.0f}% of the time" if isinstance(wr, (int, float)) else ""
+        return f"Post-earnings drift {dir_word} · {edge_txt}{wr_txt}"
     return data.get("headline")
 
 

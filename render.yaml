@@ -96,6 +96,14 @@ services:
         value: "0.10"
       - key: PAPER_WAVE_LOSS_PCT
         value: "0.05"
+      # Drift (PEAD): post-earnings drift via a directional debit spread, exited
+      # on a time horizon, take-profit, or broken-thesis stop.
+      - key: PAPER_DRIFT_ENABLED
+        value: "true"
+      - key: PAPER_DRIFT_RISK_FRAC
+        value: "0.015"
+      - key: PAPER_DRIFT_HOLD_DAYS
+        value: "7"
 
   # Next.js frontend
   - type: web

@@ -70,6 +70,23 @@ class Settings(BaseSettings):
     paper_wave_risk_frac: float = 0.01
     paper_wave_max_open: int = 6
 
+    # --- Drift (PEAD) strategy ------------------------------------------------
+    # Post-earnings announcement drift: after a name reports, beats (or misses)
+    # and reacts strongly, it tends to keep drifting in the surprise direction
+    # for ~5 trading days. We express that as a directional debit spread (defined
+    # risk) and exit on a time horizon, a take-profit, or a broken-thesis stop.
+    paper_drift_enabled: bool = True
+    # Max-loss budget per drift trade (the net debit), as a fraction of equity.
+    paper_drift_risk_frac: float = 0.015
+    paper_drift_max_open: int = 8
+    # Skip setups weaker than this score (the drift screen's own ranking metric).
+    paper_drift_min_score: float = 0.0
+    # Close the spread this many calendar days after the report (~5 trading days
+    # is the horizon the historical edge is measured over).
+    paper_drift_hold_days: int = 7
+    # Take profit once the spread is worth this fraction of its max width.
+    paper_drift_take_profit: float = 0.75
+
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""
         return {

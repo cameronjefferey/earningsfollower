@@ -61,10 +61,7 @@ services:
     region: oregon
     plan: starter
     rootDir: backend
-    # Every 30 min during US market hours (13:30-20:00 UTC) on weekdays, so the
-    # stop-loss checks are timely instead of once a day. Entries are idempotent
-    # (one trade per ticker/event, capped by max-open) so re-running is safe.
-    schedule: "*/30 13-20 * * 1-5"
+    schedule: "0 18 * * 1-5" # 18:00 UTC (~2pm ET) on weekdays
     buildCommand: pip install -r requirements.txt
     startCommand: python -m app.paper_run
     envVars:
@@ -85,14 +82,10 @@ services:
         value: "0.03"
       - key: PAPER_RISK_LOW
         value: "0.015"
-      # Proactive loss-cutting (fraction of max risk). Hard stop any time;
-      # tighter stop within PAPER_LATE_DTE days of expiration.
-      - key: PAPER_STOP_LOSS_FRAC
-        value: "0.20"
-      - key: PAPER_LATE_DTE
-        value: "1"
-      - key: PAPER_LATE_STOP_FRAC
-        value: "0.10"
+      # Proactive loss-cutting — off to start (exit only after the print). Flip
+      # to true to arm the stops; intraday cadence helps once they're on.
+      - key: PAPER_STOPS_ENABLED
+        value: "false"
 
   # Next.js frontend
   - type: web

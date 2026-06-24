@@ -41,8 +41,11 @@ class Settings(BaseSettings):
     paper_entry_window_days: int = 3
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
-    # Proactive loss-cutting, evaluated every run (so it's only as responsive as
-    # the cron cadence). Loss is measured as a fraction of the trade's max risk.
+    # Proactive loss-cutting. Off to start — we exit only after the print and
+    # gather data first; flip on once we know stops would have helped. Loss is
+    # measured as a fraction of the trade's max risk, evaluated each run (so it's
+    # only as timely as the cron cadence).
+    paper_stops_enabled: bool = False
     # Hard stop: close any open position once its unrealized loss hits this.
     paper_stop_loss_frac: float = 0.20
     # Near expiry (<= this many days to expiration) tighten to a smaller stop.

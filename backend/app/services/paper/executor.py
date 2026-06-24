@@ -193,8 +193,8 @@ def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str |
     if t.earnings_date and t.earnings_date < today:
         return "post-earnings"
 
-    # Loss-based stops. Measure the unrealized loss against capital at risk.
-    if t.entry_credit is not None and t.max_risk and t.contracts:
+    # Loss-based stops (opt-in). Measure the unrealized loss against capital at risk.
+    if settings.paper_stops_enabled and t.entry_credit is not None and t.max_risk and t.contracts:
         unrealized = (t.entry_credit - exit_net) * 100 * t.contracts
         loss_frac = -unrealized / t.max_risk  # > 0 means we're losing
         if loss_frac >= settings.paper_stop_loss_frac:

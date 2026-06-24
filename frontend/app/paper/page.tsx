@@ -253,7 +253,10 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           {trade.ticker}
         </Link>
         <div className="flex items-center gap-1.5">
-          {trade.strategy === "waves" ? <Pill text="wave" color="#b06bff" /> : null}
+          <Pill
+            text={trade.strategy === "waves" ? "wave" : "earnings"}
+            color={trade.strategy === "waves" ? "#b06bff" : "#2dd4bf"}
+          />
           <Pill text={trade.status} color={status} />
           <Pill text={trade.direction} color={dir} />
         </div>
@@ -476,6 +479,7 @@ export default function PaperPage() {
                 <thead>
                   <tr className="text-left text-[var(--color-muted)] text-xs uppercase tracking-wide">
                     <th className="py-2 pr-4">Ticker</th>
+                    <th className="py-2 pr-4">Type</th>
                     <th className="py-2 pr-4">Structure</th>
                     <th className="py-2 pr-4">Reported</th>
                     <th className="py-2 pr-4">Credit</th>
@@ -494,6 +498,12 @@ export default function PaperPage() {
                         >
                           {t.ticker}
                         </Link>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <Pill
+                          text={t.strategy === "waves" ? "wave" : "earnings"}
+                          color={t.strategy === "waves" ? "#b06bff" : "#2dd4bf"}
+                        />
                       </td>
                       <td className="py-2 pr-4 text-[var(--color-muted)]">{t.structure}</td>
                       <td className="py-2 pr-4">{fmtDate(t.earnings_date)}</td>

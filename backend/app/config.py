@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     paper_entry_window_days: int = 3
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
+    # Proactive loss-cutting, evaluated every run (so it's only as responsive as
+    # the cron cadence). Loss is measured as a fraction of the trade's max risk.
+    # Hard stop: close any open position once its unrealized loss hits this.
+    paper_stop_loss_frac: float = 0.20
+    # Near expiry (<= this many days to expiration) tighten to a smaller stop.
+    paper_late_dte: int = 1
+    paper_late_stop_frac: float = 0.10
 
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""

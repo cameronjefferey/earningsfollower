@@ -59,7 +59,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["equity"] = equity
 
         summary["reconciled"] = _reconcile(db, client, dry_run)
-        summary["closed"] = _manage_exits(db, client, dry_run)
+        summary["closed"] = _manage_exits(db, client, settings, dry_run)
         opened, skipped = _scan_entries(db, client, equity, settings, dry_run)
         summary["opened"] = opened
         summary["skipped"] = skipped
@@ -118,16 +118,18 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
 # --- exits -------------------------------------------------------------------
 
 
-def _manage_exits(db: Session, client: AlpacaClient, dry_run: bool) -> int:
-    """Close open positions once their earnings event has passed."""
+def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) -> int:
+    """Close open positions when one of three things is true:
+      - the earnings print has passed (planned harvest of the IV crush), or
+      - the unrealized loss hits the hard stop (a fraction of max risk), or
+      - we're near expiry and the loss hits the tighter late-stop.
+    The stops are only as timely as the cron cadence (each run is one check)."""
     today = date.today()
     closed = 0
     open_trades = db.scalars(
         select(PaperTrade).where(PaperTrade.status == "open")
     ).all()
     for t in open_trades:
-        if t.earnings_date and t.earnings_date >= today:
-            continue  # event hasn't happened yet
         legs = json.loads(t.legs or "[]")
         symbols = [l["symbol"] for l in legs]
         quotes = client.option_quotes(symbols)
@@ -140,6 +142,11 @@ def _manage_exits(db: Session, client: AlpacaClient, dry_run: bool) -> int:
             - sum(quotes[l["symbol"]]["mid"] for l in legs if l["side"] == "buy"),
             2,
         )
+
+        reason = _exit_reason(t, exit_net, today, settings)
+        if reason is None:
+            continue
+
         close_legs = [
             {
                 "symbol": l["symbol"],
@@ -152,7 +159,9 @@ def _manage_exits(db: Session, client: AlpacaClient, dry_run: bool) -> int:
             for l in legs
         ]
         if dry_run:
-            logger.info("[dry-run] would close %s at net %.2f", t.signal_id, exit_net)
+            logger.info(
+                "[dry-run] would close %s (%s) at net %.2f", t.signal_id, reason, exit_net
+            )
             continue
         try:
             order = client.submit_mleg(
@@ -167,12 +176,34 @@ def _manage_exits(db: Session, client: AlpacaClient, dry_run: bool) -> int:
         t.exit_order_id = order.get("id")
         t.exit_debit = exit_net
         t.status = "closing"
+        t.note = reason
         _record_outcome(db, t, legs)  # realized move + breach labels
         _finalize_pnl(t)  # provisional, refined on fill
         closed += 1
     if not dry_run:
         db.commit()
     return closed
+
+
+def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str | None:
+    """Decide whether (and why) to close an open trade now."""
+    # Planned exit: the print has passed — close to capture the IV crush. We
+    # wait until strictly after the earnings date so we don't close ahead of an
+    # after-market report on the day itself.
+    if t.earnings_date and t.earnings_date < today:
+        return "post-earnings"
+
+    # Loss-based stops. Measure the unrealized loss against capital at risk.
+    if t.entry_credit is not None and t.max_risk and t.contracts:
+        unrealized = (t.entry_credit - exit_net) * 100 * t.contracts
+        loss_frac = -unrealized / t.max_risk  # > 0 means we're losing
+        if loss_frac >= settings.paper_stop_loss_frac:
+            return f"stop-loss ({loss_frac:.0%} of risk)"
+        if t.expiration is not None:
+            dte = (t.expiration - today).days
+            if dte <= settings.paper_late_dte and loss_frac >= settings.paper_late_stop_frac:
+                return f"late stop ({loss_frac:.0%} of risk, {dte}DTE)"
+    return None
 
 
 def _finalize_pnl(t: PaperTrade) -> None:

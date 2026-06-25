@@ -878,12 +878,12 @@ def _scan_drift_entries(
         if existing:
             continue
 
-        spec, reason = build_drift_spec(client, setup)
+        budget = equity * settings.paper_drift_risk_frac
+        spec, reason = build_drift_spec(client, setup, risk_budget=budget)
         if spec is None:
             skipped.append({"ticker": ticker, "reason": reason})
             continue
 
-        budget = equity * settings.paper_drift_risk_frac
         per_contract = spec.net_debit * 100
         contracts = int(budget // per_contract) if per_contract > 0 else 0
         contracts = min(contracts, settings.paper_max_contracts)

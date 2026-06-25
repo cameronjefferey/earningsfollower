@@ -48,10 +48,16 @@ def _parse_date(value: str) -> date | None:
 
 
 def build_drift_spec(
-    client: AlpacaClient, setup: dict
+    client: AlpacaClient, setup: dict, risk_budget: float | None = None
 ) -> tuple[DriftSpec | None, str]:
     """Return (spec, reason). Picks a near-the-money long leg and an OTM short
-    leg sized to the historical drift target, priced from live quotes."""
+    leg sized to the historical drift target, priced from live quotes.
+
+    When ``risk_budget`` (dollars of max loss for one contract) is given and the
+    full-width spread's debit would exceed it, the short leg is pulled in toward
+    the long leg to the widest spread whose debit fits — so high-priced names
+    (where one target-width spread can cost thousands) still size to a contract
+    instead of skipping."""
     ticker = setup["ticker"]
     long = setup.get("direction") == "long"
     otype = "call" if long else "put"
@@ -92,39 +98,76 @@ def build_drift_spec(
     if len(strikes) < 2:
         return None, "not enough listed strikes for a spread"
 
-    # Long leg: the listed strike nearest to spot (near the money). Short leg:
-    # the strike nearest the drift target, on the OTM side of the long leg.
-    long_strike = min(strikes, key=lambda s: abs(s - spot))
-    if long:
-        target = spot * (1 + target_move)
-        otm = [s for s in strikes if s > long_strike]
-    else:
-        target = spot * (1 - target_move)
-        otm = [s for s in strikes if s < long_strike]
-    if not otm:
-        return None, "no OTM strike available for the short leg"
-    short_strike = min(otm, key=lambda s: abs(s - target))
-
     def _symbol(strike: float) -> str | None:
         for c in pool:
             if float(c["strike_price"]) == strike:
                 return c["symbol"]
         return None
 
-    long_sym, short_sym = _symbol(long_strike), _symbol(short_strike)
+    _mid_cache: dict[float, float] = {}
+
+    def _mid(strike: float) -> float:
+        if strike not in _mid_cache:
+            sym = _symbol(strike)
+            q = client.option_quotes([sym]).get(sym, {}) if sym else {}
+            _mid_cache[strike] = float(q.get("mid") or 0.0)
+        return _mid_cache[strike]
+
+    # Long leg: the listed strike nearest to spot (near the money).
+    long_strike = min(strikes, key=lambda s: abs(s - spot))
+    long_mid = _mid(long_strike)
+    if long_mid <= 0:
+        return None, "missing live quote on the long leg"
+
+    # Candidate short legs out to the drift target, ordered widest -> narrowest
+    # so we keep the most upside that still fits the budget.
+    if long:
+        target = spot * (1 + target_move)
+        cands = sorted([s for s in strikes if long_strike < s <= target], reverse=True)
+        if not cands:
+            cands = sorted([s for s in strikes if s > long_strike])[:1]
+    else:
+        target = spot * (1 - target_move)
+        cands = sorted([s for s in strikes if target <= s < long_strike])
+        if not cands:
+            cands = sorted([s for s in strikes if s < long_strike], reverse=True)[:1]
+    if not cands:
+        return None, "no OTM strike available for the short leg"
+
+    # Step through candidates (cap lookups on dense chains) and take the widest
+    # spread whose debit fits the budget.
+    stride = max(1, len(cands) // 16)
+    ordered = cands[::stride]
+    if cands[-1] not in ordered:
+        ordered.append(cands[-1])
+
+    short_strike = short_mid = net_debit = width = None
+    tightest = None
+    for s in ordered:
+        m = _mid(s)
+        if m <= 0:
+            continue
+        debit = round(long_mid - m, 2)
+        if debit <= 0:
+            continue
+        w = round(abs(s - long_strike), 2)
+        tightest = (s, m, debit, w)
+        if risk_budget is None or debit * 100 <= risk_budget:
+            short_strike, short_mid, net_debit, width = s, m, debit, w
+            break
+
+    if short_strike is None:
+        if risk_budget is not None and tightest is not None:
+            return None, (
+                f"debit too rich for budget even at min width "
+                f"(${tightest[2] * 100:.0f}/ct vs ${risk_budget:.0f})"
+            )
+        return None, "no priceable short leg for the spread"
+
+    short_sym = _symbol(short_strike)
+    long_sym = _symbol(long_strike)
     if not long_sym or not short_sym:
         return None, "could not map strikes to contracts"
-
-    quotes = client.option_quotes([long_sym, short_sym])
-    long_mid = float(quotes.get(long_sym, {}).get("mid") or 0.0)
-    short_mid = float(quotes.get(short_sym, {}).get("mid") or 0.0)
-    if long_mid <= 0 or short_mid <= 0:
-        return None, "missing live quote on a leg"
-
-    net_debit = round(long_mid - short_mid, 2)
-    if net_debit <= 0:
-        return None, "non-positive debit (bad quotes)"
-    width = round(abs(short_strike - long_strike), 2)
     if width <= 0:
         return None, "degenerate spread width"
 

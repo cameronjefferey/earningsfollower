@@ -249,14 +249,178 @@ function PlainEnglish({ g, trade }: { g: Geometry; trade: PaperTrade }) {
   );
 }
 
+// Derive the payoff geometry of a directional debit spread (drift / PEAD) from
+// its legs: a bull call (bullish) or bear put (bearish) spread. Unlike a credit
+// spread it's one-sided — max loss is the debit, max profit is width minus debit.
+function driftGeometry(trade: PaperTrade) {
+  const legs = trade.legs ?? [];
+  const long = trade.direction === "bullish"; // bull call vs bear put
+  const otype: "call" | "put" = long ? "call" : "put";
+  const longLeg = legs.find((l) => l.type === otype && l.side === "buy")?.strike ?? null;
+  const shortLeg = legs.find((l) => l.type === otype && l.side === "sell")?.strike ?? null;
+  const debit = trade.entry_credit ?? 0; // for debit trades, entry_credit holds the debit
+  const contracts = trade.contracts ?? 1;
+  if (debit <= 0 || longLeg === null || shortLeg === null) return null;
+
+  const width = Math.abs(shortLeg - longLeg);
+  const maxLoss = trade.max_risk ?? debit * 100 * contracts;
+  const maxProfit = Math.max(0, (width - debit) * 100 * contracts);
+  const breakeven = long ? longLeg + debit : longLeg - debit;
+
+  const entry = trade.spot_entry ?? null;
+  const now = trade.spot_now ?? null;
+  const spot = now ?? entry;
+
+  const marks = [longLeg, shortLeg, entry, now].filter((x): x is number => x !== null);
+  const loS = Math.min(...marks);
+  const hiS = Math.max(...marks);
+  const pad = Math.max((hiS - loS) * 0.12, 1);
+  const domLo = loS - pad;
+  const domHi = hiS + pad;
+
+  const pnlPerShare = (S: number) => {
+    const intrinsic = long
+      ? Math.min(Math.max(S - longLeg, 0), width)
+      : Math.min(Math.max(longLeg - S, 0), width);
+    return intrinsic - debit;
+  };
+
+  return {
+    long, longLeg, shortLeg, debit, contracts, width, maxLoss, maxProfit,
+    breakeven, entry, now, spot, domLo, domHi, pnlPerShare,
+  };
+}
+
+type DriftGeo = NonNullable<ReturnType<typeof driftGeometry>>;
+
+function RiskBoxes({ maxProfit, maxLoss }: { maxProfit: number; maxLoss: number | null }) {
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      <div
+        className="rounded-lg border px-3 py-2"
+        style={{ borderColor: `${PROFIT}40`, background: `${PROFIT}12` }}
+      >
+        <div className="text-[10px] uppercase text-[var(--color-muted)]">Max profit</div>
+        <div className="font-bold" style={{ color: PROFIT }}>{money(maxProfit)}</div>
+      </div>
+      <div
+        className="rounded-lg border px-3 py-2"
+        style={{ borderColor: `${LOSS}40`, background: `${LOSS}12` }}
+      >
+        <div className="text-[10px] uppercase text-[var(--color-muted)]">Max loss</div>
+        <div className="font-bold" style={{ color: LOSS }}>{money(maxLoss)}</div>
+      </div>
+    </div>
+  );
+}
+
+function DriftPayoffBar({ g }: { g: DriftGeo }) {
+  const N = 48;
+  const span = g.domHi - g.domLo || 1;
+  const pct = (x: number) => Math.max(0, Math.min(100, ((x - g.domLo) / span) * 100));
+  const cells = Array.from({ length: N }, (_, i) => {
+    const S = g.domLo + ((i + 0.5) / N) * span;
+    if (g.pnlPerShare(S) <= 0) return `${LOSS}3a`;
+    const full = g.long ? S >= g.shortLeg : S <= g.shortLeg;
+    return full ? PROFIT : `${PROFIT}66`;
+  });
+
+  const showEntry =
+    g.entry != null && g.now != null && Math.abs(g.now - g.entry) / span > 0.02;
+  const nowLabel = g.now != null;
+  const moveFromEntry = g.now != null && g.entry ? (g.now / g.entry - 1) * 100 : null;
+
+  return (
+    <div className="mt-3">
+      <div className="relative">
+        {g.spot != null ? (
+          <div
+            className="absolute -top-4 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold text-white"
+            style={{ left: `${pct(g.spot)}%` }}
+          >
+            {nowLabel ? "now " : "entry "}
+            {money(g.spot)}
+            {moveFromEntry != null ? (
+              <span
+                className="ml-1 font-normal"
+                style={{ color: moveFromEntry >= 0 ? PROFIT : LOSS }}
+              >
+                ({moveFromEntry >= 0 ? "+" : ""}
+                {moveFromEntry.toFixed(1)}%)
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex h-7 w-full overflow-hidden rounded">
+          {cells.map((c, i) => (
+            <div key={i} style={{ width: `${100 / N}%`, backgroundColor: c }} />
+          ))}
+        </div>
+        {showEntry && g.entry != null ? (
+          <div
+            className="absolute top-0 bottom-0 border-l border-dashed border-[#8a97b1]"
+            style={{ left: `${pct(g.entry)}%` }}
+          />
+        ) : null}
+        {g.spot != null ? (
+          <div
+            className="absolute top-0 bottom-0 w-px bg-white"
+            style={{ left: `${pct(g.spot)}%` }}
+          />
+        ) : null}
+      </div>
+      <div className="relative mt-1 h-3 text-[10px] text-[var(--color-muted)]">
+        <span className="absolute -translate-x-1/2" style={{ left: `${pct(g.breakeven)}%` }}>
+          {money(g.breakeven)}
+        </span>
+        <span
+          className="absolute -translate-x-1/2"
+          style={{ left: `${pct(g.shortLeg)}%`, color: PROFIT }}
+        >
+          {money(g.shortLeg)}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-muted)]">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: PROFIT }} />
+          max profit
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: `${LOSS}3a` }} />
+          loss
+        </span>
+        <span className="ml-auto">break-even ↑ · target {money(g.shortLeg)}</span>
+      </div>
+    </div>
+  );
+}
+
+function DriftPlainEnglish({ g, trade }: { g: DriftGeo; trade: PaperTrade }) {
+  const exp = fmtDate(trade.expiration);
+  const dirWord = g.long ? "rises to" : "falls to";
+  const sustain = g.long ? "stays below" : "stays above";
+  return (
+    <p className="mt-2 text-xs leading-relaxed text-[var(--color-muted)]">
+      Make up to{" "}
+      <span className="font-semibold" style={{ color: PROFIT }}>{money(g.maxProfit)}</span>{" "}
+      if {trade.ticker} {dirWord} <span className="text-white">{money(g.shortLeg)}</span> or
+      better by {exp}. Break even at <span className="text-white">{money(g.breakeven)}</span>;
+      the full{" "}
+      <span className="font-semibold" style={{ color: LOSS }}>{money(g.maxLoss)}</span>{" "}
+      loss only if it {sustain} <span className="text-white">{money(g.longLeg)}</span>.
+    </p>
+  );
+}
+
 function OpenCard({ trade }: { trade: PaperTrade }) {
   const dir = DIR_COLOR[trade.direction] ?? "#8a97b1";
   const status = STATUS_COLOR[trade.status] ?? "#8a97b1";
   const strat = strategyMeta(trade.strategy);
-  // The payoff bar models a credit spread / iron condor. Directional debit
-  // trades (waves, drift) don't share that geometry, so fall back to the
-  // simple summary for them.
+  // Earnings = credit-spread payoff (two-sided profit band). Drift = directional
+  // debit-spread payoff (one-sided ramp). Waves (single long option) has no
+  // spread geometry, so it falls back to the simple summary.
   const g = (trade.strategy ?? "earnings") === "earnings" ? payoffGeometry(trade) : null;
+  const dg = trade.strategy === "drift" ? driftGeometry(trade) : null;
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2">
@@ -276,37 +440,37 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
 
       {g ? (
         <>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <div
-              className="rounded-lg border px-3 py-2"
-              style={{ borderColor: `${PROFIT}40`, background: `${PROFIT}12` }}
-            >
-              <div className="text-[10px] uppercase text-[var(--color-muted)]">
-                Max profit
-              </div>
-              <div className="font-bold" style={{ color: PROFIT }}>
-                {money(g.maxProfit)}
-              </div>
-            </div>
-            <div
-              className="rounded-lg border px-3 py-2"
-              style={{ borderColor: `${LOSS}40`, background: `${LOSS}12` }}
-            >
-              <div className="text-[10px] uppercase text-[var(--color-muted)]">
-                Max loss
-              </div>
-              <div className="font-bold" style={{ color: LOSS }}>
-                {money(g.maxLoss)}
-              </div>
-            </div>
-          </div>
-
+          <RiskBoxes maxProfit={g.maxProfit} maxLoss={g.maxLoss} />
           <PayoffBar g={g} />
           <PlainEnglish g={g} trade={trade} />
 
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
             <span>
               Credit{" "}
+              <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "—"}</span>
+            </span>
+            <span>·</span>
+            <span>
+              <span className="text-white">{trade.contracts ?? "—"}</span> contract
+              {trade.contracts === 1 ? "" : "s"}
+            </span>
+          </div>
+          <Legs trade={trade} />
+        </>
+      ) : dg ? (
+        <>
+          {trade.thesis ? (
+            <div className="text-xs mt-1" style={{ color: dir }}>
+              {trade.thesis}
+            </div>
+          ) : null}
+          <RiskBoxes maxProfit={dg.maxProfit} maxLoss={dg.maxLoss} />
+          <DriftPayoffBar g={dg} />
+          <DriftPlainEnglish g={dg} trade={trade} />
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
+            <span>
+              Debit{" "}
               <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "—"}</span>
             </span>
             <span>·</span>

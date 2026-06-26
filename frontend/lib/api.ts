@@ -265,7 +265,7 @@ export interface PaperTradeLeg {
 
 export interface PaperTrade {
   signal_id: string;
-  strategy: "earnings" | "waves";
+  strategy: "earnings" | "waves" | "drift";
   ticker: string;
   structure: string;
   direction: "bearish" | "bullish" | "neutral";

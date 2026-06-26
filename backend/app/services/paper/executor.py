@@ -828,6 +828,7 @@ def _scan_drift_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
 ) -> tuple[int, list]:
     if not settings.paper_drift_enabled:
+        logger.info("drift scan: disabled (paper_drift_enabled=False)")
         return 0, []
     try:
         from app.services.drift import drift_setups
@@ -836,6 +837,11 @@ def _scan_drift_entries(
     except Exception as e:  # noqa: BLE001 - never let a signal error break the run
         logger.warning("drift signal build failed: %s", e)
         return 0, []
+    logger.info(
+        "drift scan: %d setup(s): %s",
+        len(setups),
+        ", ".join(f"{s.get('ticker')}({s.get('direction')})" for s in setups) or "none",
+    )
 
     open_n = len(
         db.scalars(

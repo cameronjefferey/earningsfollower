@@ -874,14 +874,21 @@ def _scan_drift_entries(
         report_date = _parse_iso(setup.get("report_date"))
         if report_date is None:
             continue
+        # Only a real position (active or already closed) should block a retry.
+        # A failed/canceled submission must NOT permanently lock the ticker out.
         existing = db.scalars(
             select(PaperTrade).where(
                 PaperTrade.ticker == ticker,
                 PaperTrade.earnings_date == report_date,
                 PaperTrade.strategy == "drift",
+                PaperTrade.status.in_(OPEN_STATES + ("closed",)),
             )
         ).first()
         if existing:
+            logger.info(
+                "drift scan: %s already has a %s drift trade; skipping",
+                ticker, existing.status,
+            )
             continue
 
         budget = equity * settings.paper_drift_risk_frac

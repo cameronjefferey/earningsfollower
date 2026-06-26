@@ -22,6 +22,25 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     enable_scheduler: bool = True
 
+    # --- Calendar-driven universe --------------------------------------------
+    # Beyond the curated themes, screen the whole market: each refresh pulls the
+    # earnings calendar for a window and ingests every liquid name reporting in
+    # it, so earnings + PEAD coverage isn't capped at a hand-picked watchlist.
+    # (Optionability enforces itself at trade time - the option builders bail on
+    # names with no listed contracts - so the screen bar is just price + cap.)
+    calendar_universe_enabled: bool = True
+    # How far back / forward to scan the calendar. Back must cover the PEAD
+    # lookback (~12 trading days) so just-reported names still surface as drift
+    # setups; forward is "this week + next" for pre-earnings setups.
+    calendar_back_days: int = 16
+    calendar_forward_days: int = 14
+    # Moderate liquidity bar for a name to be tradeable.
+    calendar_min_market_cap: float = 2_000_000_000.0
+    calendar_min_price: float = 10.0
+    # Cap how many names a single refresh ingests (biggest market caps win), to
+    # bound runtime and API spend. Raise once we're comfortable with the load.
+    calendar_max_names: int = 300
+
     # --- Alpaca paper trading -------------------------------------------------
     # Paper accounts get Level 3 (multi-leg) options automatically. These come
     # from a *paper* key pair at https://app.alpaca.markets/paper/dashboard/overview.

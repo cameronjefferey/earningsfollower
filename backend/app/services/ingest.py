@@ -57,13 +57,22 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
 
     with FMPClient() as fmp:
         tracked = _build_universe(db, fmp, expand_peers=expand_peers)
-        logger.info("Tracking %d tickers", len(tracked))
+        # Whole-market sweep: liquid names reporting in the calendar window, so
+        # earnings + PEAD aren't limited to the curated themes. Curated names are
+        # always kept (waves needs their theme/peer mapping).
+        calendar, upcoming = _build_calendar_universe(db, fmp, settings)
+        seed = set(tracked)
+        all_tickers = sorted(seed | set(calendar))
+        logger.info(
+            "Tracking %d tickers (%d curated + %d calendar)",
+            len(all_tickers), len(seed), len(set(calendar) - seed),
+        )
 
-        # Earnings now come from FMP's per-symbol endpoint (full multi-year
-        # history + upcoming estimates), set inside ingest_company. The bulk
-        # calendar is intentionally not used: paid tiers cap its history at a
-        # few months, so it can't backfill the reaction stats the app needs.
-        for ticker in tracked:
+        # Earnings come from FMP's per-symbol endpoint (full multi-year history +
+        # upcoming estimates), set inside ingest_company. Implied move (yfinance)
+        # is pulled only for curated names and names reporting soon, since it
+        # rate-limits hard and the drift screen doesn't use it.
+        for ticker in all_tickers:
             try:
                 report = ingest_company(
                     db,
@@ -72,6 +81,7 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
                     history_years=settings.history_years,
                     fmp_earnings=fmp.enabled,
                     fetch_earnings=not fmp.enabled,
+                    fetch_implied=(ticker in seed or ticker in upcoming),
                 )
                 db.commit()
                 processed += 1
@@ -97,12 +107,20 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
 
     log.finished_at = datetime.utcnow()
     # "ok" only when nothing crashed AND core data (prices, earnings) landed for
-    # every tracked ticker. Missing implied moves alone is a soft/expected gap.
-    core_complete = not errors and not no_prices and not no_earnings
+    # every *curated* ticker. Gaps among the wide calendar sweep (odd ADRs, no
+    # FMP coverage) are expected and shouldn't flip the health signal; missing
+    # implied moves alone is a soft gap too.
+    core_complete = (
+        not errors
+        and not (set(no_prices) & seed)
+        and not (set(no_earnings) & seed)
+    )
     log.status = "ok" if core_complete else "partial"
     detail_parts = [
         f"processed={processed}",
-        f"tracked={len(tracked)}",
+        f"tracked={len(all_tickers)}",
+        f"curated={len(seed)}",
+        f"calendar={len(set(calendar) - seed)}",
         f"errors={len(errors)}",
         f"no_prices={len(no_prices)}",
         f"no_earnings={len(no_earnings)}",
@@ -118,7 +136,9 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
     db.commit()
     return {
         "processed": processed,
-        "tracked": len(tracked),
+        "tracked": len(all_tickers),
+        "curated": len(seed),
+        "calendar": len(set(calendar) - seed),
         "errors": errors,
         "no_prices": no_prices,
         "no_earnings": no_earnings,
@@ -183,6 +203,93 @@ def _build_universe(
     return sorted(membership.keys())
 
 
+def _build_calendar_universe(
+    db: Session, fmp: FMPClient, settings
+) -> tuple[list[str], set[str]]:
+    """Screen the whole market for liquid names reporting in the calendar window.
+
+    Returns (names, upcoming) where ``names`` is the ranked list to ingest (the
+    intersection of the liquidity screener and the earnings calendar, capped by
+    ``calendar_max_names``) and ``upcoming`` is the subset reporting from today
+    forward (those need an implied move for the pre-earnings playbook).
+    """
+    if not (settings.calendar_universe_enabled and fmp.enabled):
+        return [], set()
+
+    today = date.today()
+    start = today - timedelta(days=settings.calendar_back_days)
+    end = today + timedelta(days=settings.calendar_forward_days)
+
+    # 1) Liquid, actively-traded US names above the size/price floor.
+    try:
+        screen = fmp.company_screener(
+            market_cap_min=settings.calendar_min_market_cap,
+            price_min=settings.calendar_min_price,
+        )
+    except FMPError as exc:
+        logger.warning("Company screener failed: %s", exc)
+        return [], set()
+    liquid: dict[str, dict[str, Any]] = {}
+    for r in screen:
+        sym = (r.get("symbol") or "").upper()
+        if sym:
+            liquid[sym] = r
+    if not liquid:
+        logger.info("Company screener returned nothing; calendar universe off")
+        return [], set()
+
+    # 2) Who reports in the window (and who reports from today forward).
+    try:
+        cal = fmp.earnings_calendar(start.isoformat(), end.isoformat())
+    except FMPError as exc:
+        logger.warning("Earnings calendar %s..%s failed: %s", start, end, exc)
+        return [], set()
+
+    reporters: dict[str, dict[str, Any]] = {}
+    upcoming: set[str] = set()
+    for row in cal:
+        sym = (row.get("symbol") or "").upper()
+        if sym not in liquid:
+            continue
+        reporters.setdefault(sym, liquid[sym])
+        d = _parse_date(row.get("date"))
+        if d is not None and d >= today:
+            upcoming.add(sym)
+
+    # 3) Rank by market cap and cap the count to bound refresh load.
+    ordered = sorted(
+        reporters.items(),
+        key=lambda kv: (kv[1].get("marketCap") or 0.0),
+        reverse=True,
+    )
+    names = [sym for sym, _ in ordered[: settings.calendar_max_names]]
+
+    # 4) Seed Company rows now so screens have sector/cap even if a later
+    #    per-symbol profile call fails.
+    for sym in names:
+        info = reporters[sym]
+        company = _ensure_company(db, sym)
+        company.name = company.name or info.get("companyName")
+        company.sector = company.sector or info.get("sector")
+        company.exchange = (
+            company.exchange
+            or info.get("exchangeShortName")
+            or info.get("exchange")
+        )
+        if not company.market_cap and info.get("marketCap"):
+            try:
+                company.market_cap = float(info["marketCap"])
+            except (TypeError, ValueError):
+                pass
+    db.commit()
+
+    logger.info(
+        "Calendar universe: %d liquid names reporting %s..%s (%d upcoming)",
+        len(names), start, end, len(upcoming & set(names)),
+    )
+    return names, upcoming
+
+
 def ingest_company(
     db: Session,
     fmp: FMPClient,
@@ -191,6 +298,7 @@ def ingest_company(
     history_years: int = 5,
     fmp_earnings: bool | None = None,
     fetch_earnings: bool = True,
+    fetch_implied: bool = True,
 ) -> dict[str, Any]:
     """Ingest one company's profile, earnings, prices, and implied move.
 
@@ -230,7 +338,10 @@ def ingest_company(
         got_yahoo_earnings = _ingest_earnings_yahoo(db, ticker)
 
     price_source = _ingest_prices(db, ticker, history_years, fmp)
-    got_implied = _ingest_implied_move(db, ticker)
+    # Implied move comes from yfinance, which rate-limits hard at scale. Only
+    # pull it for names that need it (curated set + names reporting soon); the
+    # post-earnings drift screen doesn't use it at all.
+    got_implied = _ingest_implied_move(db, ticker) if fetch_implied else False
 
     return {
         "earnings": got_fmp_earnings or got_yahoo_earnings,

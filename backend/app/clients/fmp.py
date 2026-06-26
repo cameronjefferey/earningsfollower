@@ -119,6 +119,40 @@ class FMPClient:
         data = self._get("stock-peers", {"symbol": symbol}) or []
         return [d["symbol"].upper() for d in data if d.get("symbol")]
 
+    def company_screener(
+        self,
+        *,
+        market_cap_min: float,
+        price_min: float,
+        exchanges: tuple[str, ...] = ("NASDAQ", "NYSE"),
+        limit: int = 3000,
+    ) -> list[dict[str, Any]]:
+        """Liquid, actively-traded US common stocks above a size/price floor.
+
+        Returns each name's symbol, marketCap, price, sector, and exchange so the
+        caller can intersect with the earnings calendar without a per-symbol
+        profile lookup. `exchange` takes a single value, so we query the major US
+        listings and merge.
+        """
+        rows: list[dict[str, Any]] = []
+        for exch in exchanges:
+            rows += (
+                self._get(
+                    "company-screener",
+                    {
+                        "marketCapMoreThan": int(market_cap_min),
+                        "priceMoreThan": price_min,
+                        "isActivelyTrading": "true",
+                        "isEtf": "false",
+                        "isFund": "false",
+                        "exchange": exch,
+                        "limit": limit,
+                    },
+                )
+                or []
+            )
+        return rows
+
     def profile(self, symbol: str) -> dict[str, Any] | None:
         data = self._get("profile", {"symbol": symbol}) or []
         return data[0] if isinstance(data, list) and data else None

@@ -67,6 +67,23 @@ def build_drift_spec(
     if not spot:
         return None, "no live underlying price"
 
+    # Live broken-thesis guard. The screen evaluates its stop against the prior
+    # daily close, so on a sharp intraday reversal it can still flag a setup whose
+    # thesis the live tape has already killed (e.g. a long that has round-tripped
+    # back below its earnings-day pivot). Don't open into that.
+    stop_level = live.get("stop_level")
+    if stop_level:
+        if long and spot < stop_level:
+            return None, (
+                f"thesis broken: live ${spot:.2f} is below the earnings-day "
+                f"pivot ${stop_level:.2f}"
+            )
+        if not long and spot > stop_level:
+            return None, (
+                f"thesis broken: live ${spot:.2f} is above the earnings-day "
+                f"pivot ${stop_level:.2f}"
+            )
+
     history = setup.get("history") or {}
     edge = abs(history.get("avg_drift_5d_pct") or 0.0)
     target_move = max(edge, MIN_TARGET_MOVE)
@@ -196,7 +213,7 @@ def build_drift_spec(
             width=width,
             expiration=expiration,
             spot=round(spot, 2),
-            stop_level=live.get("stop_level"),
+            stop_level=stop_level,
         ),
         "ok",
     )

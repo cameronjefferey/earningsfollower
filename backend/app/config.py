@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     alpaca_api_key: str = ""
     alpaca_api_secret: str = ""
     alpaca_paper: bool = True
+    # Stock market-data feed for live underlying prices. "iex" is free but only
+    # reflects IEX trades; "sip" is the full consolidated tape (real-time across
+    # all exchanges) and needs a paid Alpaca market-data subscription. We fall
+    # back to iex automatically if the chosen feed isn't entitled.
+    alpaca_data_feed: str = "iex"
     # Conviction-weighted max-loss per trade, as a fraction of account equity.
     # High conviction risks the most (the ceiling); low risks the least.
     paper_risk_high: float = 0.05

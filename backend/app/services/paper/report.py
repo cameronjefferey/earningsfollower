@@ -77,16 +77,36 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
     trades = db.scalars(select(PaperTrade).order_by(PaperTrade.id.desc())).all()
 
     open_trades = [_trade_dict(t) for t in trades if t.status in OPEN_STATES]
-    # Mark each open position with the current underlying price (latest daily
-    # close) so the UI can show where the stock sits in the profit zone now.
+
+    # One Alpaca client for both live prices and the account fetch.
+    client = None
+    try:
+        c = AlpacaClient()
+        if c.enabled:
+            client = c
+    except Exception as e:  # noqa: BLE001 - never let client init break the page
+        logger.warning("Could not init Alpaca client: %s", e)
+
+    # Mark each open position with the *live* underlying price so the payoff
+    # chart updates on every page load. Fall back to the latest daily close when
+    # the live quote isn't available (market data hiccup / no subscription).
     for d in open_trades:
-        bar = db.scalars(
-            select(PriceBar)
-            .where(PriceBar.ticker == d["ticker"])
-            .order_by(PriceBar.date.desc())
-        ).first()
-        if bar and bar.close is not None:
-            d["spot_now"] = round(bar.close, 2)
+        px = None
+        if client is not None:
+            try:
+                px = client.stock_price(d["ticker"])
+            except Exception:  # noqa: BLE001 - fall back to the daily bar
+                px = None
+        if px is None:
+            bar = db.scalars(
+                select(PriceBar)
+                .where(PriceBar.ticker == d["ticker"])
+                .order_by(PriceBar.date.desc())
+            ).first()
+            if bar and bar.close is not None:
+                px = bar.close
+        if px is not None:
+            d["spot_now"] = round(px, 2)
 
     closed = [t for t in trades if t.status == "closed"]
     closed_dicts = [_trade_dict(t) for t in closed]
@@ -124,20 +144,20 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
     }
 
     account = None
-    if include_account:
+    if include_account and client is not None:
         try:
-            client = AlpacaClient()
-            if client.enabled:
-                acct = client.account()
-                account = {
-                    "equity": _f(acct.get("equity")),
-                    "cash": _f(acct.get("cash")),
-                    "buying_power": _f(acct.get("buying_power")),
-                    "status": acct.get("status"),
-                }
-            client.close()
+            acct = client.account()
+            account = {
+                "equity": _f(acct.get("equity")),
+                "cash": _f(acct.get("cash")),
+                "buying_power": _f(acct.get("buying_power")),
+                "status": acct.get("status"),
+            }
         except Exception as e:  # noqa: BLE001 - never let account fetch break the page
             logger.warning("Could not fetch Alpaca account: %s", e)
+
+    if client is not None:
+        client.close()
 
     return {
         "generated_at": datetime.utcnow().isoformat(),

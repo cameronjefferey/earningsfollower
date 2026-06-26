@@ -35,6 +35,10 @@ services:
         sync: false # paper secret; set in the dashboard
       - key: ALPACA_PAPER
         value: "true"
+      # iex = free real-time (IEX-only); set "sip" only with a paid Alpaca
+      # market-data sub (auto-falls back to iex if not entitled).
+      - key: ALPACA_DATA_FEED
+        value: "iex"
 
   # Daily data refresh (earnings, prices, implied move, analyst)
   - type: cron
@@ -78,6 +82,10 @@ services:
         sync: false # paper secret; set in the dashboard
       - key: ALPACA_PAPER
         value: "true"
+      # iex = free real-time (IEX-only); set "sip" only with a paid Alpaca
+      # market-data sub (auto-falls back to iex if not entitled).
+      - key: ALPACA_DATA_FEED
+        value: "iex"
       # Conviction-weighted risk per trade (defaults: high 5% / med 3% / low 1.5%).
       - key: PAPER_RISK_HIGH
         value: "0.05"

@@ -36,6 +36,7 @@ class AlpacaClient:
         self.api_secret = api_secret if api_secret is not None else s.alpaca_api_secret
         self.trading_base = s.alpaca_trading_base
         self.data_base = s.alpaca_data_base
+        self.data_feed = (s.alpaca_data_feed or "iex").lower()
         self._client = httpx.Client(timeout=timeout, headers=self._headers())
 
     def _headers(self) -> dict[str, str]:
@@ -134,19 +135,37 @@ class AlpacaClient:
         return (data or {}).get("option_contracts", []) if isinstance(data, dict) else []
 
     def stock_price(self, symbol: str) -> float | None:
-        """Latest trade price for an underlying (intraday). Uses the free IEX
-        feed, which paper accounts have access to."""
-        data = self._request(
-            "GET",
-            self.data_base,
-            f"/v2/stocks/{symbol.upper()}/trades/latest",
-            params={"feed": "iex"},
-        )
-        try:
-            px = (data or {}).get("trade", {}).get("p")
-            return float(px) if px else None
-        except (TypeError, ValueError):
-            return None
+        """Latest trade price for an underlying (intraday).
+
+        Uses the configured feed (``sip`` = real-time consolidated tape with a
+        paid market-data sub; ``iex`` = free, IEX-only). If the chosen feed isn't
+        entitled, falls back to iex so a missing subscription never breaks the
+        price lookup.
+        """
+        feeds: list[str] = []
+        for f in (self.data_feed, "iex"):
+            if f and f not in feeds:
+                feeds.append(f)
+        for feed in feeds:
+            try:
+                data = self._request(
+                    "GET",
+                    self.data_base,
+                    f"/v2/stocks/{symbol.upper()}/trades/latest",
+                    params={"feed": feed},
+                )
+            except AlpacaError as exc:
+                # Not entitled for this feed (403) or bad param (422): try iex.
+                if feed != "iex" and ("403" in str(exc) or "422" in str(exc)):
+                    continue
+                raise
+            try:
+                px = (data or {}).get("trade", {}).get("p")
+                if px:
+                    return float(px)
+            except (TypeError, ValueError):
+                return None
+        return None
 
     def option_quotes(self, symbols: list[str]) -> dict[str, dict[str, float]]:
         """Latest bid/ask/mid for a list of OCC option symbols."""

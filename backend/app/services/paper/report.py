@@ -14,7 +14,10 @@ from app.db.models import PaperTrade, PriceBar
 
 logger = logging.getLogger(__name__)
 
-OPEN_STATES = ("pending", "open", "closing")
+# Only orders that actually filled count as tracked positions. A "pending"
+# trade is a submitted-but-unfilled order; if it never fills it's canceled and
+# never shows here. So the scorecard's "open" = filled & live (open/closing).
+DISPLAY_OPEN = ("open", "closing")
 
 
 def _thesis_headline(t: PaperTrade) -> str | None:
@@ -76,7 +79,7 @@ def _trade_dict(t: PaperTrade) -> dict:
 def scorecard(db: Session, include_account: bool = True) -> dict:
     trades = db.scalars(select(PaperTrade).order_by(PaperTrade.id.desc())).all()
 
-    open_trades = [_trade_dict(t) for t in trades if t.status in OPEN_STATES]
+    open_trades = [_trade_dict(t) for t in trades if t.status in DISPLAY_OPEN]
 
     # One Alpaca client for both live prices and the account fetch.
     client = None
@@ -136,7 +139,7 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
         "total_pnl": total_pnl,
         "avg_pnl": round(total_pnl / len(pnls), 2) if pnls else None,
         "open_risk": round(
-            sum(t.max_risk or 0 for t in trades if t.status in OPEN_STATES), 2
+            sum(t.max_risk or 0 for t in trades if t.status in DISPLAY_OPEN), 2
         ),
         "by_structure": _bucket("structure"),
         "by_direction": _bucket("direction"),

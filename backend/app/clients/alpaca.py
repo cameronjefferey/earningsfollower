@@ -91,6 +91,19 @@ class AlpacaClient:
     def account(self) -> dict[str, Any]:
         return self._request("GET", self.trading_base, "/v2/account") or {}
 
+    def clock(self) -> dict[str, Any]:
+        """Market clock: {is_open, next_open, next_close, timestamp}."""
+        return self._request("GET", self.trading_base, "/v2/clock") or {}
+
+    def is_market_open(self) -> bool:
+        """Whether the US equity/options market is open right now. Fails open
+        (returns False) on any error so we never place orders into a closed or
+        unknown market."""
+        try:
+            return bool(self.clock().get("is_open"))
+        except AlpacaError:
+            return False
+
     def equity(self) -> float:
         acct = self.account()
         try:

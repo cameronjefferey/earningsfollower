@@ -61,7 +61,21 @@ def run(db: Session, dry_run: bool = False) -> dict:
         equity = client.equity()
         summary["equity"] = equity
 
+        # Only place orders when the market is open — options can't fill
+        # overnight or pre/post-open, which is what left whole batches expiring.
+        # dry-runs ignore this (they never submit). Reconcile always runs so
+        # fills from the prior session still get picked up.
+        market_open = True
+        if settings.paper_market_hours_only and not dry_run:
+            market_open = client.is_market_open()
+        summary["market_open"] = market_open
+
         summary["reconciled"] = _reconcile(db, client, dry_run)
+        if not market_open:
+            logger.info("market closed; reconciling only, no orders this run")
+            summary["skipped"] = [{"reason": "market closed"}]
+            return summary
+
         summary["closed"] = _manage_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
@@ -170,11 +184,14 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
                 "[dry-run] would close %s (%s) at net %.2f", t.signal_id, reason, exit_net
             )
             continue
+        limit = _marketable_net(
+            client, close_legs, is_credit=False, mid=exit_net, settings=settings, quotes=quotes
+        )
         try:
             order = client.submit_mleg(
                 legs=close_legs,
                 qty=t.contracts or 1,
-                limit_price=max(0.01, exit_net),
+                limit_price=limit,
                 client_order_id=f"{t.signal_id}-x",
             )
         except AlpacaError as e:
@@ -367,11 +384,14 @@ def _scan_entries(
             }
             for l in spec.legs
         ]
+        limit = _marketable_net(
+            client, order_legs, is_credit=True, mid=spec.net_credit, settings=settings
+        )
         try:
             order = client.submit_mleg(
                 legs=order_legs,
                 qty=contracts,
-                limit_price=max(0.01, spec.net_credit),
+                limit_price=limit,
                 client_order_id=trade.signal_id,
             )
         except AlpacaError as e:
@@ -381,6 +401,7 @@ def _scan_entries(
             skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
             continue
         trade.entry_order_id = order.get("id")
+        _apply_entry_fill(trade, order)
         opened += 1
 
     if not dry_run:
@@ -465,6 +486,61 @@ def _to_float(value) -> float | None:
         return None
 
 
+def _marketable_net(
+    client: AlpacaClient,
+    legs: list[dict],
+    is_credit: bool,
+    mid: float,
+    settings,
+    quotes: dict | None = None,
+) -> float:
+    """Marketable net limit price (positive) for a leg set.
+
+    A limit resting at the mid rarely fills; nudge it toward the touch so the
+    order executes. Debits (we pay) move UP toward the net ask; credits (we
+    collect) move DOWN toward the net bid. The move is capped by
+    ``paper_fill_slippage_*`` so a wide/stale quote can't blow up the price.
+    Falls back to the mid if any leg lacks a two-sided quote.
+    """
+    syms = [l["symbol"] for l in legs]
+    q = quotes if quotes is not None else client.option_quotes(syms)
+    if any(
+        (q.get(s, {}).get("bid") or 0) <= 0 or (q.get(s, {}).get("ask") or 0) <= 0
+        for s in syms
+    ):
+        return round(max(0.01, mid), 2)
+    buy_ask = sum(q[l["symbol"]]["ask"] for l in legs if l["side"] == "buy")
+    buy_bid = sum(q[l["symbol"]]["bid"] for l in legs if l["side"] == "buy")
+    sell_ask = sum(q[l["symbol"]]["ask"] for l in legs if l["side"] == "sell")
+    sell_bid = sum(q[l["symbol"]]["bid"] for l in legs if l["side"] == "sell")
+    frac = settings.paper_fill_slippage_frac
+    cap = settings.paper_fill_slippage_cap
+    if is_credit:
+        touch = sell_bid - buy_ask  # worst (most marketable) credit we'd accept
+        give = min(cap, frac * max(0.0, mid - touch))
+        price = mid - give
+    else:
+        touch = buy_ask - sell_bid  # worst (most marketable) debit we'd pay
+        give = min(cap, frac * max(0.0, touch - mid))
+        price = mid + give
+    return round(max(0.01, price), 2)
+
+
+def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
+    """If the just-submitted entry already filled (marketable orders usually do),
+    promote it to open immediately so it's tracked without waiting for the next
+    reconcile. Only filled orders ever become tracked positions."""
+    state = (order.get("status") or "").lower()
+    if state == "filled":
+        trade.status = "open"
+        trade.opened_at = datetime.utcnow()
+        fill = _to_float(order.get("filled_avg_price"))
+        if fill:
+            trade.entry_credit = abs(fill)
+        return True
+    return False
+
+
 # --- waves strategy ----------------------------------------------------------
 
 
@@ -496,7 +572,8 @@ def _manage_wave_exits(
         reason = _wave_exit_reason(t, spot_now, today, settings)
         if reason is None:
             continue
-        mid = float(client.option_quotes([sym]).get(sym, {}).get("mid") or 0.0)
+        q = client.option_quotes([sym])
+        mid = float(q.get(sym, {}).get("mid") or 0.0)
         if mid <= 0:
             continue  # can't price the close right now; retry next run
         if dry_run:
@@ -504,13 +581,21 @@ def _manage_wave_exits(
                 "[dry-run] would close wave %s (%s) at %.2f", t.signal_id, reason, mid
             )
             continue
+        limit = _marketable_net(
+            client,
+            [{"symbol": sym, "side": "sell"}],
+            is_credit=True,
+            mid=mid,
+            settings=settings,
+            quotes=q,
+        )
         try:
             order = client.submit_option_order(
                 symbol=sym,
                 qty=t.contracts or 1,
                 side="sell",
                 position_intent="sell_to_close",
-                limit_price=max(0.01, mid),
+                limit_price=limit,
                 client_order_id=f"{t.signal_id}-x",
             )
         except AlpacaError as e:
@@ -633,13 +718,20 @@ def _scan_wave_entries(
             opened += 1
             continue
 
+        limit = _marketable_net(
+            client,
+            [{"symbol": spec.symbol, "side": "buy"}],
+            is_credit=False,
+            mid=spec.premium,
+            settings=settings,
+        )
         try:
             order = client.submit_option_order(
                 symbol=spec.symbol,
                 qty=contracts,
                 side="buy",
                 position_intent="buy_to_open",
-                limit_price=max(0.01, spec.premium),
+                limit_price=limit,
                 client_order_id=trade.signal_id,
             )
         except AlpacaError as e:
@@ -649,6 +741,7 @@ def _scan_wave_entries(
             skipped.append({"ticker": target, "reason": f"submit error: {e}"})
             continue
         trade.entry_order_id = order.get("id")
+        _apply_entry_fill(trade, order)
         opened += 1
 
     if not dry_run:
@@ -776,11 +869,14 @@ def _manage_drift_exits(
                 "[dry-run] would close drift %s (%s) at %.2f", t.signal_id, reason, exit_value
             )
             continue
+        limit = _marketable_net(
+            client, close_legs, is_credit=True, mid=exit_value, settings=settings, quotes=quotes
+        )
         try:
             order = client.submit_mleg(
                 legs=close_legs,
                 qty=t.contracts or 1,
-                limit_price=max(0.01, exit_value),
+                limit_price=limit,
                 client_order_id=f"{t.signal_id}-x",
             )
         except AlpacaError as e:
@@ -929,11 +1025,14 @@ def _scan_drift_entries(
             }
             for l in spec.legs
         ]
+        limit = _marketable_net(
+            client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
+        )
         try:
             order = client.submit_mleg(
                 legs=order_legs,
                 qty=contracts,
-                limit_price=max(0.01, spec.net_debit),
+                limit_price=limit,
                 client_order_id=trade.signal_id,
             )
         except AlpacaError as e:
@@ -943,6 +1042,7 @@ def _scan_drift_entries(
             skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
             continue
         trade.entry_order_id = order.get("id")
+        _apply_entry_fill(trade, order)
         opened += 1
 
     if not dry_run:

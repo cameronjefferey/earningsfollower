@@ -75,6 +75,20 @@ class Settings(BaseSettings):
     # Near expiry (<= this many days to expiration) tighten to a smaller stop.
     paper_late_dte: int = 1
     paper_late_stop_frac: float = 0.10
+    # --- Fills ----------------------------------------------------------------
+    # A limit resting exactly at the mid usually never fills, so the day order
+    # just expires (we saw whole batches expire unfilled). Instead we submit a
+    # *marketable* limit: nudge the price toward the touch (pay up on debits /
+    # accept less on credits) by a capped amount so the order actually executes.
+    # Only orders that fill become tracked positions; unfilled ones don't count.
+    # Fraction of the bid/ask spread to give up toward the touch (0=mid, 1=touch).
+    paper_fill_slippage_frac: float = 0.6
+    # Hard cap on that nudge, per share of net spread price (so a blown-out
+    # quote can't make us pay an absurd amount over mid).
+    paper_fill_slippage_cap: float = 0.15
+    # Only place orders when the market is open (skip the overnight and pre/post-
+    # open cron ticks where options can't fill anyway).
+    paper_market_hours_only: bool = True
 
     # --- Waves strategy (directional sympathy drift) --------------------------
     # A separate, directional strategy: when a peer reports, buy a slightly-ITM

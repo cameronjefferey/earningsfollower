@@ -93,9 +93,11 @@ class Settings(BaseSettings):
     paper_market_hours_only: bool = True
 
     # --- Waves strategy (directional sympathy drift) --------------------------
-    # A separate, directional strategy: when a peer reports, buy a slightly-ITM
-    # call/put on a themed name that reports soon, ride the pre-earnings drift,
-    # and exit on an underlying-move bracket or the day before its own print.
+    # A separate, directional strategy: when a peer reports, take a directional
+    # debit spread on a themed name that reports soon, ride the pre-earnings
+    # runup, and exit on an underlying-move bracket or the day before its print.
+    # (A debit spread — not a naked long option — keeps high-priced names like
+    # TSM/ASML affordable on a small budget and caps the risk.)
     paper_waves_enabled: bool = True
     # Bracket on the *underlying's* move from entry (favorable / adverse).
     paper_wave_gain_pct: float = 0.10
@@ -106,8 +108,8 @@ class Settings(BaseSettings):
     # Need at least this much runway before the target's own earnings (so there's
     # room to drift, and the exit-before-print rule leaves a real holding period).
     paper_wave_min_runway_days: int = 3
-    # Premium budget per wave trade, as a fraction of equity, and a position cap.
-    paper_wave_risk_frac: float = 0.01
+    # Max-loss budget per wave trade, as a fraction of equity, and a position cap.
+    paper_wave_risk_frac: float = 0.02
     paper_wave_max_open: int = 6
 
     # --- Drift (PEAD) strategy ------------------------------------------------

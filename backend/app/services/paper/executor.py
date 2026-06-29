@@ -568,36 +568,46 @@ def _manage_wave_exits(
     ).all()
     for t in trades:
         legs = json.loads(t.legs or "[]")
-        if not legs:
+        if len(legs) < 2:
             continue
-        sym = legs[0]["symbol"]
+        symbols = [l["symbol"] for l in legs]
         spot_now = client.stock_price(t.ticker)
         reason = _wave_exit_reason(t, spot_now, today, settings)
         if reason is None:
             continue
-        q = client.option_quotes([sym])
-        mid = float(q.get(sym, {}).get("mid") or 0.0)
-        if mid <= 0:
+        quotes = client.option_quotes(symbols)
+        if any((quotes.get(s, {}).get("mid") or 0) <= 0 for s in symbols):
             continue  # can't price the close right now; retry next run
+        # Value of the long debit spread = long leg mid - short leg mid.
+        exit_value = round(
+            sum(quotes[l["symbol"]]["mid"] for l in legs if l["side"] == "buy")
+            - sum(quotes[l["symbol"]]["mid"] for l in legs if l["side"] == "sell"),
+            2,
+        )
+        # Close = sell the long leg, buy back the short leg.
+        close_legs = [
+            {
+                "symbol": l["symbol"],
+                "ratio_qty": "1",
+                "side": "buy" if l["side"] == "sell" else "sell",
+                "position_intent": "buy_to_close"
+                if l["side"] == "sell"
+                else "sell_to_close",
+            }
+            for l in legs
+        ]
         if dry_run:
             logger.info(
-                "[dry-run] would close wave %s (%s) at %.2f", t.signal_id, reason, mid
+                "[dry-run] would close wave %s (%s) at %.2f", t.signal_id, reason, exit_value
             )
             continue
         limit = _marketable_net(
-            client,
-            [{"symbol": sym, "side": "sell"}],
-            is_credit=True,
-            mid=mid,
-            settings=settings,
-            quotes=q,
+            client, close_legs, is_credit=True, mid=exit_value, settings=settings, quotes=quotes
         )
         try:
-            order = client.submit_option_order(
-                symbol=sym,
+            order = client.submit_mleg(
+                legs=close_legs,
                 qty=t.contracts or 1,
-                side="sell",
-                position_intent="sell_to_close",
                 limit_price=limit,
                 client_order_id=f"{t.signal_id}-x",
             )
@@ -605,7 +615,7 @@ def _manage_wave_exits(
             logger.error("Wave close failed for %s: %s", t.signal_id, e)
             continue
         t.exit_order_id = order.get("id")
-        t.exit_debit = round(mid, 2)  # proceeds per share on close
+        t.exit_debit = exit_value  # proceeds per share on close
         t.status = "closing"
         t.note = reason
         if spot_now:
@@ -693,20 +703,20 @@ def _scan_wave_entries(
         if existing:
             continue
 
-        spec, reason = build_wave_spec(client, sig, tgt_date)
+        budget = equity * settings.paper_wave_risk_frac
+        spec, reason = build_wave_spec(client, sig, tgt_date, risk_budget=budget)
         if spec is None:
             skipped.append({"ticker": target, "reason": reason})
             continue
 
-        budget = equity * settings.paper_wave_risk_frac
-        per_contract = spec.premium * 100
+        per_contract = spec.net_debit * 100
         contracts = int(budget // per_contract) if per_contract > 0 else 0
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:
             skipped.append(
                 {
                     "ticker": target,
-                    "reason": f"premium too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
+                    "reason": f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
                 }
             )
             continue
@@ -714,26 +724,29 @@ def _scan_wave_entries(
         trade = _record_wave_trade(db, sig, spec, tgt_date, contracts, equity)
         if dry_run:
             logger.info(
-                "[dry-run] WAVE %s long %s x%d @ %.2f (trigger %s)",
-                target, spec.option_type, contracts, spec.premium, sig.get("trigger"),
+                "[dry-run] WAVE %s %s spread x%d @ debit %.2f (trigger %s)",
+                target, spec.option_type, contracts, spec.net_debit, sig.get("trigger"),
             )
             trade.note = "dry-run (not submitted)"
             opened += 1
             continue
 
+        order_legs = [
+            {
+                "symbol": l.symbol,
+                "ratio_qty": "1",
+                "side": l.side,
+                "position_intent": l.position_intent,
+            }
+            for l in spec.legs
+        ]
         limit = _marketable_net(
-            client,
-            [{"symbol": spec.symbol, "side": "buy"}],
-            is_credit=False,
-            mid=spec.premium,
-            settings=settings,
+            client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
         )
         try:
-            order = client.submit_option_order(
-                symbol=spec.symbol,
+            order = client.submit_mleg(
+                legs=order_legs,
                 qty=contracts,
-                side="buy",
-                position_intent="buy_to_open",
                 limit_price=limit,
                 client_order_id=trade.signal_id,
             )
@@ -776,20 +789,22 @@ def _record_wave_trade(
     legs_json = json.dumps(
         [
             {
-                "symbol": spec.symbol,
-                "type": spec.option_type,
-                "side": "buy",
-                "strike": spec.strike,
-                "mid": spec.premium,
+                "symbol": l.symbol,
+                "type": l.option_type,
+                "side": l.side,
+                "strike": l.strike,
+                "mid": l.mid,
             }
+            for l in spec.legs
         ]
     )
+    long = spec.option_type == "call"
     trade = PaperTrade(
         signal_id=signal_id,
         strategy="waves",
         ticker=sig["target"],
         earnings_date=tgt_date,
-        structure=f"Long {spec.option_type}",
+        structure="Bull call spread" if long else "Bear put spread",
         direction=direction,
         vol_stance="buy",
         conviction=wave_conviction(sig),
@@ -798,9 +813,10 @@ def _record_wave_trade(
         legs=legs_json[:2048],
         contracts=contracts,
         expiration=spec.expiration,
-        entry_credit=spec.premium,  # premium paid (debit) per share
-        modeled_credit=spec.premium,
-        max_risk=round(spec.premium * 100 * contracts, 2),
+        width=spec.width,
+        entry_credit=spec.net_debit,  # debit paid (max loss) per share
+        modeled_credit=spec.net_debit,
+        max_risk=round(spec.net_debit * 100 * contracts, 2),
         spot_entry=spec.spot,
         equity_at_entry=round(equity, 2) if equity else None,
     )

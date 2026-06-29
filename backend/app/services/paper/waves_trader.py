@@ -1,10 +1,19 @@
-"""Build a directional long-option trade from a live waves signal.
+"""Build a directional debit spread from a live waves signal.
 
 The waves engine surfaces (trigger, target) pairs where a peer just reported and
 a themed name reports soon, with a historical drift lean. Here we turn the lean
-into a concrete trade: a slightly-ITM call (bullish) or put (bearish) on the
-target, at the first expiry on/after its own earnings (so the option still
-carries the elevated pre-print IV we plan to sell back before the report).
+into a defined-risk trade that rides the *pre-earnings runup*:
+
+  - bullish lean -> bull call spread (buy near-the-money call, sell an OTM call)
+  - bearish lean -> bear put  spread (buy near-the-money put,  sell an OTM put)
+
+We use a debit spread rather than a naked long option for the same reasons drift
+does: it caps cost, cuts theta drag, and the short leg is placed near the
+expected runup target so we pay only for the move the history predicts. Crucially
+it also makes high-priced names (TSM, ASML, ...) tradeable on a small budget —
+a single ATM call there can cost thousands, but a tight spread fits. The expiry
+is the first one on/after the target's own print, so the option still carries the
+elevated pre-print IV we plan to exit before the report.
 """
 
 from __future__ import annotations
@@ -14,17 +23,22 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from app.clients.alpaca import AlpacaClient
+from app.services.paper.contracts import SpecLeg
 
 logger = logging.getLogger(__name__)
+
+# Floor on the runup target as a % of spot, so a small historical lean still
+# produces a tradeable (not razor-thin) spread.
+MIN_TARGET_MOVE = 0.03
 
 
 @dataclass
 class WaveSpec:
-    symbol: str
-    option_type: str   # "call" | "put"
-    strike: float
+    legs: list[SpecLeg]      # [long leg, short leg]
+    option_type: str         # "call" | "put"
+    net_debit: float         # per share, what we pay to open (max loss)
+    width: float             # strike distance, per share (max value)
     expiration: date
-    premium: float     # per share (mid)
     spot: float
 
 
@@ -36,10 +50,16 @@ def _parse_date(value: str) -> date | None:
 
 
 def build_wave_spec(
-    client: AlpacaClient, signal: dict, target_date: date
+    client: AlpacaClient, signal: dict, target_date: date, risk_budget: float | None = None
 ) -> tuple[WaveSpec | None, str]:
-    """Return (spec, reason). Picks a slightly-ITM option in the signal's
-    direction for the target, priced from live quotes."""
+    """Return (spec, reason). Picks a near-the-money long leg and an OTM short leg
+    sized to the signal's expected runup, at the first expiry on/after the
+    target's print, priced from live quotes.
+
+    When ``risk_budget`` (dollars of max loss for one contract) is given and the
+    full-width spread's debit would exceed it, the short leg is pulled in toward
+    the long leg to the widest spread whose debit fits — so high-priced names
+    still size to a contract instead of skipping."""
     target = signal["target"]
     bullish = signal.get("direction") != "bearish"
     otype = "call" if bullish else "put"
@@ -48,7 +68,11 @@ def build_wave_spec(
     if not spot:
         return None, "no live underlying price"
 
-    # Pull the chain around the money at the first expiry on/after the print.
+    runup = abs(signal.get("expected_runup_pct") or 0.0)
+    target_move = max(runup, MIN_TARGET_MOVE)
+
+    # Chain around the money at the first expiry on/after the print (so it still
+    # carries the pre-print IV).
     contracts = client.option_contracts(
         target,
         expiration_gte=target_date.isoformat(),
@@ -72,36 +96,106 @@ def build_wave_spec(
         c for c in contracts
         if _parse_date(c.get("expiration_date", "")) == expiration
     ]
-    # Slightly ITM: for calls that's the listed strike just below spot; for puts
-    # the strike just above spot. Fall back to the nearest strike to spot.
+    strikes = sorted({float(c["strike_price"]) for c in pool})
+    if len(strikes) < 2:
+        return None, "not enough listed strikes for a spread"
+
+    def _symbol(strike: float) -> str | None:
+        for c in pool:
+            if float(c["strike_price"]) == strike:
+                return c["symbol"]
+        return None
+
+    _mid_cache: dict[float, float] = {}
+
+    def _mid(strike: float) -> float:
+        if strike not in _mid_cache:
+            sym = _symbol(strike)
+            q = client.option_quotes([sym]).get(sym, {}) if sym else {}
+            _mid_cache[strike] = float(q.get("mid") or 0.0)
+        return _mid_cache[strike]
+
+    # Long leg: the listed strike nearest to spot (near the money).
+    long_strike = min(strikes, key=lambda s: abs(s - spot))
+    long_mid = _mid(long_strike)
+    if long_mid <= 0:
+        return None, "missing live quote on the long leg"
+
+    # Candidate short legs out to the runup target, widest -> narrowest so we
+    # keep the most upside that still fits the budget.
     if bullish:
-        itm = [c for c in pool if float(c["strike_price"]) <= spot]
-        pick = (
-            max(itm, key=lambda c: float(c["strike_price"]))
-            if itm
-            else min(pool, key=lambda c: abs(float(c["strike_price"]) - spot))
-        )
+        target_px = spot * (1 + target_move)
+        cands = sorted([s for s in strikes if long_strike < s <= target_px], reverse=True)
+        if not cands:
+            cands = sorted([s for s in strikes if s > long_strike])[:1]
     else:
-        itm = [c for c in pool if float(c["strike_price"]) >= spot]
-        pick = (
-            min(itm, key=lambda c: float(c["strike_price"]))
-            if itm
-            else min(pool, key=lambda c: abs(float(c["strike_price"]) - spot))
-        )
+        target_px = spot * (1 - target_move)
+        cands = sorted([s for s in strikes if target_px <= s < long_strike])
+        if not cands:
+            cands = sorted([s for s in strikes if s < long_strike], reverse=True)[:1]
+    if not cands:
+        return None, "no OTM strike available for the short leg"
 
-    sym = pick["symbol"]
-    quote = client.option_quotes([sym]).get(sym, {})
-    premium = float(quote.get("mid") or 0.0)
-    if premium <= 0:
-        return None, "no live quote on the chosen contract"
+    stride = max(1, len(cands) // 16)
+    ordered = cands[::stride]
+    if cands[-1] not in ordered:
+        ordered.append(cands[-1])
 
+    short_strike = short_mid = net_debit = width = None
+    tightest = None
+    for s in ordered:
+        m = _mid(s)
+        if m <= 0:
+            continue
+        debit = round(long_mid - m, 2)
+        if debit <= 0:
+            continue
+        w = round(abs(s - long_strike), 2)
+        tightest = (s, m, debit, w)
+        if risk_budget is None or debit * 100 <= risk_budget:
+            short_strike, short_mid, net_debit, width = s, m, debit, w
+            break
+
+    if short_strike is None:
+        if risk_budget is not None and tightest is not None:
+            return None, (
+                f"debit too rich for budget even at min width "
+                f"(${tightest[2] * 100:.0f}/ct vs ${risk_budget:.0f})"
+            )
+        return None, "no priceable short leg for the spread"
+
+    long_sym = _symbol(long_strike)
+    short_sym = _symbol(short_strike)
+    if not long_sym or not short_sym:
+        return None, "could not map strikes to contracts"
+    if width <= 0:
+        return None, "degenerate spread width"
+
+    legs = [
+        SpecLeg(
+            symbol=long_sym,
+            option_type=otype,
+            side="buy",
+            position_intent="buy_to_open",
+            strike=long_strike,
+            mid=long_mid,
+        ),
+        SpecLeg(
+            symbol=short_sym,
+            option_type=otype,
+            side="sell",
+            position_intent="sell_to_open",
+            strike=short_strike,
+            mid=short_mid,
+        ),
+    ]
     return (
         WaveSpec(
-            symbol=sym,
+            legs=legs,
             option_type=otype,
-            strike=float(pick["strike_price"]),
+            net_debit=net_debit,
+            width=width,
             expiration=expiration,
-            premium=round(premium, 2),
             spot=round(spot, 2),
         ),
         "ok",

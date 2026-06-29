@@ -420,7 +420,11 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
   // debit-spread payoff (one-sided ramp). Waves (single long option) has no
   // spread geometry, so it falls back to the simple summary.
   const g = (trade.strategy ?? "earnings") === "earnings" ? payoffGeometry(trade) : null;
-  const dg = trade.strategy === "drift" ? driftGeometry(trade) : null;
+  // Drift and waves are both directional debit spreads — same payoff geometry.
+  const dg =
+    trade.strategy === "drift" || trade.strategy === "waves"
+      ? driftGeometry(trade)
+      : null;
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2">

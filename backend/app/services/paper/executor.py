@@ -185,7 +185,8 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
             )
             continue
         limit = _marketable_net(
-            client, close_legs, is_credit=False, mid=exit_net, settings=settings, quotes=quotes
+            client, close_legs, is_credit=False, mid=exit_net, settings=settings,
+            quotes=quotes, aggressive=False,
         )
         try:
             order = client.submit_mleg(
@@ -493,17 +494,28 @@ def _marketable_net(
     mid: float,
     settings,
     quotes: dict | None = None,
+    aggressive: bool = True,
 ) -> float:
     """Marketable net limit price (positive) for a leg set.
 
-    A limit at the mid won't fill a wide/illiquid spread, so we price at the
-    *cross*: take the ask on legs we buy and hit the bid on legs we sell, plus a
-    small buffer. That's marketable enough to fill while still capping the price
-    at the displayed touch. Per leg we fall back to the mid if the taking side
-    isn't quoted; if even that's missing we fall back to the modeled net mid.
+    ``aggressive`` (entries): price at the *cross* — take the ask on legs we buy
+    and hit the bid on legs we sell, plus a small buffer — so a wide/illiquid
+    spread actually fills. Getting in is optional, so paying up is fine.
+
+    not ``aggressive`` (exits): price at the **mid** nudged only a buffer toward
+    the touch. We already hold the position, so we never cross all the way to a
+    thin/dead bid and give the spread away (that's what dumped JEF/WOR at $0.01);
+    if it doesn't fill we just retry next run. Sitting in a loser is never worse
+    than selling it for a penny.
     """
     syms = [l["symbol"] for l in legs]
     q = quotes if quotes is not None else client.option_quotes(syms)
+    buf = settings.paper_fill_buffer
+
+    if not aggressive:
+        # Exit: sell a hair below mid (credit) / pay a hair above mid (debit).
+        price = (mid - buf) if is_credit else (mid + buf)
+        return round(max(0.01, price), 2)
 
     def take(sym: str, want: str) -> float:
         qq = q.get(sym, {})
@@ -519,7 +531,6 @@ def _marketable_net(
     if not settings.paper_fill_cross:
         return round(max(0.01, mid), 2)
 
-    buf = settings.paper_fill_buffer
     if is_credit:
         # We sell the package; accept the bid side (minus a buffer) to fill.
         price = (sell_bid - buy_ask) - buf
@@ -602,7 +613,8 @@ def _manage_wave_exits(
             )
             continue
         limit = _marketable_net(
-            client, close_legs, is_credit=True, mid=exit_value, settings=settings, quotes=quotes
+            client, close_legs, is_credit=True, mid=exit_value, settings=settings,
+            quotes=quotes, aggressive=False,
         )
         try:
             order = client.submit_mleg(
@@ -889,7 +901,8 @@ def _manage_drift_exits(
             )
             continue
         limit = _marketable_net(
-            client, close_legs, is_credit=True, mid=exit_value, settings=settings, quotes=quotes
+            client, close_legs, is_credit=True, mid=exit_value, settings=settings,
+            quotes=quotes, aggressive=False,
         )
         try:
             order = client.submit_mleg(
@@ -925,16 +938,23 @@ def _drift_exit_reason(
     # Take-profit: the spread is worth most of its max width.
     if t.width and exit_value >= settings.paper_drift_take_profit * t.width:
         return f"take-profit ({exit_value / t.width:.0%} of width)"
-    # Stop: underlying gave back the post-earnings move (broken thesis).
+    # Stop: underlying gave back the post-earnings move (broken thesis). Two
+    # guards stop this from whipsawing a fresh entry to a loss (what churned
+    # JEF/WOR): (1) don't stop on the entry day — give the thesis a session, and
+    # (2) require the price to be a buffer *beyond* the pivot, not just grazing
+    # it, so intraday noise around the level doesn't trigger.
+    if t.opened_at and t.opened_at.date() >= today:
+        return None
     try:
         stop = (json.loads(t.thesis or "{}") or {}).get("stop_level")
     except json.JSONDecodeError:
         stop = None
     if stop and spot_now:
         long = t.direction == "bullish"
-        if long and spot_now < stop:
+        buf = settings.paper_drift_stop_buffer
+        if long and spot_now < stop * (1 - buf):
             return "stop (gave back the move)"
-        if not long and spot_now > stop:
+        if not long and spot_now > stop * (1 + buf):
             return "stop (gave back the move)"
     return None
 

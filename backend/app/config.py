@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     paper_drift_hold_days: int = 7
     # Take profit once the spread is worth this fraction of its max width.
     paper_drift_take_profit: float = 0.75
+    # Broken-thesis stop only fires when the underlying is this fraction *beyond*
+    # the earnings-day pivot (not just grazing it), so intraday noise around the
+    # level doesn't whipsaw a fresh entry into a loss.
+    paper_drift_stop_buffer: float = 0.015
 
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""

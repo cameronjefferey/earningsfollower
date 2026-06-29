@@ -116,9 +116,14 @@ services:
         value: "0.015"
       - key: PAPER_DRIFT_HOLD_DAYS
         value: "7"
-      # Fills: price at the marketable cross (take the ask / hit the bid + a
-      # small buffer) so wide, illiquid spreads actually fill, and only place
-      # orders while the market is open. Only filled orders become positions.
+      # Broken-thesis stop only fires this fraction beyond the earnings-day
+      # pivot, so noise around the level doesn't whipsaw a fresh entry to a loss.
+      - key: PAPER_DRIFT_STOP_BUFFER
+        value: "0.015"
+      # Fills: entries cross (take the ask / hit the bid + a small buffer) so
+      # wide, illiquid spreads fill; exits price at the mid nudged by the buffer
+      # so we never dump a held spread to a dead bid. Orders go out only while
+      # the market is open. Only filled orders become positions.
       - key: PAPER_MARKET_HOURS_ONLY
         value: "true"
       - key: PAPER_FILL_CROSS

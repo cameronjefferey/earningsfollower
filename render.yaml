@@ -112,15 +112,15 @@ services:
         value: "0.015"
       - key: PAPER_DRIFT_HOLD_DAYS
         value: "7"
-      # Fills: submit marketable limits (nudge toward the touch, capped) so
-      # orders actually execute, and only place them while the market is open.
-      # Only filled orders become tracked positions.
+      # Fills: price at the marketable cross (take the ask / hit the bid + a
+      # small buffer) so wide, illiquid spreads actually fill, and only place
+      # orders while the market is open. Only filled orders become positions.
       - key: PAPER_MARKET_HOURS_ONLY
         value: "true"
-      - key: PAPER_FILL_SLIPPAGE_FRAC
-        value: "0.6"
-      - key: PAPER_FILL_SLIPPAGE_CAP
-        value: "0.15"
+      - key: PAPER_FILL_CROSS
+        value: "true"
+      - key: PAPER_FILL_BUFFER
+        value: "0.03"
 
   # Next.js frontend
   - type: web

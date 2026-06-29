@@ -76,16 +76,16 @@ class Settings(BaseSettings):
     paper_late_dte: int = 1
     paper_late_stop_frac: float = 0.10
     # --- Fills ----------------------------------------------------------------
-    # A limit resting exactly at the mid usually never fills, so the day order
-    # just expires (we saw whole batches expire unfilled). Instead we submit a
-    # *marketable* limit: nudge the price toward the touch (pay up on debits /
-    # accept less on credits) by a capped amount so the order actually executes.
-    # Only orders that fill become tracked positions; unfilled ones don't count.
-    # Fraction of the bid/ask spread to give up toward the touch (0=mid, 1=touch).
-    paper_fill_slippage_frac: float = 0.6
-    # Hard cap on that nudge, per share of net spread price (so a blown-out
-    # quote can't make us pay an absurd amount over mid).
-    paper_fill_slippage_cap: float = 0.15
+    # A limit at (or a few pennies off) the mid won't fill a wide, illiquid
+    # options spread — we watched JEF/WOR spreads sit unfilled all session. To
+    # actually get filled we price at the *marketable cross*: take the ask on
+    # legs we buy, hit the bid on legs we sell, plus a small buffer. That fills
+    # like a market order but with a sane worst-case price cap (you never pay
+    # beyond the displayed ask / receive below the displayed bid). Only orders
+    # that fill become tracked positions; unfilled ones don't count.
+    paper_fill_cross: bool = True
+    # Pennies past the touch (per share of net price) to ensure the cross fills.
+    paper_fill_buffer: float = 0.03
     # Only place orders when the market is open (skip the overnight and pre/post-
     # open cron ticks where options can't fill anyway).
     paper_market_hours_only: bool = True

@@ -496,33 +496,36 @@ def _marketable_net(
 ) -> float:
     """Marketable net limit price (positive) for a leg set.
 
-    A limit resting at the mid rarely fills; nudge it toward the touch so the
-    order executes. Debits (we pay) move UP toward the net ask; credits (we
-    collect) move DOWN toward the net bid. The move is capped by
-    ``paper_fill_slippage_*`` so a wide/stale quote can't blow up the price.
-    Falls back to the mid if any leg lacks a two-sided quote.
+    A limit at the mid won't fill a wide/illiquid spread, so we price at the
+    *cross*: take the ask on legs we buy and hit the bid on legs we sell, plus a
+    small buffer. That's marketable enough to fill while still capping the price
+    at the displayed touch. Per leg we fall back to the mid if the taking side
+    isn't quoted; if even that's missing we fall back to the modeled net mid.
     """
     syms = [l["symbol"] for l in legs]
     q = quotes if quotes is not None else client.option_quotes(syms)
-    if any(
-        (q.get(s, {}).get("bid") or 0) <= 0 or (q.get(s, {}).get("ask") or 0) <= 0
-        for s in syms
-    ):
+
+    def take(sym: str, want: str) -> float:
+        qq = q.get(sym, {})
+        v = qq.get(want) or 0.0
+        return v if v > 0 else (qq.get("mid") or 0.0)
+
+    # Both sides cross the same way: pay the ask on buys, receive the bid on sells.
+    buy_ask = sum(take(l["symbol"], "ask") for l in legs if l["side"] == "buy")
+    sell_bid = sum(take(l["symbol"], "bid") for l in legs if l["side"] == "sell")
+    if buy_ask <= 0 and sell_bid <= 0:
         return round(max(0.01, mid), 2)
-    buy_ask = sum(q[l["symbol"]]["ask"] for l in legs if l["side"] == "buy")
-    buy_bid = sum(q[l["symbol"]]["bid"] for l in legs if l["side"] == "buy")
-    sell_ask = sum(q[l["symbol"]]["ask"] for l in legs if l["side"] == "sell")
-    sell_bid = sum(q[l["symbol"]]["bid"] for l in legs if l["side"] == "sell")
-    frac = settings.paper_fill_slippage_frac
-    cap = settings.paper_fill_slippage_cap
+
+    if not settings.paper_fill_cross:
+        return round(max(0.01, mid), 2)
+
+    buf = settings.paper_fill_buffer
     if is_credit:
-        touch = sell_bid - buy_ask  # worst (most marketable) credit we'd accept
-        give = min(cap, frac * max(0.0, mid - touch))
-        price = mid - give
+        # We sell the package; accept the bid side (minus a buffer) to fill.
+        price = (sell_bid - buy_ask) - buf
     else:
-        touch = buy_ask - sell_bid  # worst (most marketable) debit we'd pay
-        give = min(cap, frac * max(0.0, touch - mid))
-        price = mid + give
+        # We buy the package; pay the ask side (plus a buffer) to fill.
+        price = (buy_ask - sell_bid) + buf
     return round(max(0.01, price), 2)
 
 

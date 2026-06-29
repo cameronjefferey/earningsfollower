@@ -86,6 +86,10 @@ services:
       # market-data sub (auto-falls back to iex if not entitled).
       - key: ALPACA_DATA_FEED
         value: "iex"
+      # Enter an earnings setup when the report is within this many days (wider
+      # = positioned earlier, more IV to sell, more pre-print drift risk).
+      - key: PAPER_ENTRY_WINDOW_DAYS
+        value: "7"
       # Conviction-weighted risk per trade (defaults: high 5% / med 3% / low 1.5%).
       - key: PAPER_RISK_HIGH
         value: "0.05"

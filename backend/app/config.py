@@ -61,8 +61,10 @@ class Settings(BaseSettings):
     paper_max_contracts: int = 25
     # Max simultaneous open paper positions.
     paper_max_open: int = 12
-    # Enter a setup only when earnings is within this many calendar days.
-    paper_entry_window_days: int = 3
+    # Enter a setup only when earnings is within this many calendar days. Wider
+    # gets us positioned earlier (more IV to sell, but more days of directional
+    # drift before the print).
+    paper_entry_window_days: int = 7
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
     # Proactive loss-cutting. Off to start — we exit only after the print and

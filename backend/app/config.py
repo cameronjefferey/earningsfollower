@@ -160,6 +160,23 @@ class Settings(BaseSettings):
     # decays in days, not weeks. OFF by default: flip on only once you've watched
     # the dry-run signal log and are comfortable with what it would have traded.
     paper_reddit_enabled: bool = False
+    # Discovery + velocity source. ApeWisdom is a free, no-auth aggregator that
+    # already crawls the retail subreddits and reports per-ticker mentions plus
+    # the same count 24h ago (a ready-made acceleration signal). It's the
+    # dependable default since Reddit blocks datacenter IPs and now gates app
+    # creation. Direction/sentiment is layered on top (Reddit text when OAuth is
+    # configured, else price momentum). Set False to use only direct Reddit
+    # listing reads (requires working Reddit credentials).
+    reddit_use_apewisdom: bool = True
+    # ApeWisdom filter ("all-stocks" = stocks across all subs; or a single sub
+    # like "wallstreetbets") and how many ~100-name pages to pull.
+    reddit_apewisdom_filter: str = "all-stocks"
+    reddit_apewisdom_pages: int = 2
+    # Momentum fallback for direction when no Reddit text is available: trade the
+    # continuation of the recent move. Lookback in trading days, plus a deadband
+    # under which the move is too flat to call a direction (treated as noise).
+    reddit_momentum_lookback_days: int = 5
+    reddit_momentum_deadband: float = 0.01
     # Which subreddits to monitor (comma-separated; broad retail + ticker chat).
     reddit_subreddits: str = "wallstreetbets,stocks,options,investing,StockMarket"
     # Per-subreddit listings to pull and how deep, each scan. "hot" + "rising"

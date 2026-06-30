@@ -37,10 +37,12 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.clients.apewisdom import ApeWisdomClient
 from app.clients.llm import LLMClient
 from app.clients.reddit import RedditClient
 from app.config import get_settings
 from app.db.models import Company, RedditSignal
+from app.services.prices import load_price_series
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +91,24 @@ class TickerAgg:
     subreddits: set[str] = field(default_factory=set)
 
 
+@dataclass
+class Attention:
+    """Per-ticker attention from ApeWisdom: mentions now vs. 24h ago."""
+
+    ticker: str
+    mentions: int
+    mentions_24h_ago: int
+    upvotes: int
+
+
 def current_reddit_signals(db: Session, *, persist: bool = True) -> list[dict]:
     """Run one scan and return the scored, qualifying signals (also journaled).
 
-    A signal dict mirrors the shape the other strategies emit, so the executor's
-    Reddit scan can treat it uniformly:
+    Discovery + velocity come from ApeWisdom (free, no-auth, not IP-blocked).
+    Direction/sentiment is layered on: Reddit post text via OAuth when available
+    (scored by LLM or keyword heuristic), else the recent price momentum
+    (continuation). A signal dict mirrors the shape the other strategies emit so
+    the executor's Reddit scan can treat it uniformly:
         {ticker, direction, conviction, score, sentiment, mention_count,
          mention_velocity, pump_risk, is_noise, rationale, subreddits, samples,
          scored_by}
@@ -104,41 +119,55 @@ def current_reddit_signals(db: Session, *, persist: bool = True) -> list[dict]:
         logger.info("reddit scan: no tracked tickers yet; nothing to match")
         return []
 
-    aggregates = _collect(settings, known)
-    if not aggregates:
-        return []
-
     today = date.today()
-    baselines = _baselines(db, settings, today)
+    attention = _fetch_apewisdom(settings, known) if settings.reddit_use_apewisdom else {}
+    # Reddit post text is best-effort: it powers true sentiment direction when
+    # OAuth creds are configured, and is the sole source when ApeWisdom is off.
+    # Skip it entirely when ApeWisdom is on but Reddit isn't authenticated — the
+    # public endpoints block datacenter IPs, so hitting them just spams 403s.
+    reddit_authed = bool(settings.reddit_client_id and settings.reddit_client_secret)
+    if reddit_authed or not settings.reddit_use_apewisdom:
+        text_aggs = _collect_text(settings, known)
+    else:
+        text_aggs = {}
 
-    # Rank candidates by raw attention and only score the busiest few (bounds
-    # LLM spend). Velocity + mention gates are applied before scoring.
-    candidates = sorted(
-        aggregates.values(), key=lambda a: a.mention_count, reverse=True
-    )
+    if attention:
+        candidates = _candidates_from_apewisdom(attention, text_aggs, settings)
+    else:
+        # No ApeWisdom: fall back to direct Reddit listing aggregates + DB
+        # baseline velocity (only works with reachable Reddit creds).
+        baselines = _baselines(db, settings, today)
+        candidates = _candidates_from_text(text_aggs, baselines, settings)
+
+    if not candidates:
+        logger.info("reddit scan: no candidates cleared the mention/velocity gates")
+        return []
 
     llm = LLMClient()
     signals: list[dict] = []
     try:
-        scored = 0
-        for agg in candidates:
-            if agg.mention_count < settings.reddit_min_mentions:
-                continue
-            baseline = baselines.get(agg.ticker)
-            velocity = _velocity(agg.mention_count, baseline, settings)
-            if velocity < settings.reddit_min_velocity:
-                continue
-            if scored >= 20:  # hard cap on scoring work per scan
-                break
-            scored += 1
+        for cand in candidates[:20]:  # hard cap on scoring work per scan
+            agg = cand["agg"]
+            velocity = cand["velocity"]
+            mention_count = cand["mention_count"]
 
-            verdict = _score(agg, velocity, llm)
+            if agg is not None and agg.texts:
+                verdict = _score_text(agg, velocity, llm)
+            else:
+                verdict = _score_momentum(db, cand["ticker"], velocity, settings)
+
+            verdict["score"] = round(
+                velocity
+                * abs(verdict.get("sentiment") or 0.0)
+                * math.log1p(mention_count),
+                3,
+            )
             sig = {
-                "ticker": agg.ticker,
-                "mention_count": agg.mention_count,
+                "ticker": cand["ticker"],
+                "mention_count": mention_count,
                 "mention_velocity": round(velocity, 2),
-                "subreddits": sorted(agg.subreddits),
-                "samples": agg.samples[:5],
+                "subreddits": sorted(agg.subreddits) if agg else cand.get("subreddits", []),
+                "samples": (agg.samples[:5] if agg else cand.get("samples", [])),
                 **verdict,
             }
             signals.append(sig)
@@ -151,6 +180,80 @@ def current_reddit_signals(db: Session, *, persist: bool = True) -> list[dict]:
 
     signals.sort(key=lambda s: s.get("score") or 0.0, reverse=True)
     return signals
+
+
+def _fetch_apewisdom(settings, known: set[str]) -> dict[str, Attention]:
+    out: dict[str, Attention] = {}
+    try:
+        with ApeWisdomClient() as ape:
+            rows = ape.rankings(
+                filter_=settings.reddit_apewisdom_filter,
+                pages=settings.reddit_apewisdom_pages,
+            )
+    except Exception as exc:  # noqa: BLE001 - never let the source break the scan
+        logger.warning("ApeWisdom fetch failed: %s", exc)
+        return {}
+    for r in rows:
+        sym = str(r.get("ticker", "")).upper()
+        if not sym or sym not in known:
+            continue
+        out[sym] = Attention(
+            ticker=sym,
+            mentions=int(r.get("mentions") or 0),
+            mentions_24h_ago=int(r.get("mentions_24h_ago") or 0),
+            upvotes=int(r.get("upvotes") or 0),
+        )
+    logger.info("ApeWisdom: %d tracked names with mentions", len(out))
+    return out
+
+
+def _candidates_from_apewisdom(
+    attention: dict[str, Attention],
+    text_aggs: dict[str, TickerAgg],
+    settings,
+) -> list[dict]:
+    """Build scored candidates using ApeWisdom mentions + its own 24h baseline
+    for velocity, attaching Reddit post text for direction when we have it."""
+    cands: list[dict] = []
+    for sym, att in attention.items():
+        if att.mentions < settings.reddit_min_mentions:
+            continue
+        baseline = att.mentions_24h_ago if att.mentions_24h_ago > 0 else None
+        velocity = _velocity(att.mentions, baseline, settings)
+        if velocity < settings.reddit_min_velocity:
+            continue
+        cands.append(
+            {
+                "ticker": sym,
+                "mention_count": att.mentions,
+                "velocity": velocity,
+                "agg": text_aggs.get(sym),
+            }
+        )
+    cands.sort(key=lambda c: c["mention_count"], reverse=True)
+    return cands
+
+
+def _candidates_from_text(
+    text_aggs: dict[str, TickerAgg], baselines: dict[str, float], settings
+) -> list[dict]:
+    cands: list[dict] = []
+    for sym, agg in text_aggs.items():
+        if agg.mention_count < settings.reddit_min_mentions:
+            continue
+        velocity = _velocity(agg.mention_count, baselines.get(sym), settings)
+        if velocity < settings.reddit_min_velocity:
+            continue
+        cands.append(
+            {
+                "ticker": sym,
+                "mention_count": agg.mention_count,
+                "velocity": velocity,
+                "agg": agg,
+            }
+        )
+    cands.sort(key=lambda c: c["mention_count"], reverse=True)
+    return cands
 
 
 def latest_reddit_signal(db: Session, ticker: str) -> RedditSignal | None:
@@ -206,8 +309,12 @@ def _known_tickers(db: Session) -> set[str]:
     return {t.upper() for t in db.scalars(select(Company.ticker)).all()}
 
 
-def _collect(settings, known: set[str]) -> dict[str, TickerAgg]:
-    """Pull listings/comments and aggregate mentions per known ticker."""
+def _collect_text(settings, known: set[str]) -> dict[str, TickerAgg]:
+    """Pull listings/comments and aggregate mentions per known ticker.
+
+    Best-effort: returns whatever Reddit text we can reach (everything when
+    OAuth creds are set; nothing if the public endpoints block us). Used for
+    sentiment direction on top of ApeWisdom's attention numbers."""
     aggregates: dict[str, TickerAgg] = {}
 
     def add(ticker: str, text: str, subreddit: str, permalink: str | None) -> None:
@@ -303,17 +410,78 @@ _LLM_SYSTEM = (
 )
 
 
-def _score(agg: TickerAgg, velocity: float, llm: LLMClient) -> dict:
+def _score_text(agg: TickerAgg, velocity: float, llm: LLMClient) -> dict:
+    """Direction/sentiment from the Reddit post text (LLM if configured, else a
+    keyword heuristic). The caller adds the composite ranking score."""
     verdict = _score_llm(agg, velocity, llm) if llm.enabled else None
     if verdict is None:
         verdict = _score_heuristic(agg, velocity)
-    # Attention-weighted composite score for ranking/sizing, independent of who
-    # produced the verdict.
-    verdict["score"] = round(
-        velocity * abs(verdict.get("sentiment") or 0.0) * math.log1p(agg.mention_count),
-        3,
-    )
     return verdict
+
+
+def _score_momentum(db: Session, ticker: str, velocity: float, settings) -> dict:
+    """Direction fallback when we have no Reddit text: trade the continuation of
+    the recent price move. The attention spike says people are watching; momentum
+    says which way the crowd-fueled move is already going."""
+    series = load_price_series(db, ticker)
+    closes = [c for c in series.close if c]
+    look = settings.reddit_momentum_lookback_days
+    if len(closes) < look + 1:
+        return {
+            "direction": "neutral",
+            "conviction": "low",
+            "sentiment": 0.0,
+            "pump_risk": "low",
+            "is_noise": True,
+            "rationale": "insufficient price history for a momentum read",
+            "scored_by": "momentum",
+        }
+    now_px = closes[-1]
+    past_px = closes[-(look + 1)]
+    ret = (now_px / past_px - 1.0) if past_px else 0.0
+
+    deadband = settings.reddit_momentum_deadband
+    if ret > deadband:
+        direction = "bullish"
+    elif ret < -deadband:
+        direction = "bearish"
+    else:
+        direction = "neutral"
+    is_noise = direction == "neutral"
+
+    # A 10% move over the window is treated as a full-strength sentiment read.
+    sentiment = max(-1.0, min(1.0, ret / 0.10))
+    abs_ret = abs(ret)
+
+    # Pump/late-entry risk: a vertical mention spike on a name that has ALREADY
+    # run hard is where you become exit liquidity.
+    if velocity >= 6 and abs_ret >= 0.15:
+        pump_risk = "high"
+    elif velocity >= 4 or abs_ret >= 0.20:
+        pump_risk = "medium"
+    else:
+        pump_risk = "low"
+
+    if velocity >= 3 and abs_ret >= 0.06:
+        conviction = "high"
+    elif velocity >= 2 and abs_ret >= 0.02:
+        conviction = "medium"
+    else:
+        conviction = "low"
+
+    rationale = (
+        f"No post text; trading momentum continuation: {ret * 100:+.1f}% over "
+        f"{look} trading days on a {velocity:.1f}x mention spike."
+    )
+    return {
+        "direction": direction,
+        "conviction": conviction,
+        "sentiment": round(sentiment, 3),
+        "pump_risk": pump_risk,
+        "is_noise": is_noise,
+        "rationale": rationale,
+        "scored_by": "momentum",
+    }
 
 
 def _score_llm(agg: TickerAgg, velocity: float, llm: LLMClient) -> dict | None:

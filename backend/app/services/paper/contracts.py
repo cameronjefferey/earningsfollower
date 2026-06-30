@@ -53,6 +53,7 @@ def build_trade_spec(
     playbook: dict,
     earnings_date: date,
     risk_budget: float | None = None,
+    min_credit_ratio: float | None = None,
 ) -> tuple[TradeSpec | None, str]:
     """Return (spec, reason). spec is None when we can't responsibly build the
     trade; reason explains why (for logging/journaling).
@@ -60,7 +61,13 @@ def build_trade_spec(
     When ``risk_budget`` (dollars of max loss for one contract) is given and the
     playbook's full-width wings would put a single contract over budget, the
     wings are pulled in to the widest spread whose per-contract risk fits — so
-    pricey / high-IV names size to at least one contract instead of skipping."""
+    pricey / high-IV names size to at least one contract instead of skipping.
+
+    ``min_credit_ratio`` is the reward/risk gate: the minimum credit collected as
+    a fraction of the spread width. Pulling the wings in raises this ratio (the
+    width shrinks faster than the credit), so the same inward walk that fits the
+    budget is used to meet the ratio; if no width can satisfy it we skip the
+    trade rather than book a lopsided max-loss:profit."""
     legs = playbook.get("legs") or []
     if len(legs) < 2:
         return None, "playbook has no defined-risk legs"
@@ -210,9 +217,11 @@ def build_trade_spec(
         return net_credit, width, risk
 
     # Walk from the playbook's intended width inward, taking the widest spread
-    # whose one-contract risk fits the budget (or just the intended width when
-    # there's no budget constraint). Step with a stride so dense chains stay to
-    # a couple dozen quote lookups at most.
+    # whose one-contract risk fits the budget *and* whose credit clears the
+    # reward/risk floor (or just the intended width when neither is constrained).
+    # Narrowing improves both — risk drops and credit/width rises — so the same
+    # inward walk satisfies them together. Step with a stride so dense chains
+    # stay to a couple dozen quote lookups at most.
     kmax = max(call_def or 0, put_def or 0)
     stride = max(1, (kmax + 1) // 24)
     ks = sorted(set(list(range(0, kmax + 1, stride)) + [kmax]))
@@ -227,16 +236,26 @@ def build_trade_spec(
             continue
         net_credit, width, risk = ev
         tightest = (spec_legs, net_credit, width, risk)
-        if risk_budget is None or risk <= risk_budget:
+        within_budget = risk_budget is None or risk <= risk_budget
+        ratio_ok = min_credit_ratio is None or net_credit >= min_credit_ratio * width
+        if within_budget and ratio_ok:
             chosen = (spec_legs, net_credit, width, risk)
             break
 
     if chosen is None:
-        if risk_budget is not None and tightest is not None:
-            return None, (
-                f"spread too wide for budget even at min width "
-                f"(${tightest[3]:.0f}/ct vs ${risk_budget:.0f})"
-            )
+        if tightest is not None:
+            _, tc, tw, tr = tightest
+            if risk_budget is not None and tr > risk_budget:
+                return None, (
+                    f"spread too wide for budget even at min width "
+                    f"(${tr:.0f}/ct vs ${risk_budget:.0f})"
+                )
+            if min_credit_ratio is not None and tw > 0 and tc < min_credit_ratio * tw:
+                return None, (
+                    f"reward/risk too thin even at min width "
+                    f"(credit ${tc:.2f} on ${tw:.0f}-wide = {tc / tw:.0%}, "
+                    f"need {min_credit_ratio:.0%})"
+                )
         return None, "missing live quotes on one or more legs"
 
     spec_legs, net_credit, width, max_risk = chosen

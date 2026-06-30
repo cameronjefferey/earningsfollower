@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.db.models import EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.paper.contracts import TradeSpec, build_trade_spec
+from app.services.paper.risk import defined_risk_max_loss
 from app.services.paper.drift_trader import DriftSpec, build_drift_spec, drift_conviction
 from app.services.paper.reddit_trader import (
     RedditSpec,
@@ -126,6 +127,7 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
                 t.opened_at = datetime.utcnow()
                 if fill:
                     t.entry_credit = abs(fill)
+                    _recompute_max_risk(t)
                 count += 1
             elif state in ("canceled", "expired", "rejected"):
                 t.status = "canceled"
@@ -344,7 +346,11 @@ def _scan_entries(
         risk_frac = settings.paper_risk_fraction(pb["conviction"])
         budget = equity * risk_frac
 
-        spec, reason = build_trade_spec(client, ticker, pb, ev.date, risk_budget=budget)
+        spec, reason = build_trade_spec(
+            client, ticker, pb, ev.date,
+            risk_budget=budget,
+            min_credit_ratio=settings.paper_min_credit_width_ratio,
+        )
         if spec is None:
             skipped.append({"ticker": ticker, "reason": reason})
             continue
@@ -548,6 +554,21 @@ def _marketable_net(
     return round(max(0.01, price), 2)
 
 
+def _recompute_max_risk(trade: PaperTrade) -> None:
+    """Re-derive max_risk from the *actual* booked entry price.
+
+    At record time max_risk is modeled off the mid credit, but the real fill
+    almost always differs. Recomputing here keeps the stored max loss — and the
+    max-profit:max-loss ratio the UI derives from it — consistent with the
+    credit/debit we actually booked (otherwise the card shows max profit from the
+    fill but max loss from the stale model)."""
+    risk = defined_risk_max_loss(
+        trade.strategy, trade.width, trade.entry_credit, trade.contracts
+    )
+    if risk is not None:
+        trade.max_risk = risk
+
+
 def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
     """If the just-submitted entry already filled (marketable orders usually do),
     promote it to open immediately so it's tracked without waiting for the next
@@ -559,6 +580,7 @@ def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
         fill = _to_float(order.get("filled_avg_price"))
         if fill:
             trade.entry_credit = abs(fill)
+            _recompute_max_risk(trade)
         return True
     return False
 

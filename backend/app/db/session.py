@@ -40,6 +40,7 @@ def init_db() -> None:
 
     models.Base.metadata.create_all(bind=engine)
     _ensure_paper_trade_columns()
+    _backfill_paper_trade_max_risk()
 
 
 # Columns added to paper_trades after its initial release. SQLAlchemy's
@@ -75,6 +76,33 @@ def _ensure_paper_trade_columns() -> None:
     with engine.begin() as conn:
         for col, typ in missing.items():
             conn.execute(text(f"ALTER TABLE paper_trades ADD COLUMN {col} {typ}"))
+
+
+def _backfill_paper_trade_max_risk() -> None:
+    """Heal historical paper_trades whose stored max_risk was modeled off the mid
+    credit at record time instead of the actual fill. Idempotent: re-derives each
+    row's max loss from its booked entry price and only writes the ones that
+    disagree, so it's a no-op once corrected (safe to run on every startup)."""
+    import logging
+
+    from app.db.models import PaperTrade
+    from app.services.paper.risk import defined_risk_max_loss
+
+    with SessionLocal() as db:
+        trades = db.query(PaperTrade).all()
+        changed = 0
+        for t in trades:
+            correct = defined_risk_max_loss(
+                t.strategy, t.width, t.entry_credit, t.contracts
+            )
+            if correct is not None and correct != t.max_risk:
+                t.max_risk = correct
+                changed += 1
+        if changed:
+            db.commit()
+            logging.getLogger("earningsfollower").info(
+                "Backfilled max_risk on %d paper trade(s).", changed
+            )
 
 
 def get_db() -> Iterator[Session]:

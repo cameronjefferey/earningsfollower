@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     paper_entry_window_days: int = 7
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
+    # Reward/risk gate: floor on the credit collected as a fraction of the
+    # spread width. A credit spread's max profit is the credit and its max loss
+    # is (width - credit), so a credit/width ratio of r implies a max loss:profit
+    # of (1 - r)/r : 1. The default 0.20 caps that at 4:1 (we won't sell a $5-wide
+    # spread for less than ~$1.00 of credit), which rejects the lopsided 13:1 /
+    # 43:1 setups. The width-fitting search pulls the wings in to try to meet this
+    # before giving up. Raise toward 0.33 to demand the classic "third of width".
+    paper_min_credit_width_ratio: float = 0.20
     # Proactive loss-cutting. Off to start — we exit only after the print and
     # gather data first; flip on once we know stops would have helped. Loss is
     # measured as a fraction of the trade's max risk, evaluated each run (so it's

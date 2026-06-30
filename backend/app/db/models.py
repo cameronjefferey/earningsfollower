@@ -164,8 +164,11 @@ class PaperTrade(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     signal_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
-    # Which strategy placed this: "earnings" (sell-vol around the print) or
-    # "waves" (directional sympathy drift into a peer-driven build-up).
+    # Which strategy placed this:
+    #   "earnings" - sell-vol around the print (IV crush)
+    #   "waves"    - directional sympathy drift into a peer-driven build-up
+    #   "drift"    - post-earnings announcement drift (PEAD)
+    #   "reddit"   - social-attention sentiment from monitoring Reddit
     strategy: Mapped[str] = mapped_column(String(16), default="earnings", index=True)
     ticker: Mapped[str] = mapped_column(String(16), index=True)
     earnings_date: Mapped[date | None] = mapped_column(Date, index=True)
@@ -211,6 +214,44 @@ class PaperTrade(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RedditSignal(Base):
+    """A scored, per-ticker snapshot of Reddit chatter from one scan.
+
+    Every scan journals one row per qualifying ticker so the social signal is
+    fully auditable: how many mentions, how fast they're accelerating, the
+    sentiment verdict and who scored it (LLM vs. heuristic), the pump-risk read,
+    and a few sample permalinks to eyeball the source. The Reddit paper strategy
+    reads the freshest rows to decide what to trade.
+    """
+
+    __tablename__ = "reddit_signals"
+    __table_args__ = (
+        UniqueConstraint("scan_date", "ticker", name="uq_reddit_signal"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_date: Mapped[date] = mapped_column(Date, index=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    mention_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Mentions this scan as a multiple of the ticker's trailing baseline.
+    mention_velocity: Mapped[float | None] = mapped_column(Float)
+    # Composite attention*sentiment score used to rank/size.
+    score: Mapped[float | None] = mapped_column(Float)
+    # Signed mean sentiment in [-1, 1] (positive = bullish chatter).
+    sentiment: Mapped[float | None] = mapped_column(Float)
+    direction: Mapped[str] = mapped_column(String(16), default="neutral")
+    conviction: Mapped[str] = mapped_column(String(16), default="low")
+    pump_risk: Mapped[str] = mapped_column(String(8), default="low")
+    is_noise: Mapped[bool] = mapped_column(Boolean, default=False)
+    scored_by: Mapped[str] = mapped_column(String(16), default="heuristic")
+    rationale: Mapped[str | None] = mapped_column(String(1024))
+    subreddits: Mapped[str | None] = mapped_column(String(256))  # csv
+    samples: Mapped[str | None] = mapped_column(String(1024))    # JSON of permalinks
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
     )
 
 

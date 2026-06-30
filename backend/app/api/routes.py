@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
-from app.services import dashboard, drift, waves
+from app.services import dashboard, drift, reddit_sentiment, waves
 from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
 
@@ -76,6 +76,20 @@ def get_drift(
         "count": len(setups),
         "setups": setups,
     }
+
+
+@router.get("/reddit", tags=["reddit"])
+def get_reddit(
+    refresh: bool = Query(
+        False, description="Run a live scan now (polls Reddit); else read the latest journaled signals"
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    if refresh:
+        signals = reddit_sentiment.current_reddit_signals(db)
+        return {"source": "live", "count": len(signals), "signals": signals}
+    signals = reddit_sentiment.recent_reddit_signals(db)
+    return {"source": "journal", "count": len(signals), "signals": signals}
 
 
 @router.get("/paper", tags=["paper"])

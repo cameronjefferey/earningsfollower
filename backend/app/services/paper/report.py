@@ -40,6 +40,13 @@ def _thesis_headline(t: PaperTrade) -> str | None:
         edge_txt = f"{abs(edge) * 100:.1f}% avg drift" if isinstance(edge, (int, float)) else "post-earnings drift"
         wr_txt = f", {wr * 100:.0f}% of the time" if isinstance(wr, (int, float)) else ""
         return f"Post-earnings drift {dir_word} · {edge_txt}{wr_txt}"
+    if strategy == "reddit":
+        vel = data.get("mention_velocity")
+        mentions = data.get("mention_count")
+        dir_word = "bullish" if t.direction == "bullish" else "bearish"
+        vel_txt = f"{vel:.0f}x" if isinstance(vel, (int, float)) else "spiking"
+        cnt_txt = f"{mentions} mentions" if isinstance(mentions, int) else "Reddit chatter"
+        return f"Reddit {dir_word} · {cnt_txt} at {vel_txt} baseline"
     return data.get("headline")
 
 
@@ -144,6 +151,7 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
         "by_structure": _bucket("structure"),
         "by_direction": _bucket("direction"),
         "by_conviction": _bucket("conviction"),
+        "by_strategy": _bucket("strategy"),
     }
 
     account = None

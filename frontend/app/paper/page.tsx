@@ -38,6 +38,7 @@ const STRATEGY_META: Record<string, { label: string; color: string }> = {
   earnings: { label: "earnings", color: "#2dd4bf" },
   waves: { label: "wave", color: "#b06bff" },
   drift: { label: "drift", color: "#818cf8" },
+  reddit: { label: "reddit", color: "#ff6a3d" },
 };
 
 function strategyMeta(strategy: string | undefined) {
@@ -420,9 +421,11 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
   // debit-spread payoff (one-sided ramp). Waves (single long option) has no
   // spread geometry, so it falls back to the simple summary.
   const g = (trade.strategy ?? "earnings") === "earnings" ? payoffGeometry(trade) : null;
-  // Drift and waves are both directional debit spreads — same payoff geometry.
+  // Drift, waves, and reddit are all directional debit spreads — same payoff.
   const dg =
-    trade.strategy === "drift" || trade.strategy === "waves"
+    trade.strategy === "drift" ||
+    trade.strategy === "waves" ||
+    trade.strategy === "reddit"
       ? driftGeometry(trade)
       : null;
   return (
@@ -578,13 +581,15 @@ export default function PaperPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Paper trader</h1>
         <p className="text-[var(--color-muted)] mt-1 max-w-3xl">
-          An autonomous worker runs three strategies on an Alpaca paper account:{" "}
+          An autonomous worker runs four strategies on one Alpaca paper account:{" "}
           <span className="text-white">earnings</span> (sell rich IV into a print and
           harvest the crush), <span className="text-white">waves</span> (ride a peer-driven
-          drift into a name&apos;s own print), and <span className="text-white">drift</span>{" "}
-          (post-earnings announcement drift via a directional debit spread). Each trade is
-          sized by conviction and journaled with a unique signal id. This is the live
-          scorecard.
+          drift into a name&apos;s own print), <span className="text-white">drift</span>{" "}
+          (post-earnings announcement drift via a directional debit spread), and{" "}
+          <span style={{ color: "#ff6a3d" }}>reddit</span> (social-attention sentiment —
+          monitor Reddit and trade a defined-risk debit spread when chatter on a tracked
+          name spikes with a clear lean). Each trade is sized by conviction and journaled
+          with a unique signal id. This is the live scorecard.
         </p>
       </div>
 
@@ -646,7 +651,8 @@ export default function PaperPage() {
 
       {closed.length ? (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 mt-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 mt-8">
+            <Buckets title="P&L by strategy" data={stats.by_strategy} />
             <Buckets title="P&L by structure" data={stats.by_structure} />
             <Buckets title="P&L by direction" data={stats.by_direction} />
             <Buckets title="P&L by conviction" data={stats.by_conviction} />

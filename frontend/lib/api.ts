@@ -263,9 +263,32 @@ export interface PaperTradeLeg {
   mid: number;
 }
 
+export interface RedditSignal {
+  scan_date: string | null;
+  ticker: string;
+  mention_count: number;
+  mention_velocity: number | null;
+  score: number | null;
+  sentiment: number | null;
+  direction: "bullish" | "bearish" | "neutral";
+  conviction: "low" | "medium" | "high";
+  pump_risk: "low" | "medium" | "high";
+  is_noise: boolean;
+  scored_by: "llm" | "heuristic";
+  rationale: string | null;
+  subreddits: string[];
+  samples: string[];
+}
+
+export interface RedditResponse {
+  source: "live" | "journal";
+  count: number;
+  signals: RedditSignal[];
+}
+
 export interface PaperTrade {
   signal_id: string;
-  strategy: "earnings" | "waves" | "drift";
+  strategy: "earnings" | "waves" | "drift" | "reddit";
   ticker: string;
   structure: string;
   direction: "bearish" | "bullish" | "neutral";
@@ -311,6 +334,7 @@ export interface PaperStats {
   by_structure: Record<string, PaperBucket>;
   by_direction: Record<string, PaperBucket>;
   by_conviction: Record<string, PaperBucket>;
+  by_strategy: Record<string, PaperBucket>;
 }
 
 export interface PaperAccount {
@@ -350,5 +374,7 @@ export const api = {
     ),
   drift: (lookbackDays = 12) =>
     getJSON<DriftResponse>(`/drift?lookback_days=${lookbackDays}`),
+  reddit: (refresh = false) =>
+    getJSON<RedditResponse>(`/reddit?refresh=${refresh}`),
   paper: () => getJSON<PaperResponse>("/paper"),
 };

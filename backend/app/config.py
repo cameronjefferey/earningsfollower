@@ -22,6 +22,26 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     enable_scheduler: bool = True
 
+    # --- Reddit (social sentiment) data --------------------------------------
+    # Reads are best-effort. With a Reddit app (client id + secret) we use the
+    # OAuth app-only token against oauth.reddit.com (higher, saner rate limits);
+    # without one we fall back to the public www.reddit.com/.json endpoints with
+    # a descriptive User-Agent. Create a "script"/"web app" credential at
+    # https://www.reddit.com/prefs/apps. The whole strategy is gated off by
+    # default (see paper_reddit_enabled) so an empty config never trades.
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    reddit_user_agent: str = "earningsfollower/0.1 (reddit-sentiment paper strategy)"
+
+    # --- LLM scorer (optional) ------------------------------------------------
+    # An OpenAI-compatible chat endpoint used to score Reddit chatter into a
+    # structured (direction, conviction, pump_risk, is_noise) verdict. If no key
+    # is set the sentiment service falls back to a transparent keyword heuristic,
+    # so the strategy still runs end-to-end without an LLM bill.
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
+
     # --- Calendar-driven universe --------------------------------------------
     # Beyond the curated themes, screen the whole market: each refresh pulls the
     # earnings calendar for a window and ingests every liquid name reporting in
@@ -132,6 +152,70 @@ class Settings(BaseSettings):
     # the earnings-day pivot (not just grazing it), so intraday noise around the
     # level doesn't whipsaw a fresh entry into a loss.
     paper_drift_stop_buffer: float = 0.015
+
+    # --- Reddit sentiment strategy --------------------------------------------
+    # A fourth, social-attention strategy: monitor Reddit, turn a sustained,
+    # directional spike in chatter about a tradeable name into a defined-risk
+    # debit spread (bull call / bear put), and exit fast — social attention
+    # decays in days, not weeks. OFF by default: flip on only once you've watched
+    # the dry-run signal log and are comfortable with what it would have traded.
+    paper_reddit_enabled: bool = False
+    # Which subreddits to monitor (comma-separated; broad retail + ticker chat).
+    reddit_subreddits: str = "wallstreetbets,stocks,options,investing,StockMarket"
+    # Per-subreddit listings to pull and how deep, each scan. "hot" + "rising"
+    # surface what's gaining attention now; bump posts_limit for more coverage.
+    reddit_listings: str = "hot,rising"
+    reddit_posts_limit: int = 50
+    # Also read the top comments on each scanned post (more signal, more spend).
+    reddit_read_comments: bool = True
+    reddit_comments_limit: int = 20
+    # Gate before a ticker is even scored: it must clear this many distinct
+    # mentions across the scan, AND its mentions must be running at least this
+    # multiple of its trailing baseline (the "velocity" / acceleration guard).
+    reddit_min_mentions: int = 8
+    reddit_min_velocity: float = 2.0
+    # Trailing window (days) used to compute each ticker's mention baseline.
+    reddit_baseline_days: int = 7
+    # Trade filters: require at least this conviction, and refuse anything whose
+    # pump risk is at/above the ceiling (we never want to be late-stage exit
+    # liquidity). is_noise signals are always skipped.
+    reddit_min_conviction: str = "medium"  # low | medium | high
+    reddit_max_pump_risk: str = "medium"   # low | medium | high  (ceiling, inclusive-below)
+    # Max-loss budget per Reddit trade (the net debit), as a fraction of equity,
+    # and a hard cap on simultaneous open Reddit positions. Sized small on
+    # purpose — this is the most speculative book.
+    paper_reddit_risk_frac: float = 0.01
+    paper_reddit_max_open: int = 5
+    # Conviction-weighted risk (fraction of equity) for Reddit trades.
+    paper_reddit_risk_high: float = 0.015
+    paper_reddit_risk_medium: float = 0.01
+    paper_reddit_risk_low: float = 0.005
+    # Exit rules. Attention is short-lived, so hold days are tight. Take profit
+    # once the spread is worth this fraction of its width; stop once it has lost
+    # this fraction of the debit paid; and bail if the chatter reverses/dies.
+    paper_reddit_hold_days: int = 5
+    paper_reddit_take_profit: float = 0.6
+    paper_reddit_stop_frac: float = 0.5
+    # Days out to target for the option expiry (short-dated, but enough time for
+    # the move to play out before theta bites).
+    paper_reddit_min_dte: int = 14
+    paper_reddit_max_dte: int = 45
+
+    def paper_reddit_risk_fraction(self, conviction: str) -> float:
+        """Map a Reddit-signal conviction tier to the fraction of equity to risk."""
+        return {
+            "high": self.paper_reddit_risk_high,
+            "medium": self.paper_reddit_risk_medium,
+            "low": self.paper_reddit_risk_low,
+        }.get(conviction, self.paper_reddit_risk_low)
+
+    @property
+    def reddit_subreddit_list(self) -> list[str]:
+        return [s.strip() for s in self.reddit_subreddits.split(",") if s.strip()]
+
+    @property
+    def reddit_listing_list(self) -> list[str]:
+        return [s.strip() for s in self.reddit_listings.split(",") if s.strip()]
 
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""

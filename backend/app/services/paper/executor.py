@@ -27,7 +27,13 @@ from app.db.models import EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.paper.contracts import TradeSpec, build_trade_spec
 from app.services.paper.drift_trader import DriftSpec, build_drift_spec, drift_conviction
+from app.services.paper.reddit_trader import (
+    RedditSpec,
+    build_reddit_spec,
+    reddit_conviction,
+)
 from app.services.paper.waves_trader import WaveSpec, build_wave_spec, wave_conviction
+from app.services.reddit_sentiment import current_reddit_signals, latest_reddit_signal
 from app.services.waves import current_waves
 
 logger = logging.getLogger(__name__)
@@ -79,11 +85,13 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["closed"] = _manage_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
+        summary["closed"] += _manage_reddit_exits(db, client, settings, dry_run)
         opened, skipped = _scan_entries(db, client, equity, settings, dry_run)
         w_opened, w_skipped = _scan_wave_entries(db, client, equity, settings, dry_run)
         d_opened, d_skipped = _scan_drift_entries(db, client, equity, settings, dry_run)
-        summary["opened"] = opened + w_opened + d_opened
-        summary["skipped"] = skipped + w_skipped + d_skipped
+        r_opened, r_skipped = _scan_reddit_entries(db, client, equity, settings, dry_run)
+        summary["opened"] = opened + w_opened + d_opened + r_opened
+        summary["skipped"] = skipped + w_skipped + d_skipped + r_skipped
     except AlpacaError as e:
         logger.error("Alpaca error during paper run: %s", e)
         summary["status"] = "error"
@@ -234,7 +242,7 @@ def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str |
 def _finalize_pnl(t: PaperTrade) -> None:
     if t.entry_credit is None or t.exit_debit is None or not t.contracts:
         return
-    if (t.strategy or "earnings") in ("waves", "drift"):
+    if (t.strategy or "earnings") in ("waves", "drift", "reddit"):
         # We paid a debit (long option or debit spread): profit = proceeds on
         # close - cost paid at entry. entry_credit holds the debit, exit_debit
         # the close proceeds.
@@ -1151,6 +1159,328 @@ def _record_drift_trade(
 def _next_drift_signal_id(db: Session) -> str:
     stamp = date.today().strftime("%Y%m%d")
     prefix = f"DR-{stamp}-"
+    n = len(
+        db.scalars(
+            select(PaperTrade).where(PaperTrade.signal_id.like(f"{prefix}%"))
+        ).all()
+    )
+    return f"{prefix}{n + 1:03d}"
+
+
+# --- reddit (social sentiment) strategy --------------------------------------
+
+_CONVICTION_RANK = {"low": 0, "medium": 1, "high": 2}
+_PUMP_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _manage_reddit_exits(
+    db: Session, client: AlpacaClient, settings, dry_run: bool
+) -> int:
+    """Close open Reddit debit spreads on a tight time horizon (attention fades),
+    a take-profit (spread near its max width), a stop (gave back the debit), or a
+    sentiment reversal/collapse (the chatter that justified the trade is gone)."""
+    today = date.today()
+    closed = 0
+    trades = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == "reddit", PaperTrade.status == "open"
+        )
+    ).all()
+    for t in trades:
+        legs = json.loads(t.legs or "[]")
+        if len(legs) < 2:
+            continue
+        symbols = [l["symbol"] for l in legs]
+        quotes = client.option_quotes(symbols)
+        if any((quotes.get(s, {}).get("mid") or 0) <= 0 for s in symbols):
+            continue  # can't price the close right now; retry next run
+        # Value of our long debit spread = long leg mid - short leg mid.
+        exit_value = round(
+            sum(quotes[l["symbol"]]["mid"] for l in legs if l["side"] == "buy")
+            - sum(quotes[l["symbol"]]["mid"] for l in legs if l["side"] == "sell"),
+            2,
+        )
+        spot_now = client.stock_price(t.ticker)
+        reason = _reddit_exit_reason(db, t, exit_value, today, settings)
+        if reason is None:
+            continue
+
+        # Close = sell the long leg, buy back the short leg.
+        close_legs = [
+            {
+                "symbol": l["symbol"],
+                "ratio_qty": "1",
+                "side": "buy" if l["side"] == "sell" else "sell",
+                "position_intent": "buy_to_close"
+                if l["side"] == "sell"
+                else "sell_to_close",
+            }
+            for l in legs
+        ]
+        if dry_run:
+            logger.info(
+                "[dry-run] would close reddit %s (%s) at %.2f",
+                t.signal_id, reason, exit_value,
+            )
+            continue
+        limit = _marketable_net(
+            client, close_legs, is_credit=True, mid=exit_value, settings=settings,
+            quotes=quotes, aggressive=False,
+        )
+        try:
+            order = client.submit_mleg(
+                legs=close_legs,
+                qty=t.contracts or 1,
+                limit_price=limit,
+                client_order_id=f"{t.signal_id}-x",
+            )
+        except AlpacaError as e:
+            logger.error("Reddit close failed for %s: %s", t.signal_id, e)
+            continue
+        t.exit_order_id = order.get("id")
+        t.exit_debit = exit_value  # proceeds per share on close
+        t.status = "closing"
+        t.note = reason
+        if spot_now:
+            t.spot_at_exit = round(spot_now, 2)
+            if t.spot_entry:
+                t.realized_move_pct = round(spot_now / t.spot_entry - 1, 4)
+        _finalize_pnl(t)
+        closed += 1
+    if not dry_run:
+        db.commit()
+    return closed
+
+
+def _reddit_exit_reason(
+    db: Session, t: PaperTrade, exit_value: float, today: date, settings
+) -> str | None:
+    # Time exit: social attention is short-lived, so hold days are tight.
+    if t.opened_at and (today - t.opened_at.date()).days >= settings.paper_reddit_hold_days:
+        return "hold window elapsed"
+    # Take-profit: the spread is worth most of its max width.
+    if t.width and exit_value >= settings.paper_reddit_take_profit * t.width:
+        return f"take-profit ({exit_value / t.width:.0%} of width)"
+    # Stop: the spread has given back a chunk of the debit we paid.
+    if t.entry_credit and exit_value <= (1 - settings.paper_reddit_stop_frac) * t.entry_credit:
+        return f"stop ({exit_value / t.entry_credit:.0%} of debit left)"
+    # Sentiment reversal/collapse: don't whipsaw on the entry day — give the
+    # thesis a session — then bail if the freshest signal flipped against us,
+    # went quiet (noise), or fell below the velocity floor.
+    if t.opened_at and t.opened_at.date() >= today:
+        return None
+    sig = latest_reddit_signal(db, t.ticker)
+    if sig is not None and sig.scan_date >= t.opened_at.date():
+        want = "bullish" if t.direction == "bullish" else "bearish"
+        if sig.is_noise or sig.direction != want:
+            return "sentiment reversed/collapsed"
+        if (sig.mention_velocity or 0) < settings.reddit_min_velocity:
+            return "chatter died (velocity below floor)"
+    return None
+
+
+def _scan_reddit_entries(
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+) -> tuple[int, list]:
+    if not settings.paper_reddit_enabled:
+        logger.info("reddit scan: disabled (paper_reddit_enabled=False)")
+        return 0, []
+    try:
+        # persist=False on dry runs: current_reddit_signals commits when it
+        # journals, which would otherwise prematurely persist the other
+        # strategies' preview trades flushed earlier in this same run.
+        signals = current_reddit_signals(db, persist=not dry_run)
+    except Exception as e:  # noqa: BLE001 - never let a signal error break the run
+        logger.warning("reddit signal build failed: %s", e)
+        return 0, []
+    logger.info(
+        "reddit scan: %d signal(s): %s",
+        len(signals),
+        ", ".join(
+            f"{s.get('ticker')}({s.get('direction')},{s.get('conviction')})"
+            for s in signals
+        ) or "none",
+    )
+
+    open_n = len(
+        db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.strategy == "reddit",
+                PaperTrade.status.in_(OPEN_STATES),
+            )
+        ).all()
+    )
+
+    min_conv = _CONVICTION_RANK.get(settings.reddit_min_conviction, 1)
+    max_pump = _PUMP_RANK.get(settings.reddit_max_pump_risk, 1)
+
+    opened = 0
+    skipped: list[dict] = []
+    seen: set[str] = set()
+    for sig in signals:
+        ticker = sig.get("ticker")
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+
+        if open_n + opened >= settings.paper_reddit_max_open:
+            skipped.append({"ticker": ticker, "reason": "max open reddit positions"})
+            continue
+        if sig.get("is_noise"):
+            skipped.append({"ticker": ticker, "reason": "noise (no clear lean)"})
+            continue
+        if sig.get("direction") not in ("bullish", "bearish"):
+            skipped.append({"ticker": ticker, "reason": "no directional lean"})
+            continue
+        if _CONVICTION_RANK.get(sig.get("conviction"), 0) < min_conv:
+            skipped.append(
+                {"ticker": ticker, "reason": f"conviction too low ({sig.get('conviction')})"}
+            )
+            continue
+        # Anti-pump guard: refuse anything at/above the pump-risk ceiling so we're
+        # never late-stage exit liquidity.
+        if _PUMP_RANK.get(sig.get("pump_risk"), 0) > max_pump:
+            skipped.append(
+                {"ticker": ticker, "reason": f"pump risk too high ({sig.get('pump_risk')})"}
+            )
+            continue
+
+        # One open trade per ticker at a time (re-entry allowed after it closes).
+        existing = db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.ticker == ticker,
+                PaperTrade.strategy == "reddit",
+                PaperTrade.status.in_(OPEN_STATES),
+            )
+        ).first()
+        if existing:
+            continue
+
+        risk_frac = settings.paper_reddit_risk_fraction(reddit_conviction(sig))
+        budget = equity * risk_frac
+        spec, reason = build_reddit_spec(client, sig, risk_budget=budget)
+        if spec is None:
+            skipped.append({"ticker": ticker, "reason": reason})
+            continue
+
+        per_contract = spec.net_debit * 100
+        contracts = int(budget // per_contract) if per_contract > 0 else 0
+        contracts = min(contracts, settings.paper_max_contracts)
+        if contracts < 1:
+            skipped.append(
+                {
+                    "ticker": ticker,
+                    "reason": f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
+                }
+            )
+            continue
+
+        trade = _record_reddit_trade(db, sig, spec, contracts, equity)
+        if dry_run:
+            logger.info(
+                "[dry-run] REDDIT %s %s spread x%d @ debit %.2f (%s, %.1fx, %s)",
+                ticker, spec.option_type, contracts, spec.net_debit,
+                sig.get("conviction"), sig.get("mention_velocity") or 0,
+                sig.get("scored_by"),
+            )
+            trade.note = "dry-run (not submitted)"
+            opened += 1
+            continue
+
+        order_legs = [
+            {
+                "symbol": l.symbol,
+                "ratio_qty": "1",
+                "side": l.side,
+                "position_intent": l.position_intent,
+            }
+            for l in spec.legs
+        ]
+        limit = _marketable_net(
+            client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
+        )
+        try:
+            order = client.submit_mleg(
+                legs=order_legs,
+                qty=contracts,
+                limit_price=limit,
+                client_order_id=trade.signal_id,
+            )
+        except AlpacaError as e:
+            logger.error("Reddit order failed for %s: %s", ticker, e)
+            trade.status = "canceled"
+            trade.note = f"submit error: {e}"[:500]
+            skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            continue
+        trade.entry_order_id = order.get("id")
+        _apply_entry_fill(trade, order)
+        opened += 1
+
+    if not dry_run:
+        db.commit()
+    return opened, skipped
+
+
+def _record_reddit_trade(
+    db: Session,
+    sig: dict,
+    spec: RedditSpec,
+    contracts: int,
+    equity: float | None,
+) -> PaperTrade:
+    signal_id = _next_reddit_signal_id(db)
+    bullish = sig.get("direction") == "bullish"
+    thesis = {
+        "sentiment": sig.get("sentiment"),
+        "mention_count": sig.get("mention_count"),
+        "mention_velocity": sig.get("mention_velocity"),
+        "pump_risk": sig.get("pump_risk"),
+        "subreddits": sig.get("subreddits"),
+        "scored_by": sig.get("scored_by"),
+        "rationale": sig.get("rationale"),
+        "samples": (sig.get("samples") or [])[:3],
+    }
+    legs_json = json.dumps(
+        [
+            {
+                "symbol": l.symbol,
+                "type": l.option_type,
+                "side": l.side,
+                "strike": l.strike,
+                "mid": l.mid,
+            }
+            for l in spec.legs
+        ]
+    )
+    trade = PaperTrade(
+        signal_id=signal_id,
+        strategy="reddit",
+        ticker=sig["ticker"],
+        earnings_date=None,  # social signal, not earnings-driven
+        structure="Bull call spread" if bullish else "Bear put spread",
+        direction="bullish" if bullish else "bearish",
+        vol_stance="buy",
+        conviction=reddit_conviction(sig),
+        thesis=json.dumps(thesis)[:2048],
+        status="pending",
+        legs=legs_json[:2048],
+        contracts=contracts,
+        expiration=spec.expiration,
+        width=spec.width,
+        entry_credit=spec.net_debit,  # debit paid (max loss) per share
+        modeled_credit=spec.net_debit,
+        max_risk=round(spec.net_debit * 100 * contracts, 2),
+        spot_entry=spec.spot,
+        equity_at_entry=round(equity, 2) if equity else None,
+    )
+    db.add(trade)
+    db.flush()
+    return trade
+
+
+def _next_reddit_signal_id(db: Session) -> str:
+    stamp = date.today().strftime("%Y%m%d")
+    prefix = f"RS-{stamp}-"
     n = len(
         db.scalars(
             select(PaperTrade).where(PaperTrade.signal_id.like(f"{prefix}%"))

@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     paper_entry_window_days: int = 7
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
+    # Operational override: comma-separated signal ids to force-close on the next
+    # run regardless of the usual exit rules (used to flatten a bad fill without
+    # desyncing the DB — the close still goes through the normal code path). Clear
+    # it once the positions are closed.
+    paper_force_close_ids: str = ""
     # Reward/risk gate: floor on the credit collected as a fraction of the
     # spread width. A credit spread's max profit is the credit and its max loss
     # is (width - credit), so a credit/width ratio of r implies a max loss:profit
@@ -120,22 +125,40 @@ class Settings(BaseSettings):
     # open cron ticks where options can't fill anyway).
     paper_market_hours_only: bool = True
 
-    # --- Waves strategy (directional sympathy drift) --------------------------
-    # A separate, directional strategy: when a peer reports, take a directional
-    # debit spread on a themed name that reports soon, ride the pre-earnings
-    # runup, and exit on an underlying-move bracket or the day before its print.
-    # (A debit spread — not a naked long option — keeps high-priced names like
-    # TSM/ASML affordable on a small budget and caps the risk.)
+    # --- Waves strategy (peer-earnings sympathy ride) -------------------------
+    # A separate, directional strategy: when a tracked peer reports a strong
+    # earnings move, buy a themed name that historically drifts in sympathy, ride
+    # the pop for a couple of days, and get out. This is decoupled from the
+    # target's *own* earnings date — the catalyst is the peer's print, not the
+    # target's — so we enter as early as the peer reports and hold a short, fixed
+    # window. (A debit spread — not a naked long option — keeps high-priced names
+    # like TSM/ASML affordable on a small budget and caps the risk.)
     paper_waves_enabled: bool = True
+    # Only trigger on a peer that reported within this many days (be early: the
+    # sympathy pop is a few-day move right after the peer's print).
+    paper_wave_trigger_max_age_days: int = 2
+    # The peer's own earnings-day move must be at least this big to count as a
+    # catalyst worth riding (a flat print doesn't drag peers).
+    paper_wave_min_trigger_move: float = 0.03
+    # Historical edge is the target's return over this many *trading* days after
+    # the peer's report; it also sets the live hold horizon below.
+    paper_wave_hist_hold_days: int = 3
+    # Fixed hold: exit this many calendar days after entry (≈ a couple trading
+    # days), regardless of the target's own calendar.
+    paper_wave_hold_days: int = 4
+    # Don't hold a directional sympathy trade into the target's *own* print —
+    # bail if its earnings land within this many days of the hold.
+    paper_wave_avoid_earnings_within_days: int = 3
     # Bracket on the *underlying's* move from entry (favorable / adverse).
-    paper_wave_gain_pct: float = 0.10
+    paper_wave_gain_pct: float = 0.08
     paper_wave_loss_pct: float = 0.05
-    # Quality filters on the historical lead-lag before we'll trade a wave.
+    # Quality filters on the historical sympathy edge before we'll trade it.
     paper_wave_min_winrate: float = 0.60
     paper_wave_min_samples: int = 4
-    # Need at least this much runway before the target's own earnings (so there's
-    # room to drift, and the exit-before-print rule leaves a real holding period).
-    paper_wave_min_runway_days: int = 3
+    # Short-dated expiry window for the debit spread (enough time that a few-day
+    # hold isn't eaten by theta, but we're not paying for months of premium).
+    paper_wave_min_dte: int = 14
+    paper_wave_max_dte: int = 45
     # Max-loss budget per wave trade, as a fraction of equity, and a position cap.
     paper_wave_risk_frac: float = 0.02
     paper_wave_max_open: int = 6
@@ -241,6 +264,10 @@ class Settings(BaseSettings):
     @property
     def reddit_listing_list(self) -> list[str]:
         return [s.strip() for s in self.reddit_listings.split(",") if s.strip()]
+
+    @property
+    def paper_force_close_id_set(self) -> set[str]:
+        return {s.strip() for s in self.paper_force_close_ids.split(",") if s.strip()}
 
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""

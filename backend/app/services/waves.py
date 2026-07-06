@@ -40,7 +40,7 @@ class WaveSignal:
     trigger_beat: bool | None
     target: str
     target_name: str | None
-    target_report_date: str
+    target_report_date: str | None
     shared_themes: list[dict]
     direction: str  # "bullish" / "bearish" lean for the target
     expected_runup_pct: float | None
@@ -222,6 +222,187 @@ def current_waves(
                     direction=direction,
                     expected_runup_pct=expected,
                     stats=asdict(stats),
+                )
+            )
+
+    signals.sort(
+        key=lambda s: (s.stats["score"], abs(s.expected_runup_pct or 0)),
+        reverse=True,
+    )
+    return [asdict(s) for s in signals[:limit]]
+
+
+# --- peer-earnings sympathy ride (short, fixed hold) -------------------------
+# Unlike `lead_lag` (which measures the runup all the way to the target's *own*
+# print), this measures the target's return over a short, fixed window right
+# after the peer reports — the "ride the pop for a couple days" edge. It's
+# independent of the target's earnings calendar, so it can fire whenever a peer
+# reports strongly, and it directly matches the short live hold.
+
+
+@dataclass
+class SympathyStats:
+    trigger: str
+    target: str
+    hold_days: int          # trading-day window the edge is measured over
+    sample_size: int
+    avg_return_pct: float | None
+    win_rate: float | None
+    avg_when_trigger_up_pct: float | None
+    avg_when_trigger_down_pct: float | None
+    score: float
+
+
+def sympathy_stats(
+    db: Session, trigger: str, target: str, *, hold_days: int
+) -> SympathyStats:
+    """How the target moved over the `hold_days` trading days following each of
+    the trigger peer's past reports, conditioned on the peer's own reaction."""
+    trigger, target = trigger.upper(), target.upper()
+    target_series = load_price_series(db, target)
+    trigger_reports = _report_dates(db, trigger, past_only=True)
+    trigger_moves = {r.date: r.move_pct for r in compute_reactions(db, trigger)}
+
+    rets: list[float] = []
+    rets_up: list[float] = []
+    rets_down: list[float] = []
+
+    for rp in trigger_reports:
+        start_idx = target_series.index_on_or_after(rp)
+        if start_idx is None:
+            continue
+        end_idx = start_idx + hold_days
+        if end_idx >= len(target_series):
+            continue
+        start_close = target_series.close[start_idx]
+        end_close = target_series.close[end_idx]
+        if not start_close or not end_close:
+            continue
+        ret = end_close / start_close - 1.0
+        rets.append(ret)
+
+        tmove = trigger_moves.get(rp)
+        if tmove is not None:
+            if tmove > 0:
+                rets_up.append(ret)
+            elif tmove < 0:
+                rets_down.append(ret)
+
+    n = len(rets)
+    avg = statistics.fmean(rets) if rets else None
+    win_rate = (sum(1 for r in rets if r > 0) / n) if n else None
+    avg_up = statistics.fmean(rets_up) if rets_up else None
+    avg_down = statistics.fmean(rets_down) if rets_down else None
+
+    confidence = (win_rate or 0) * min(n / 6.0, 1.0)
+    score = abs(avg or 0) * confidence * math.log1p(n)
+
+    return SympathyStats(
+        trigger=trigger,
+        target=target,
+        hold_days=hold_days,
+        sample_size=n,
+        avg_return_pct=_round(avg),
+        win_rate=_round(win_rate),
+        avg_when_trigger_up_pct=_round(avg_up),
+        avg_when_trigger_down_pct=_round(avg_down),
+        score=round(score, 6),
+    )
+
+
+def _next_report_after_today(db: Session, ticker: str) -> date | None:
+    """The target's next scheduled/known report strictly after today, if any."""
+    today = date.today()
+    for d in _report_dates(db, ticker, past_only=False):
+        if d > today:
+            return d
+    return None
+
+
+def current_sympathy_waves(
+    db: Session,
+    *,
+    trigger_max_age_days: int = 2,
+    min_trigger_move: float = 0.03,
+    hold_days: int = 3,
+    limit: int = 40,
+) -> list[dict]:
+    """Live peer-sympathy rides: a tracked peer reported a strong move in the
+    last few days -> surface its themed peers as sympathy buys, with the
+    short-window historical edge. Decoupled from the target's own earnings date.
+    """
+    today = date.today()
+    recent_start = today - timedelta(days=trigger_max_age_days)
+    recent = db.scalars(
+        select(EarningsEvent)
+        .where(EarningsEvent.date >= recent_start, EarningsEvent.date <= today)
+        .order_by(EarningsEvent.date.desc())
+    ).all()
+    if not recent:
+        return []
+
+    trigger_move_cache: dict[str, dict[date, float | None]] = {}
+    signals: list[WaveSignal] = []
+    seen: set[tuple[str, str]] = set()
+
+    for trig_event in recent:
+        trig = trig_event.ticker
+        if trig not in trigger_move_cache:
+            trigger_move_cache[trig] = {
+                r.date: r.move_pct for r in compute_reactions(db, trig)
+            }
+        trig_move = trigger_move_cache[trig].get(trig_event.date)
+        # Require a real catalyst: the peer must have moved enough on its print.
+        if trig_move is None or abs(trig_move) < min_trigger_move:
+            continue
+        trig_beat = _beat(trig_event)
+
+        for target in get_peers(db, trig):
+            key = (trig, target)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            stats = sympathy_stats(db, trig, target, hold_days=hold_days)
+            if stats.sample_size < MIN_SAMPLE or stats.avg_return_pct is None:
+                continue
+
+            # Directional expectation conditioned on how the peer just moved.
+            if trig_move > 0:
+                expected = stats.avg_when_trigger_up_pct
+            else:
+                expected = stats.avg_when_trigger_down_pct
+            if expected is None:
+                expected = stats.avg_return_pct
+
+            direction = "bullish" if (expected or 0) >= 0 else "bearish"
+            target_report = _next_report_after_today(db, target)
+
+            # Shape the signal to match the WaveSignal the trader/executor
+            # already consume (stats keys: win_rate, sample_size, score, ...).
+            stat_dict = {
+                "win_rate": stats.win_rate,
+                "sample_size": stats.sample_size,
+                "score": stats.score,
+                "avg_return_pct": stats.avg_return_pct,
+                "hold_days": stats.hold_days,
+            }
+            signals.append(
+                WaveSignal(
+                    trigger=trig,
+                    trigger_name=_name(db, trig),
+                    trigger_report_date=trig_event.date.isoformat(),
+                    trigger_move_pct=_round(trig_move),
+                    trigger_beat=trig_beat,
+                    target=target,
+                    target_name=_name(db, target),
+                    target_report_date=(
+                        target_report.isoformat() if target_report else None
+                    ),
+                    shared_themes=_shared(db, trig, target),
+                    direction=direction,
+                    expected_runup_pct=expected,
+                    stats=stat_dict,
                 )
             )
 

@@ -1,19 +1,19 @@
 """Build a directional debit spread from a live waves signal.
 
-The waves engine surfaces (trigger, target) pairs where a peer just reported and
-a themed name reports soon, with a historical drift lean. Here we turn the lean
-into a defined-risk trade that rides the *pre-earnings runup*:
+The waves engine surfaces (trigger, target) pairs where a peer just reported a
+strong move and a themed name historically drifts in sympathy. Here we turn the
+lean into a defined-risk trade that rides that sympathy pop for a few days:
 
   - bullish lean -> bull call spread (buy near-the-money call, sell an OTM call)
   - bearish lean -> bear put  spread (buy near-the-money put,  sell an OTM put)
 
 We use a debit spread rather than a naked long option for the same reasons drift
 does: it caps cost, cuts theta drag, and the short leg is placed near the
-expected runup target so we pay only for the move the history predicts. Crucially
+expected move target so we pay only for the move the history predicts. Crucially
 it also makes high-priced names (TSM, ASML, ...) tradeable on a small budget —
 a single ATM call there can cost thousands, but a tight spread fits. The expiry
-is the first one on/after the target's own print, so the option still carries the
-elevated pre-print IV we plan to exit before the report.
+is short-dated (a couple of weeks out) — decoupled from the target's own print —
+so a few-day hold isn't chewed up by theta but we aren't paying for months.
 """
 
 from __future__ import annotations
@@ -50,11 +50,17 @@ def _parse_date(value: str) -> date | None:
 
 
 def build_wave_spec(
-    client: AlpacaClient, signal: dict, target_date: date, risk_budget: float | None = None
+    client: AlpacaClient,
+    signal: dict,
+    risk_budget: float | None = None,
+    *,
+    min_dte: int = 14,
+    max_dte: int = 45,
 ) -> tuple[WaveSpec | None, str]:
     """Return (spec, reason). Picks a near-the-money long leg and an OTM short leg
-    sized to the signal's expected runup, at the first expiry on/after the
-    target's print, priced from live quotes.
+    sized to the signal's expected move, at a short-dated expiry in the
+    ``[min_dte, max_dte]`` window (decoupled from the target's own print), priced
+    from live quotes.
 
     When ``risk_budget`` (dollars of max loss for one contract) is given and the
     full-width spread's debit would exceed it, the short leg is pulled in toward
@@ -71,24 +77,28 @@ def build_wave_spec(
     runup = abs(signal.get("expected_runup_pct") or 0.0)
     target_move = max(runup, MIN_TARGET_MOVE)
 
-    # Chain around the money at the first expiry on/after the print (so it still
-    # carries the pre-print IV).
+    # Chain around the money at a short-dated expiry. We want enough time that a
+    # few-day hold isn't dominated by theta, but not months of premium.
+    today = date.today()
+    window_lo = today + timedelta(days=min_dte)
+    window_hi = today + timedelta(days=max_dte)
     contracts = client.option_contracts(
         target,
-        expiration_gte=target_date.isoformat(),
-        expiration_lte=(target_date + timedelta(days=45)).isoformat(),
+        expiration_gte=window_lo.isoformat(),
+        expiration_lte=window_hi.isoformat(),
         option_type=otype,
         strike_gte=spot * 0.80,
         strike_lte=spot * 1.20,
     )
     if not contracts:
-        return None, "no listed contracts near the money"
+        return None, "no listed contracts near the money in the DTE window"
 
     expiries = sorted(
         {d for c in contracts if (d := _parse_date(c.get("expiration_date", "")))}
     )
-    after = [e for e in expiries if e >= target_date]
-    expiration = after[0] if after else (expiries[-1] if expiries else None)
+    # Prefer the expiry nearest the low end of the window (shortest dated that
+    # still clears min_dte), which keeps premium cheap for a short hold.
+    expiration = expiries[0] if expiries else None
     if expiration is None:
         return None, "could not resolve an expiration"
 

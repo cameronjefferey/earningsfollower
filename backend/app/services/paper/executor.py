@@ -35,7 +35,7 @@ from app.services.paper.reddit_trader import (
 )
 from app.services.paper.waves_trader import WaveSpec, build_wave_spec, wave_conviction
 from app.services.reddit_sentiment import current_reddit_signals, latest_reddit_signal
-from app.services.waves import current_waves
+from app.services.waves import current_sympathy_waves
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +222,10 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
 
 def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str | None:
     """Decide whether (and why) to close an open trade now."""
+    # Operational override: flatten specific signal ids on request (e.g. a bad
+    # fill) through the normal close path so the DB stays consistent.
+    if t.signal_id in settings.paper_force_close_id_set:
+        return "manual close"
     # Planned exit: the print has passed — close to capture the IV crush. We
     # wait until strictly after the earnings date so we don't close ahead of an
     # after-market report on the day itself.
@@ -400,7 +404,8 @@ def _scan_entries(
             for l in spec.legs
         ]
         limit = _marketable_net(
-            client, order_legs, is_credit=True, mid=spec.net_credit, settings=settings
+            client, order_legs, is_credit=True, mid=spec.net_credit, settings=settings,
+            min_credit=settings.paper_min_credit_width_ratio * spec.width,
         )
         try:
             order = client.submit_mleg(
@@ -509,12 +514,22 @@ def _marketable_net(
     settings,
     quotes: dict | None = None,
     aggressive: bool = True,
+    min_credit: float | None = None,
 ) -> float:
     """Marketable net limit price (positive) for a leg set.
 
     ``aggressive`` (entries): price at the *cross* — take the ask on legs we buy
     and hit the bid on legs we sell, plus a small buffer — so a wide/illiquid
     spread actually fills. Getting in is optional, so paying up is fine.
+
+    ``min_credit`` (credit entries only): a hard floor on the credit we'll accept
+    to open. On a wide/illiquid earnings spread the bid collapses toward zero, so
+    crossing all the way to it would sell the spread for pennies — collecting
+    almost no premium against the full width of risk (the "minimum earnings, max
+    loss" trap). We clamp the sell limit to this floor instead; a limit sell only
+    fills at the limit or better, so we either collect an acceptable credit or the
+    order simply doesn't fill (it's a day order — it expires and we retry). Never
+    give the credit away below the reward/risk floor that made the trade worth it.
 
     not ``aggressive`` (exits): price at the **mid** nudged only a buffer toward
     the touch. We already hold the position, so we never cross all the way to a
@@ -525,6 +540,11 @@ def _marketable_net(
     syms = [l["symbol"] for l in legs]
     q = quotes if quotes is not None else client.option_quotes(syms)
     buf = settings.paper_fill_buffer
+
+    def _floor(price: float) -> float:
+        if is_credit and min_credit is not None:
+            price = max(price, min_credit)
+        return round(max(0.01, price), 2)
 
     if not aggressive:
         # Exit: sell a hair below mid (credit) / pay a hair above mid (debit).
@@ -540,18 +560,19 @@ def _marketable_net(
     buy_ask = sum(take(l["symbol"], "ask") for l in legs if l["side"] == "buy")
     sell_bid = sum(take(l["symbol"], "bid") for l in legs if l["side"] == "sell")
     if buy_ask <= 0 and sell_bid <= 0:
-        return round(max(0.01, mid), 2)
+        return _floor(mid)
 
     if not settings.paper_fill_cross:
-        return round(max(0.01, mid), 2)
+        return _floor(mid)
 
     if is_credit:
-        # We sell the package; accept the bid side (minus a buffer) to fill.
+        # We sell the package; accept the bid side (minus a buffer) to fill, but
+        # never below the reward/risk credit floor (see min_credit above).
         price = (sell_bid - buy_ask) - buf
     else:
         # We buy the package; pay the ask side (plus a buffer) to fill.
         price = (buy_ask - sell_bid) + buf
-    return round(max(0.01, price), 2)
+    return _floor(price)
 
 
 def _recompute_max_risk(trade: PaperTrade) -> None:
@@ -598,8 +619,8 @@ def _parse_iso(value) -> date | None:
 def _manage_wave_exits(
     db: Session, client: AlpacaClient, settings, dry_run: bool
 ) -> int:
-    """Close open wave trades on the underlying-move bracket or the day before
-    the target's own earnings (ride the build-up, not the print)."""
+    """Close open wave trades on the fixed short hold, the underlying-move
+    bracket, or (as a safety) the day before the target's own print."""
     today = date.today()
     closed = 0
     trades = db.scalars(
@@ -672,6 +693,10 @@ def _manage_wave_exits(
 
 
 def _wave_exit_reason(t: PaperTrade, spot_now: float | None, today: date, settings) -> str | None:
+    # Fixed short hold: the sympathy pop is a few-day move — take it and leave.
+    if t.opened_at and (today - t.opened_at.date()).days >= settings.paper_wave_hold_days:
+        return "hold window elapsed"
+    # Safety: never ride a directional sympathy trade into the target's OWN print.
     if t.earnings_date and (t.earnings_date - today).days <= 1:
         return "pre-earnings exit"
     if spot_now and t.spot_entry:
@@ -691,7 +716,12 @@ def _scan_wave_entries(
         return 0, []
     today = date.today()
     try:
-        signals = current_waves(db)
+        signals = current_sympathy_waves(
+            db,
+            trigger_max_age_days=settings.paper_wave_trigger_max_age_days,
+            min_trigger_move=settings.paper_wave_min_trigger_move,
+            hold_days=settings.paper_wave_hist_hold_days,
+        )
     except Exception as e:  # noqa: BLE001 - never let a signal error break the run
         logger.warning("waves signal build failed: %s", e)
         return 0, []
@@ -727,26 +757,36 @@ def _scan_wave_entries(
             skipped.append({"ticker": target, "reason": f"too few samples ({n})"})
             continue
 
+        # The catalyst is the peer's print, not the target's — so the target's
+        # own earnings date no longer gates entry. But we won't hold a directional
+        # trade INTO the target's own report, so skip if it lands inside the hold.
         tgt_date = _parse_iso(sig.get("target_report_date"))
-        if tgt_date is None:
-            continue
-        runway = (tgt_date - today).days
-        if runway < settings.paper_wave_min_runway_days:
-            skipped.append({"ticker": target, "reason": f"too close to print ({runway}d)"})
-            continue
+        if tgt_date is not None:
+            days_to_print = (tgt_date - today).days
+            horizon = settings.paper_wave_hold_days + settings.paper_wave_avoid_earnings_within_days
+            if 0 <= days_to_print <= horizon:
+                skipped.append(
+                    {"ticker": target, "reason": f"own print inside the hold ({days_to_print}d)"}
+                )
+                continue
 
+        # One open wave trade per ticker at a time (re-entry allowed once closed).
         existing = db.scalars(
             select(PaperTrade).where(
                 PaperTrade.ticker == target,
-                PaperTrade.earnings_date == tgt_date,
                 PaperTrade.strategy == "waves",
+                PaperTrade.status.in_(OPEN_STATES),
             )
         ).first()
         if existing:
             continue
 
         budget = equity * settings.paper_wave_risk_frac
-        spec, reason = build_wave_spec(client, sig, tgt_date, risk_budget=budget)
+        spec, reason = build_wave_spec(
+            client, sig, risk_budget=budget,
+            min_dte=settings.paper_wave_min_dte,
+            max_dte=settings.paper_wave_max_dte,
+        )
         if spec is None:
             skipped.append({"ticker": target, "reason": reason})
             continue
@@ -811,7 +851,7 @@ def _record_wave_trade(
     db: Session,
     sig: dict,
     spec: WaveSpec,
-    tgt_date: date,
+    tgt_date: date | None,
     contracts: int,
     equity: float | None,
 ) -> PaperTrade:

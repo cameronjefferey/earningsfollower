@@ -203,6 +203,11 @@ class Settings(BaseSettings):
     # like "wallstreetbets") and how many ~100-name pages to pull.
     reddit_apewisdom_filter: str = "all-stocks"
     reddit_apewisdom_pages: int = 2
+    # Per-subreddit ApeWisdom boards to also pull each scan, purely so we can
+    # attribute *which* subreddit(s) a tracked ticker is trending in (the primary
+    # aggregate filter above can't tell us). Used for the scorecard's
+    # by-subreddit breakdown; does not change which tickers qualify to trade.
+    reddit_apewisdom_sub_filters: str = "wallstreetbets,stocks,options,investing,StockMarket"
     # Momentum fallback for direction when no Reddit text is available: trade the
     # continuation of the recent move. Lookback in trading days, plus a deadband
     # under which the move is too flat to call a direction (treated as noise).
@@ -265,6 +270,10 @@ class Settings(BaseSettings):
     @property
     def reddit_subreddit_list(self) -> list[str]:
         return [s.strip() for s in self.reddit_subreddits.split(",") if s.strip()]
+
+    @property
+    def reddit_apewisdom_sub_filter_list(self) -> list[str]:
+        return [s.strip() for s in self.reddit_apewisdom_sub_filters.split(",") if s.strip()]
 
     @property
     def reddit_listing_list(self) -> list[str]:

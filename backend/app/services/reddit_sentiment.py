@@ -93,12 +93,14 @@ class TickerAgg:
 
 @dataclass
 class Attention:
-    """Per-ticker attention from ApeWisdom: mentions now vs. 24h ago."""
+    """Per-ticker attention from ApeWisdom: mentions now vs. 24h ago, plus which
+    monitored subreddits the ticker actually showed up in (for attribution)."""
 
     ticker: str
     mentions: int
     mentions_24h_ago: int
     upvotes: int
+    subreddits: set[str] = field(default_factory=set)
 
 
 def current_reddit_signals(db: Session, *, persist: bool = True) -> list[dict]:
@@ -166,7 +168,9 @@ def current_reddit_signals(db: Session, *, persist: bool = True) -> list[dict]:
                 "ticker": cand["ticker"],
                 "mention_count": mention_count,
                 "mention_velocity": round(velocity, 2),
-                "subreddits": sorted(agg.subreddits) if agg else cand.get("subreddits", []),
+                "subreddits": sorted(
+                    (agg.subreddits if agg else set()) | set(cand.get("subreddits") or [])
+                ),
                 "samples": (agg.samples[:5] if agg else cand.get("samples", [])),
                 **verdict,
             }
@@ -190,19 +194,34 @@ def _fetch_apewisdom(settings, known: set[str]) -> dict[str, Attention]:
                 filter_=settings.reddit_apewisdom_filter,
                 pages=settings.reddit_apewisdom_pages,
             )
+            for r in rows:
+                sym = str(r.get("ticker", "")).upper()
+                if not sym or sym not in known:
+                    continue
+                out[sym] = Attention(
+                    ticker=sym,
+                    mentions=int(r.get("mentions") or 0),
+                    mentions_24h_ago=int(r.get("mentions_24h_ago") or 0),
+                    upvotes=int(r.get("upvotes") or 0),
+                )
+            # Per-subreddit attribution: the primary filter (e.g. all-stocks) is
+            # an aggregate and can't tell us *where* the chatter is, so we also
+            # pull each monitored subreddit's board and tag the tickers we're
+            # already tracking with the subs they surface in. This is what lets
+            # the scorecard score which communities actually pay off.
+            for sub in settings.reddit_apewisdom_sub_filter_list:
+                try:
+                    sub_rows = ape.rankings(filter_=sub, pages=settings.reddit_apewisdom_pages)
+                except Exception as exc:  # noqa: BLE001 - one bad sub can't break the scan
+                    logger.warning("ApeWisdom sub %s failed: %s", sub, exc)
+                    continue
+                for r in sub_rows:
+                    att = out.get(str(r.get("ticker", "")).upper())
+                    if att is not None:
+                        att.subreddits.add(sub)
     except Exception as exc:  # noqa: BLE001 - never let the source break the scan
         logger.warning("ApeWisdom fetch failed: %s", exc)
         return {}
-    for r in rows:
-        sym = str(r.get("ticker", "")).upper()
-        if not sym or sym not in known:
-            continue
-        out[sym] = Attention(
-            ticker=sym,
-            mentions=int(r.get("mentions") or 0),
-            mentions_24h_ago=int(r.get("mentions_24h_ago") or 0),
-            upvotes=int(r.get("upvotes") or 0),
-        )
     logger.info("ApeWisdom: %d tracked names with mentions", len(out))
     return out
 
@@ -228,6 +247,7 @@ def _candidates_from_apewisdom(
                 "mention_count": att.mentions,
                 "velocity": velocity,
                 "agg": text_aggs.get(sym),
+                "subreddits": sorted(att.subreddits),
             }
         )
     cands.sort(key=lambda c: c["mention_count"], reverse=True)

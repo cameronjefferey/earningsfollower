@@ -74,6 +74,25 @@ function Legs({ trade }: { trade: PaperTrade }) {
   );
 }
 
+function Subreddits({ trade }: { trade: PaperTrade }) {
+  if (!trade.subreddits?.length) return null;
+  const reddit = "#ff6a3d";
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] uppercase text-[var(--color-muted)]">from</span>
+      {trade.subreddits.map((s) => (
+        <span
+          key={s}
+          className="text-[11px] rounded-full px-2 py-0.5 border font-mono"
+          style={{ color: reddit, borderColor: `${reddit}55`, backgroundColor: `${reddit}1a` }}
+        >
+          r/{s}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 const PROFIT = "#28c08a";
 const LOSS = "#f0556d";
 
@@ -487,6 +506,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
             </span>
           </div>
           <Legs trade={trade} />
+          <Subreddits trade={trade} />
         </>
       ) : (
         <>
@@ -656,6 +676,7 @@ export default function PaperPage() {
             <Buckets title="P&L by structure" data={stats.by_structure} />
             <Buckets title="P&L by direction" data={stats.by_direction} />
             <Buckets title="P&L by conviction" data={stats.by_conviction} />
+            <Buckets title="P&L by subreddit" data={stats.by_subreddit} />
           </div>
 
           <h2 className="font-semibold mb-3">Closed trades</h2>

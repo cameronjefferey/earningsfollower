@@ -20,10 +20,25 @@ logger = logging.getLogger(__name__)
 DISPLAY_OPEN = ("open", "closing")
 
 
-def _thesis_headline(t: PaperTrade) -> str | None:
+def _thesis_data(t: PaperTrade) -> dict:
     try:
-        data = json.loads(t.thesis or "{}") or {}
+        return json.loads(t.thesis or "{}") or {}
     except json.JSONDecodeError:
+        return {}
+
+
+def _thesis_subreddits(t: PaperTrade) -> list[str]:
+    """Which subreddits the chatter behind a reddit trade came from (empty for
+    other strategies), so we can track which communities actually pay off."""
+    if (t.strategy or "") != "reddit":
+        return []
+    subs = _thesis_data(t).get("subreddits") or []
+    return [str(s) for s in subs if s]
+
+
+def _thesis_headline(t: PaperTrade) -> str | None:
+    data = _thesis_data(t)
+    if not data:
         return None
     strategy = t.strategy or "earnings"
     if strategy == "waves":
@@ -77,6 +92,7 @@ def _trade_dict(t: PaperTrade) -> dict:
         "outcome": t.outcome,
         "legs": json.loads(t.legs or "[]"),
         "thesis": _thesis_headline(t),
+        "subreddits": _thesis_subreddits(t),
         "opened_at": t.opened_at.isoformat() if t.opened_at else None,
         "closed_at": t.closed_at.isoformat() if t.closed_at else None,
         "note": t.note,
@@ -138,6 +154,21 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
                 b["wins"] += 1
         return out
 
+    def _subreddit_bucket() -> dict:
+        """Attribute each closed reddit trade's P&L to every subreddit that fed
+        its signal, so we can see which communities are actually profitable."""
+        out: dict[str, dict] = {}
+        for t in closed:
+            if (t.strategy or "") != "reddit" or t.realized_pnl is None:
+                continue
+            for s in _thesis_subreddits(t):
+                b = out.setdefault(s, {"n": 0, "pnl": 0.0, "wins": 0})
+                b["n"] += 1
+                b["pnl"] = round(b["pnl"] + t.realized_pnl, 2)
+                if t.realized_pnl > 0:
+                    b["wins"] += 1
+        return out
+
     stats = {
         "open_count": len(open_trades),
         "closed_count": len(closed),
@@ -152,6 +183,7 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
         "by_direction": _bucket("direction"),
         "by_conviction": _bucket("conviction"),
         "by_strategy": _bucket("strategy"),
+        "by_subreddit": _subreddit_bucket(),
     }
 
     account = None

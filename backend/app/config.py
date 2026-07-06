@@ -187,10 +187,10 @@ class Settings(BaseSettings):
     # --- Reddit sentiment strategy --------------------------------------------
     # A fourth, social-attention strategy: monitor Reddit, turn a sustained,
     # directional spike in chatter about a tradeable name into a defined-risk
-    # debit spread (bull call / bear put), and exit fast — social attention
-    # decays in days, not weeks. OFF by default: flip on only once you've watched
-    # the dry-run signal log and are comfortable with what it would have traded.
-    paper_reddit_enabled: bool = False
+    # debit spread (bull call / bear put), and exit fast — it's a pure momentum
+    # trade, so we just ride the Reddit wave for a short window and take a quick
+    # gain or a quick loss. Everything below is a knob to tune over time.
+    paper_reddit_enabled: bool = True
     # Discovery + velocity source. ApeWisdom is a free, no-auth aggregator that
     # already crawls the retail subreddits and reports per-ticker mentions plus
     # the same count 24h ago (a ready-made acceleration signal). It's the
@@ -238,12 +238,17 @@ class Settings(BaseSettings):
     paper_reddit_risk_high: float = 0.015
     paper_reddit_risk_medium: float = 0.01
     paper_reddit_risk_low: float = 0.005
-    # Exit rules. Attention is short-lived, so hold days are tight. Take profit
-    # once the spread is worth this fraction of its width; stop once it has lost
-    # this fraction of the debit paid; and bail if the chatter reverses/dies.
-    paper_reddit_hold_days: int = 5
-    paper_reddit_take_profit: float = 0.6
-    paper_reddit_stop_frac: float = 0.5
+    # Exit rules — this is a day-trade-style momentum ride, so keep it tight:
+    #   - hold_days: close after this many days no matter what (0 = exit on the
+    #     very next run, i.e. an intraday scalp; 1 = a ~one-day hold).
+    #   - take_profit: quick gain — close once the spread is worth this fraction
+    #     of its max width.
+    #   - stop_frac: quick loss — close once it has lost this fraction of the
+    #     debit paid.
+    #   - and we still bail if the chatter itself reverses or dies.
+    paper_reddit_hold_days: int = 1
+    paper_reddit_take_profit: float = 0.5
+    paper_reddit_stop_frac: float = 0.4
     # Days out to target for the option expiry (short-dated, but enough time for
     # the move to play out before theta bites).
     paper_reddit_min_dte: int = 14

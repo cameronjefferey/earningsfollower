@@ -312,6 +312,7 @@ export interface PaperTrade {
   outcome: "win" | "loss" | null;
   legs: PaperTradeLeg[];
   thesis: string | null;
+  subreddits: string[];
   opened_at: string | null;
   closed_at: string | null;
   note: string | null;
@@ -335,6 +336,7 @@ export interface PaperStats {
   by_direction: Record<string, PaperBucket>;
   by_conviction: Record<string, PaperBucket>;
   by_strategy: Record<string, PaperBucket>;
+  by_subreddit: Record<string, PaperBucket>;
 }
 
 export interface PaperAccount {

@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     paper_fill_cross: bool = True
     # Pennies past the touch (per share of net price) to ensure the cross fills.
     paper_fill_buffer: float = 0.03
+    # Liquidity guard on entries: skip opening a spread when crossing the market
+    # would give up more than this fraction of the combo's mid value. Wide,
+    # illiquid options (huge bid/ask) bleed far more on the round-trip cross than
+    # the trade can make, so we simply don't trade them.
+    paper_max_cross_slippage_frac: float = 0.25
     # Only place orders when the market is open (skip the overnight and pre/post-
     # open cron ticks where options can't fill anyway).
     paper_market_hours_only: bool = True

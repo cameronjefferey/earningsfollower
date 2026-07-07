@@ -141,6 +141,13 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
                     t.exit_debit = abs(fill)
                 _finalize_pnl(t)
                 count += 1
+            elif state in ("canceled", "expired", "rejected"):
+                # The close (a limit at our target credit) didn't fill and the
+                # day order lapsed. Re-arm to open so the next manage-exits pass
+                # re-attempts — never leave a position stuck mid-close.
+                t.status = "open"
+                t.exit_order_id = None
+                count += 1
     if not dry_run:
         db.commit()
     return count
@@ -407,6 +414,11 @@ def _scan_entries(
             client, order_legs, is_credit=True, mid=spec.net_credit, settings=settings,
             min_credit=settings.paper_min_credit_width_ratio * spec.width,
         )
+        if limit is None:
+            trade.status = "canceled"
+            trade.note = "skipped: market too wide to trade"
+            skipped.append({"ticker": ticker, "reason": "market too wide (illiquid)"})
+            continue
         try:
             order = client.submit_mleg(
                 legs=order_legs,
@@ -515,41 +527,49 @@ def _marketable_net(
     quotes: dict | None = None,
     aggressive: bool = True,
     min_credit: float | None = None,
-) -> float:
-    """Marketable net limit price (positive) for a leg set.
+) -> float | None:
+    """Signed net limit price for a leg set, or ``None`` if the market's too wide
+    to trade (entries only).
+
+    SIGN — Alpaca multi-leg ``limit_price`` is signed: a positive value is a net
+    *debit* (the most we'll pay), a negative value is a net *credit* (the least
+    we'll accept to receive). A net-credit order sent as a *positive* number is
+    read as a debit ceiling — i.e. "pay up to X to close" — which makes it
+    marketable and dumps the spread into the touch (that's what closed a $6-wide
+    spread for $0.35). So every credit order MUST be negative. We compute a
+    positive magnitude below and sign it at the end.
 
     ``aggressive`` (entries): price at the *cross* — take the ask on legs we buy
-    and hit the bid on legs we sell, plus a small buffer — so a wide/illiquid
-    spread actually fills. Getting in is optional, so paying up is fine.
+    and hit the bid on legs we sell, plus a small buffer — so it fills. But if
+    crossing the market gives up more than ``paper_max_cross_slippage_frac`` of
+    the combo's mid value, the market is too wide/illiquid to trade without the
+    round-trip slippage swamping the edge, so we return ``None`` and skip it
+    (this is what bled AMD/MU: $8+-wide legs mean crossing costs more than the
+    spread is worth).
 
-    ``min_credit`` (credit entries only): a hard floor on the credit we'll accept
-    to open. On a wide/illiquid earnings spread the bid collapses toward zero, so
-    crossing all the way to it would sell the spread for pennies — collecting
-    almost no premium against the full width of risk (the "minimum earnings, max
-    loss" trap). We clamp the sell limit to this floor instead; a limit sell only
-    fills at the limit or better, so we either collect an acceptable credit or the
-    order simply doesn't fill (it's a day order — it expires and we retry). Never
-    give the credit away below the reward/risk floor that made the trade worth it.
+    ``min_credit`` (credit entries only): a hard floor on the credit we'll accept.
 
     not ``aggressive`` (exits): price at the **mid** nudged only a buffer toward
-    the touch. We already hold the position, so we never cross all the way to a
-    thin/dead bid and give the spread away (that's what dumped JEF/WOR at $0.01);
-    if it doesn't fill we just retry next run. Sitting in a loser is never worse
-    than selling it for a penny.
+    the touch. We already hold the position, so we never cross to a thin bid and
+    give the spread away; if it doesn't fill we just retry next run.
     """
     syms = [l["symbol"] for l in legs]
     q = quotes if quotes is not None else client.option_quotes(syms)
     buf = settings.paper_fill_buffer
 
-    def _floor(price: float) -> float:
+    def _mag(price: float) -> float:
         if is_credit and min_credit is not None:
             price = max(price, min_credit)
         return round(max(0.01, price), 2)
 
+    def _signed(mag: float) -> float:
+        # + = net debit (we pay), - = net credit (we receive). See SIGN above.
+        return -mag if is_credit else mag
+
     if not aggressive:
         # Exit: sell a hair below mid (credit) / pay a hair above mid (debit).
         price = (mid - buf) if is_credit else (mid + buf)
-        return round(max(0.01, price), 2)
+        return _signed(round(max(0.01, price), 2))
 
     def take(sym: str, want: str) -> float:
         qq = q.get(sym, {})
@@ -560,19 +580,30 @@ def _marketable_net(
     buy_ask = sum(take(l["symbol"], "ask") for l in legs if l["side"] == "buy")
     sell_bid = sum(take(l["symbol"], "bid") for l in legs if l["side"] == "sell")
     if buy_ask <= 0 and sell_bid <= 0:
-        return _floor(mid)
+        return _signed(_mag(mid))
 
     if not settings.paper_fill_cross:
-        return _floor(mid)
+        return _signed(_mag(mid))
 
     if is_credit:
-        # We sell the package; accept the bid side (minus a buffer) to fill, but
-        # never below the reward/risk credit floor (see min_credit above).
-        price = (sell_bid - buy_ask) - buf
+        # We sell the package; accept the bid side (minus a buffer) to fill.
+        cross = (sell_bid - buy_ask) - buf
     else:
         # We buy the package; pay the ask side (plus a buffer) to fill.
-        price = (buy_ask - sell_bid) + buf
-    return _floor(price)
+        cross = (buy_ask - sell_bid) + buf
+
+    # Liquidity guard: refuse to open when crossing gives up too much of the
+    # spread's mid value — a wide market bleeds far more on the round trip than
+    # the trade can make.
+    if mid > 0 and abs(cross - mid) > settings.paper_max_cross_slippage_frac * mid:
+        logger.info(
+            "skip entry: market too wide (mid %.2f vs cross %.2f, slip %.0f%% > %.0f%%)",
+            mid, cross, abs(cross - mid) / mid * 100,
+            settings.paper_max_cross_slippage_frac * 100,
+        )
+        return None
+
+    return _signed(_mag(cross))
 
 
 def _recompute_max_risk(trade: PaperTrade) -> None:
@@ -825,6 +856,11 @@ def _scan_wave_entries(
         limit = _marketable_net(
             client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
         )
+        if limit is None:
+            trade.status = "canceled"
+            trade.note = "skipped: market too wide to trade"
+            skipped.append({"ticker": target, "reason": "market too wide (illiquid)"})
+            continue
         try:
             order = client.submit_mleg(
                 legs=order_legs,
@@ -1137,6 +1173,11 @@ def _scan_drift_entries(
         limit = _marketable_net(
             client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
         )
+        if limit is None:
+            trade.status = "canceled"
+            trade.note = "skipped: market too wide to trade"
+            skipped.append({"ticker": ticker, "reason": "market too wide (illiquid)"})
+            continue
         try:
             order = client.submit_mleg(
                 legs=order_legs,
@@ -1461,6 +1502,11 @@ def _scan_reddit_entries(
         limit = _marketable_net(
             client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
         )
+        if limit is None:
+            trade.status = "canceled"
+            trade.note = "skipped: market too wide to trade"
+            skipped.append({"ticker": ticker, "reason": "market too wide (illiquid)"})
+            continue
         try:
             order = client.submit_mleg(
                 legs=order_legs,

@@ -248,15 +248,16 @@ class Settings(BaseSettings):
     paper_reddit_risk_high: float = 0.015
     paper_reddit_risk_medium: float = 0.01
     paper_reddit_risk_low: float = 0.005
-    # Exit rules — this is a day-trade-style momentum ride, so keep it tight:
-    #   - hold_days: close after this many days no matter what (0 = exit on the
-    #     very next run, i.e. an intraday scalp; 1 = a ~one-day hold).
+    # Exit rules — this is an intraday momentum ride: we're riding the Reddit
+    # wave for a few hours, not holding overnight. Keep it tight:
+    #   - hold_hours: close this many hours after the fill no matter what (the
+    #     cron's ~30-min cadence is the granularity; e.g. 2.0 ≈ a couple hours).
     #   - take_profit: quick gain — close once the spread is worth this fraction
     #     of its max width.
     #   - stop_frac: quick loss — close once it has lost this fraction of the
     #     debit paid.
     #   - and we still bail if the chatter itself reverses or dies.
-    paper_reddit_hold_days: int = 1
+    paper_reddit_hold_hours: float = 2.0
     paper_reddit_take_profit: float = 0.5
     paper_reddit_stop_frac: float = 0.4
     # Days out to target for the option expiry (short-dated, but enough time for

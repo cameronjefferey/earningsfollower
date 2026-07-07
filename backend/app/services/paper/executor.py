@@ -1358,9 +1358,13 @@ def _manage_reddit_exits(
 def _reddit_exit_reason(
     db: Session, t: PaperTrade, exit_value: float, today: date, settings
 ) -> str | None:
-    # Time exit: social attention is short-lived, so hold days are tight.
-    if t.opened_at and (today - t.opened_at.date()).days >= settings.paper_reddit_hold_days:
-        return "hold window elapsed"
+    # Time exit: this is a momentum day-trade — we ride the Reddit wave for only
+    # a few hours and never hold overnight. Measured in hours since the fill (the
+    # cron's ~30-min cadence is the exit granularity).
+    if t.opened_at:
+        held_hours = (datetime.utcnow() - t.opened_at).total_seconds() / 3600.0
+        if held_hours >= settings.paper_reddit_hold_hours:
+            return "hold window elapsed"
     # Take-profit: the spread is worth most of its max width.
     if t.width and exit_value >= settings.paper_reddit_take_profit * t.width:
         return f"take-profit ({exit_value / t.width:.0%} of width)"

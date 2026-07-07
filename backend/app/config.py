@@ -260,6 +260,14 @@ class Settings(BaseSettings):
     paper_reddit_hold_hours: float = 2.0
     paper_reddit_take_profit: float = 0.5
     paper_reddit_stop_frac: float = 0.4
+    # Equity twin: alongside each Reddit options spread, also open a stock
+    # position on the same name/direction (short for bearish), sized to the same
+    # dollar risk as the spread, so we can A/B whether buying the shares beats
+    # the options (the momentum may already be priced into rich option premium).
+    # Exits on the same hold_hours, plus its own %-move take-profit / stop.
+    paper_reddit_equity_twin_enabled: bool = True
+    paper_reddit_equity_take_profit_pct: float = 0.03
+    paper_reddit_equity_stop_pct: float = 0.02
     # Days out to target for the option expiry (short-dated, but enough time for
     # the move to play out before theta bites).
     paper_reddit_min_dte: int = 14

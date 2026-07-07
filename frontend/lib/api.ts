@@ -337,6 +337,7 @@ export interface PaperStats {
   by_conviction: Record<string, PaperBucket>;
   by_strategy: Record<string, PaperBucket>;
   by_subreddit: Record<string, PaperBucket>;
+  by_reddit_instrument: Record<string, PaperBucket>;
 }
 
 export interface PaperAccount {

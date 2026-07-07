@@ -447,6 +447,13 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
     trade.strategy === "reddit"
       ? driftGeometry(trade)
       : null;
+  const isEquity =
+    trade.structure === "Long shares" || trade.structure === "Short shares";
+  const isLongEq = trade.structure === "Long shares";
+  const eqMove =
+    trade.spot_now && trade.spot_entry ? trade.spot_now / trade.spot_entry - 1 : null;
+  // Long gains when price rises; short gains when it falls.
+  const eqGain = eqMove === null ? null : isLongEq ? eqMove : -eqMove;
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2">
@@ -464,7 +471,53 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
       </div>
       <div className="text-sm text-[var(--color-muted)] mt-0.5">{trade.structure}</div>
 
-      {g ? (
+      {isEquity ? (
+        <>
+          {trade.thesis ? (
+            <div className="text-xs mt-1" style={{ color: dir }}>
+              {trade.thesis}
+            </div>
+          ) : null}
+          <div className="grid grid-cols-3 gap-2 mt-3 text-sm">
+            <div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Entry $/sh
+              </div>
+              <div className="font-semibold">
+                ${trade.spot_entry?.toFixed(2) ?? "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Shares
+              </div>
+              <div className="font-semibold">{trade.contracts ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-[var(--color-muted)]">
+                Notional
+              </div>
+              <div className="font-semibold">{money(trade.max_risk)}</div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
+            <span>
+              Now{" "}
+              <span className="text-white">${trade.spot_now?.toFixed(2) ?? "—"}</span>
+            </span>
+            {eqGain !== null ? (
+              <>
+                <span>·</span>
+                <span style={{ color: eqGain >= 0 ? "#34d399" : "#f87171" }}>
+                  {eqGain >= 0 ? "+" : ""}
+                  {(eqGain * 100).toFixed(1)}%
+                </span>
+              </>
+            ) : null}
+          </div>
+          <Subreddits trade={trade} />
+        </>
+      ) : g ? (
         <>
           <RiskBoxes maxProfit={g.maxProfit} maxLoss={g.maxLoss} />
           <PayoffBar g={g} />
@@ -677,6 +730,10 @@ export default function PaperPage() {
             <Buckets title="P&L by direction" data={stats.by_direction} />
             <Buckets title="P&L by conviction" data={stats.by_conviction} />
             <Buckets title="P&L by subreddit" data={stats.by_subreddit} />
+            <Buckets
+              title="Reddit: equity vs options"
+              data={stats.by_reddit_instrument}
+            />
           </div>
 
           <h2 className="font-semibold mb-3">Closed trades</h2>

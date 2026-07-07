@@ -246,6 +246,29 @@ class AlpacaClient:
             body["client_order_id"] = client_order_id
         return self._request("POST", self.trading_base, "/v2/orders", json=body) or {}
 
+    def submit_stock_order(
+        self,
+        symbol: str,
+        qty: int,
+        side: str,                 # "buy" (open long / close short) | "sell" (open short / close long)
+        time_in_force: str = "day",
+        client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a plain equity market order. Used for the Reddit equity twin —
+        stocks are liquid so a market order fills at a fair NBBO price (no wide
+        option spread to cross). A ``sell`` with no long position opens a short;
+        a ``buy`` closes it (Alpaca nets against the existing position)."""
+        body: dict[str, Any] = {
+            "symbol": symbol,
+            "qty": str(qty),
+            "side": side,
+            "type": "market",
+            "time_in_force": time_in_force,
+        }
+        if client_order_id:
+            body["client_order_id"] = client_order_id
+        return self._request("POST", self.trading_base, "/v2/orders", json=body) or {}
+
     def get_order(self, order_id: str) -> dict[str, Any]:
         return (
             self._request("GET", self.trading_base, f"/v2/orders/{order_id}") or {}

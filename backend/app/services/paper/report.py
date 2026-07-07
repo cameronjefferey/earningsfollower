@@ -154,6 +154,21 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
                 b["wins"] += 1
         return out
 
+    def _reddit_instrument_bucket() -> dict:
+        """Split closed Reddit trades into equity vs options so we can see which
+        instrument actually captured the momentum on the same signals."""
+        out: dict[str, dict] = {}
+        for t in closed:
+            if (t.strategy or "") != "reddit" or t.realized_pnl is None:
+                continue
+            k = "equity" if (t.structure or "") in ("Long shares", "Short shares") else "options"
+            b = out.setdefault(k, {"n": 0, "pnl": 0.0, "wins": 0})
+            b["n"] += 1
+            b["pnl"] = round(b["pnl"] + t.realized_pnl, 2)
+            if t.realized_pnl > 0:
+                b["wins"] += 1
+        return out
+
     def _subreddit_bucket() -> dict:
         """Attribute each closed reddit trade's P&L to every subreddit that fed
         its signal, so we can see which communities are actually profitable."""
@@ -184,6 +199,7 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
         "by_conviction": _bucket("conviction"),
         "by_strategy": _bucket("strategy"),
         "by_subreddit": _subreddit_bucket(),
+        "by_reddit_instrument": _reddit_instrument_bucket(),
     }
 
     account = None

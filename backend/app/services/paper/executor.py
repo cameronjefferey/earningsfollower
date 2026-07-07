@@ -47,6 +47,16 @@ SELLING_STRUCTURES = {
 
 OPEN_STATES = ("pending", "open", "closing")
 
+# Equity twin (Reddit): a plain long/short stock position placed alongside the
+# options spread so we can compare which instrument captures the momentum better.
+EQUITY_LONG = "Long shares"
+EQUITY_SHORT = "Short shares"
+EQUITY_STRUCTURES = (EQUITY_LONG, EQUITY_SHORT)
+
+
+def _is_equity(t: PaperTrade) -> bool:
+    return (t.structure or "") in EQUITY_STRUCTURES
+
 
 def run(db: Session, dry_run: bool = False) -> dict:
     settings = get_settings()
@@ -168,6 +178,8 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
         select(PaperTrade).where(PaperTrade.status == "open")
     ).all()
     for t in open_trades:
+        if _is_equity(t):
+            continue  # equity twins are closed by the Reddit manager, not here
         legs = json.loads(t.legs or "[]")
         symbols = [l["symbol"] for l in legs]
         quotes = client.option_quotes(symbols)
@@ -254,6 +266,16 @@ def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str |
 
 def _finalize_pnl(t: PaperTrade) -> None:
     if t.entry_credit is None or t.exit_debit is None or not t.contracts:
+        return
+    if _is_equity(t):
+        # Plain stock: entry_credit/exit_debit hold price per share, contracts
+        # holds share count (no 100x option multiplier). Long profits when the
+        # price rises; a short profits when it falls.
+        if t.structure == EQUITY_LONG:
+            t.realized_pnl = round((t.exit_debit - t.entry_credit) * t.contracts, 2)
+        else:
+            t.realized_pnl = round((t.entry_credit - t.exit_debit) * t.contracts, 2)
+        t.outcome = "win" if t.realized_pnl > 0 else "loss"
         return
     if (t.strategy or "earnings") in ("waves", "drift", "reddit"):
         # We paid a debit (long option or debit spread): profit = proceeds on
@@ -614,6 +636,10 @@ def _recompute_max_risk(trade: PaperTrade) -> None:
     max-profit:max-loss ratio the UI derives from it — consistent with the
     credit/debit we actually booked (otherwise the card shows max profit from the
     fill but max loss from the stale model)."""
+    if _is_equity(trade):
+        # Equity risk is the notional we set at entry (there's no defined-risk
+        # width); leave it as recorded.
+        return
     risk = defined_risk_max_loss(
         trade.strategy, trade.width, trade.entry_credit, trade.contracts
     )
@@ -1290,6 +1316,10 @@ def _manage_reddit_exits(
         )
     ).all()
     for t in trades:
+        if _is_equity(t):
+            if _manage_one_equity_exit(db, client, t, settings, dry_run):
+                closed += 1
+            continue
         legs = json.loads(t.legs or "[]")
         if len(legs) < 2:
             continue
@@ -1386,6 +1416,65 @@ def _reddit_exit_reason(
     return None
 
 
+def _reddit_equity_exit_reason(t: PaperTrade, spot_now: float, settings) -> str | None:
+    """Same intraday clock as the options twin, but the take-profit / stop are
+    measured on the underlying's move (there's no spread to value)."""
+    if t.opened_at:
+        held_hours = (datetime.utcnow() - t.opened_at).total_seconds() / 3600.0
+        if held_hours >= settings.paper_reddit_hold_hours:
+            return "hold window elapsed"
+    if not t.spot_entry:
+        return None
+    move = spot_now / t.spot_entry - 1.0  # signed underlying move since entry
+    tp = settings.paper_reddit_equity_take_profit_pct
+    sl = settings.paper_reddit_equity_stop_pct
+    if t.structure == EQUITY_LONG:
+        if move >= tp:
+            return f"take-profit ({move:+.1%})"
+        if move <= -sl:
+            return f"stop ({move:+.1%})"
+    else:  # short: profits when the stock falls
+        if move <= -tp:
+            return f"take-profit ({move:+.1%})"
+        if move >= sl:
+            return f"stop ({move:+.1%})"
+    return None
+
+
+def _manage_one_equity_exit(
+    db: Session, client: AlpacaClient, t: PaperTrade, settings, dry_run: bool
+) -> bool:
+    """Close a Reddit equity twin (market order) on time or a %-move TP/SL."""
+    spot_now = client.stock_price(t.ticker)
+    if not spot_now:
+        return False
+    reason = _reddit_equity_exit_reason(t, spot_now, settings)
+    if reason is None:
+        return False
+    if dry_run:
+        logger.info("[dry-run] would close equity %s (%s) at %.2f", t.signal_id, reason, spot_now)
+        return False
+    # Close = the opposite side (sell a long, buy back a short).
+    side = "sell" if t.structure == EQUITY_LONG else "buy"
+    try:
+        order = client.submit_stock_order(
+            symbol=t.ticker, qty=t.contracts or 1, side=side,
+            client_order_id=f"{t.signal_id}-x",
+        )
+    except AlpacaError as e:
+        logger.error("Equity close failed for %s: %s", t.signal_id, e)
+        return False
+    t.exit_order_id = order.get("id")
+    t.exit_debit = round(spot_now, 2)  # price per share on close (provisional)
+    t.status = "closing"
+    t.note = reason
+    t.spot_at_exit = round(spot_now, 2)
+    if t.spot_entry:
+        t.realized_move_pct = round(spot_now / t.spot_entry - 1, 4)
+    _finalize_pnl(t)
+    return True
+
+
 def _scan_reddit_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
 ) -> tuple[int, list]:
@@ -1414,6 +1503,7 @@ def _scan_reddit_entries(
             select(PaperTrade).where(
                 PaperTrade.strategy == "reddit",
                 PaperTrade.status.in_(OPEN_STATES),
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
             )
         ).all()
     )
@@ -1458,6 +1548,7 @@ def _scan_reddit_entries(
                 PaperTrade.ticker == ticker,
                 PaperTrade.strategy == "reddit",
                 PaperTrade.status.in_(OPEN_STATES),
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
             )
         ).first()
         if existing:
@@ -1527,10 +1618,79 @@ def _scan_reddit_entries(
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
         opened += 1
+        _open_reddit_equity_twin(db, client, sig, trade, settings)
 
     if not dry_run:
         db.commit()
     return opened, skipped
+
+
+def _open_reddit_equity_twin(
+    db: Session, client: AlpacaClient, sig: dict, option_trade: PaperTrade, settings
+) -> None:
+    """Alongside the options spread, open a stock position on the same name and
+    direction (short for bearish), sized to the same dollar risk as the spread —
+    an A/B twin to see whether the shares beat the options on the same signal."""
+    if not settings.paper_reddit_equity_twin_enabled:
+        return
+    notional = option_trade.max_risk or 0.0
+    spot = option_trade.spot_entry or client.stock_price(option_trade.ticker)
+    if not spot or spot <= 0 or notional <= 0:
+        return
+    shares = int(notional // spot)
+    if shares < 1:
+        return
+
+    bullish = option_trade.direction == "bullish"
+    side = "buy" if bullish else "sell"
+    structure = EQUITY_LONG if bullish else EQUITY_SHORT
+    signal_id = f"{option_trade.signal_id}-EQ"
+
+    thesis = {
+        "instrument": "equity",
+        "twin_of": option_trade.signal_id,
+        "subreddits": sig.get("subreddits"),
+        "mention_velocity": sig.get("mention_velocity"),
+        "mention_count": sig.get("mention_count"),
+    }
+    eq = PaperTrade(
+        signal_id=signal_id,
+        strategy="reddit",
+        ticker=option_trade.ticker,
+        earnings_date=None,
+        structure=structure,
+        direction=option_trade.direction,
+        vol_stance="buy",
+        conviction=option_trade.conviction,
+        thesis=json.dumps(thesis)[:2048],
+        status="pending",
+        legs=None,
+        contracts=shares,
+        expiration=None,
+        width=None,
+        entry_credit=round(spot, 2),      # price per share (provisional; fill overrides)
+        modeled_credit=round(spot, 2),
+        max_risk=round(notional, 2),
+        spot_entry=round(spot, 2),
+        equity_at_entry=option_trade.equity_at_entry,
+    )
+    db.add(eq)
+    db.flush()
+    try:
+        order = client.submit_stock_order(
+            symbol=option_trade.ticker, qty=shares, side=side, client_order_id=signal_id,
+        )
+    except AlpacaError as e:
+        logger.error("Reddit equity twin failed for %s: %s", option_trade.ticker, e)
+        eq.status = "canceled"
+        eq.note = f"submit error: {e}"[:500]
+        return
+    eq.entry_order_id = order.get("id")
+    _apply_entry_fill(eq, order)
+    logger.info(
+        "REDDIT equity twin %s: %s %d %s @ ~%.2f (risk-matched to %s)",
+        signal_id, side, shares, option_trade.ticker, spot, option_trade.signal_id,
+    )
 
 
 def _record_reddit_trade(

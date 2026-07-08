@@ -230,20 +230,28 @@ class Settings(BaseSettings):
     # Gate before a ticker is even scored: it must clear this many distinct
     # mentions across the scan, AND its mentions must be running at least this
     # multiple of its trailing baseline (the "velocity" / acceleration guard).
-    reddit_min_mentions: int = 8
-    reddit_min_velocity: float = 2.0
+    reddit_min_mentions: int = 20
+    reddit_min_velocity: float = 3.0
     # Trailing window (days) used to compute each ticker's mention baseline.
     reddit_baseline_days: int = 7
     # Trade filters: require at least this conviction, and refuse anything whose
     # pump risk is at/above the ceiling (we never want to be late-stage exit
-    # liquidity). is_noise signals are always skipped.
-    reddit_min_conviction: str = "medium"  # low | medium | high
-    reddit_max_pump_risk: str = "medium"   # low | medium | high  (ceiling, inclusive-below)
+    # liquidity). is_noise signals are always skipped. Deliberately strict — this
+    # is a speculative book, so we only want the rare, high-quality signal, not a
+    # trade every day.
+    reddit_min_conviction: str = "high"    # low | medium | high
+    reddit_max_pump_risk: str = "low"      # low | medium | high  (ceiling, inclusive-below)
     # Max-loss budget per Reddit trade (the net debit), as a fraction of equity,
     # and a hard cap on simultaneous open Reddit positions. Sized small on
     # purpose — this is the most speculative book.
     paper_reddit_risk_frac: float = 0.01
-    paper_reddit_max_open: int = 5
+    paper_reddit_max_open: int = 2
+    # Trade-frequency guardrails so we don't churn: cap how many *new* Reddit
+    # option entries we open per calendar day, and refuse to re-enter the same
+    # ticker until this many days after its last entry (avoids chasing the same
+    # name day after day).
+    paper_reddit_max_new_per_day: int = 1
+    paper_reddit_reentry_cooldown_days: int = 5
     # Conviction-weighted risk (fraction of equity) for Reddit trades.
     paper_reddit_risk_high: float = 0.015
     paper_reddit_risk_medium: float = 0.01
@@ -257,7 +265,7 @@ class Settings(BaseSettings):
     #   - stop_frac: quick loss — close once it has lost this fraction of the
     #     debit paid.
     #   - and we still bail if the chatter itself reverses or dies.
-    paper_reddit_hold_hours: float = 2.0
+    paper_reddit_hold_hours: float = 1.0
     paper_reddit_take_profit: float = 0.5
     paper_reddit_stop_frac: float = 0.4
     # Equity twin: alongside each Reddit options spread, also open a stock

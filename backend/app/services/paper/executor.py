@@ -1508,6 +1508,22 @@ def _scan_reddit_entries(
         ).all()
     )
 
+    # How many *new* Reddit option entries we've already opened today, to enforce
+    # the per-day cap (equity twins don't count — they ride an option entry).
+    start_today = datetime.combine(datetime.utcnow().date(), datetime.min.time())
+    new_today = len(
+        db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.strategy == "reddit",
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
+                PaperTrade.created_at >= start_today,
+            )
+        ).all()
+    )
+    cooldown_cutoff = datetime.utcnow() - timedelta(
+        days=settings.paper_reddit_reentry_cooldown_days
+    )
+
     min_conv = _CONVICTION_RANK.get(settings.reddit_min_conviction, 1)
     max_pump = _PUMP_RANK.get(settings.reddit_max_pump_risk, 1)
 
@@ -1522,6 +1538,11 @@ def _scan_reddit_entries(
 
         if open_n + opened >= settings.paper_reddit_max_open:
             skipped.append({"ticker": ticker, "reason": "max open reddit positions"})
+            continue
+        if new_today + opened >= settings.paper_reddit_max_new_per_day:
+            skipped.append(
+                {"ticker": ticker, "reason": "daily new-entry cap reached"}
+            )
             continue
         if sig.get("is_noise"):
             skipped.append({"ticker": ticker, "reason": "noise (no clear lean)"})
@@ -1542,7 +1563,7 @@ def _scan_reddit_entries(
             )
             continue
 
-        # One open trade per ticker at a time (re-entry allowed after it closes).
+        # One open trade per ticker at a time.
         existing = db.scalars(
             select(PaperTrade).where(
                 PaperTrade.ticker == ticker,
@@ -1552,6 +1573,27 @@ def _scan_reddit_entries(
             )
         ).first()
         if existing:
+            continue
+        # Re-entry cooldown: don't chase the same name day after day — require a
+        # gap since its last entry (win or lose) before we trade it again.
+        recent = db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.ticker == ticker,
+                PaperTrade.strategy == "reddit",
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
+                PaperTrade.created_at >= cooldown_cutoff,
+            )
+        ).first()
+        if recent:
+            skipped.append(
+                {
+                    "ticker": ticker,
+                    "reason": (
+                        f"cooldown (traded within "
+                        f"{settings.paper_reddit_reentry_cooldown_days}d)"
+                    ),
+                }
+            )
             continue
 
         risk_frac = settings.paper_reddit_risk_fraction(reddit_conviction(sig))

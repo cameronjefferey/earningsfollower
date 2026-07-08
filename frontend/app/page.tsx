@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, EarningsCard, Theme } from "@/lib/api";
 import { EarningsCardItem } from "@/components/EarningsCardItem";
 import { EmptyState, Spinner } from "@/components/ui";
@@ -68,8 +68,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sector, setSector] = useState<string | null>(null);
-  const [capBucket, setCapBucket] = useState<string | null>(null);
+  const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
+  const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   // Gate data fetching until we've read the inbound deep-link params, so we
   // fetch once with the right state instead of flashing the default view.
   const [paramsReady, setParamsReady] = useState(false);
@@ -158,25 +158,33 @@ export default function DashboardPage() {
     [shownCards]
   );
 
-  // Drop a sector filter that no longer exists in the current window/theme so
-  // switching tabs never strands the user on an empty list.
+  // Drop any selected sectors that no longer exist in the current window/theme
+  // so switching tabs never strands the user on an empty list.
   useEffect(() => {
-    if (sector && !sectors.includes(sector)) setSector(null);
-  }, [sector, sectors]);
+    setSelectedSectors((prev) => {
+      const next = prev.filter((s) => sectors.includes(s));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [sectors]);
 
   // Filter first (sector + market cap), then sort. Sorting happens per-group
   // below for the grouped view, but this is the flat, filtered, sorted list.
+  // An empty selection means "no filter" (match everything); otherwise a card
+  // must match at least one of the selected sectors / cap buckets.
   const filteredCards = useMemo(() => {
-    const bucket = CAP_BUCKETS.find((b) => b.key === capBucket);
+    const buckets = CAP_BUCKETS.filter((b) => selectedCaps.includes(b.key));
     return shownCards.filter((c) => {
-      if (sector && c.sector !== sector) return false;
-      if (bucket) {
+      if (selectedSectors.length && !(c.sector && selectedSectors.includes(c.sector)))
+        return false;
+      if (buckets.length) {
         const cap = c.market_cap;
-        if (cap === null || cap < bucket.min || cap >= bucket.max) return false;
+        const inBucket =
+          cap !== null && buckets.some((b) => cap >= b.min && cap < b.max);
+        if (!inBucket) return false;
       }
       return true;
     });
-  }, [shownCards, sector, capBucket]);
+  }, [shownCards, selectedSectors, selectedCaps]);
 
   const sortedCards = useMemo(
     () => sortCards(filteredCards, sortKey),
@@ -255,27 +263,27 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <FilterSelect
+        <MultiSelect
           label="Sector"
-          value={sector ?? ""}
-          onChange={(v) => setSector(v || null)}
+          selected={selectedSectors}
+          onChange={setSelectedSectors}
           options={sectors.map((s) => ({ value: s, label: s }))}
           allLabel="All sectors"
         />
 
-        <FilterSelect
+        <MultiSelect
           label="Market cap"
-          value={capBucket ?? ""}
-          onChange={(v) => setCapBucket(v || null)}
+          selected={selectedCaps}
+          onChange={setSelectedCaps}
           options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
           allLabel="Any size"
         />
 
-        {(sector || capBucket) && (
+        {(selectedSectors.length > 0 || selectedCaps.length > 0) && (
           <button
             onClick={() => {
-              setSector(null);
-              setCapBucket(null);
+              setSelectedSectors([]);
+              setSelectedCaps([]);
             }}
             className="text-xs font-medium text-[var(--color-accent)] hover:underline"
           >
@@ -418,41 +426,130 @@ function groupByWeek(
     .map((idx) => ({ label: labelFor(idx), cards: buckets[idx] }));
 }
 
-function FilterSelect({
+function MultiSelect({
   label,
-  value,
+  selected,
   onChange,
   options,
   allLabel,
 }: {
   label: string;
-  value: string;
-  onChange: (value: string) => void;
+  selected: string[];
+  onChange: (values: string[]) => void;
   options: { value: string; label: string }[];
   allLabel: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click / Escape so the panel behaves like a native menu.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const toggle = (value: string) =>
+    onChange(
+      selected.includes(value)
+        ? selected.filter((v) => v !== value)
+        : [...selected, value]
+    );
+
+  const count = selected.length;
+  const summary =
+    count === 0
+      ? allLabel
+      : count === 1
+      ? options.find((o) => o.value === selected[0])?.label ?? `${count} selected`
+      : `${count} selected`;
+
   return (
-    <label className="flex items-center gap-2">
+    <div className="flex items-center gap-2">
       <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
         {label}
       </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors bg-[var(--color-panel)] hover:text-white focus:outline-none focus:border-[var(--color-accent)] ${
-          value
-            ? "border-[var(--color-accent)] text-white"
-            : "border-[var(--color-edge)] text-[var(--color-muted)]"
-        }`}
-      >
-        <option value="">{allLabel}</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors bg-[var(--color-panel)] hover:text-white focus:outline-none focus:border-[var(--color-accent)] ${
+            count > 0
+              ? "border-[var(--color-accent)] text-white"
+              : "border-[var(--color-edge)] text-[var(--color-muted)]"
+          }`}
+        >
+          <span className="max-w-[10rem] truncate">{summary}</span>
+          <svg
+            className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+            viewBox="0 0 12 12"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {open && (
+          <div className="absolute left-0 z-20 mt-1 max-h-72 w-56 overflow-auto rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1 shadow-lg">
+            {options.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-[var(--color-muted)]">
+                Nothing to filter
+              </div>
+            ) : (
+              <>
+                {count > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChange([])}
+                    className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-panel-2)]"
+                  >
+                    Clear {label.toLowerCase()}
+                  </button>
+                )}
+                {options.map((o) => {
+                  const checked = selected.includes(o.value);
+                  return (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => toggle(o.value)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-[var(--color-panel-2)]"
+                    >
+                      <span
+                        className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+                          checked
+                            ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+                            : "border-[var(--color-edge)]"
+                        }`}
+                      >
+                        {checked && (
+                          <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
+                            <path d="M2 5 4 7 8 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={checked ? "text-white" : "text-[var(--color-muted)]"}>
+                        {o.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

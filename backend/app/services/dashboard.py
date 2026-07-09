@@ -36,6 +36,12 @@ def date_range_for_window(window: str) -> tuple[date, date]:
     if window == "last_week":
         start = today - timedelta(days=today.weekday() + 7)
         return start, start + timedelta(days=6)
+    if window == "all":
+        # The full span covering every tab (last week through the upcoming
+        # weeks), so the frontend can load once and switch tabs client-side.
+        start = today - timedelta(days=today.weekday() + 7)  # last Monday
+        next_monday = today + timedelta(days=7 - today.weekday())
+        return start, next_monday + timedelta(days=13)
     if window == "upcoming":
         # Future-only: next week plus the week after (two full Mon–Sun weeks).
         # This week's prints live in the "This week" tab, so "Upcoming" never

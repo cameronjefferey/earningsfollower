@@ -5,7 +5,10 @@ import { api, EarningsCard, Theme } from "@/lib/api";
 import { EarningsCardItem } from "@/components/EarningsCardItem";
 import { EmptyState, Spinner } from "@/components/ui";
 
+// The tabs are client-side date filters over a single fetched span, not
+// separate requests — switching is instant and search spans every group.
 const WINDOWS = [
+  { key: "all", label: "All" },
   { key: "today", label: "Today" },
   { key: "week", label: "This week" },
   { key: "last_week", label: "Last week" },
@@ -33,12 +36,14 @@ const CAP_BUCKETS: { key: string; label: string; min: number; max: number }[] = 
 // vocabulary. These maps translate to/from our internal window + theme keys.
 // Keep these slugs stable — they are a published interface.
 const TAB_FROM_SLUG: Record<string, string> = {
+  all: "all",
   today: "today",
   "this-week": "week",
   "last-week": "last_week",
   upcoming: "upcoming",
 };
 const TAB_TO_SLUG: Record<string, string> = {
+  all: "all",
   today: "today",
   week: "this-week",
   last_week: "last-week",
@@ -99,11 +104,11 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Symbol focus wins over theme: when a symbol is requested we fetch the
-  // whole window (no theme filter) so the ticker can be found regardless.
-  // We key the fetch off whether a symbol is focused (a boolean), not its exact
-  // text, so typing in the search box narrows the already-loaded window client
-  // side instead of refetching on every keystroke.
+  // Fetch the whole span ("all") once — every tab is then a client-side date
+  // filter over this set, so switching tabs is instant and search spans them
+  // all. Only theme (server-filtered) and focus (ignores theme to find any
+  // ticker) trigger a refetch; the window tab never does. Keying off hasFocus
+  // (a boolean) means typing in the search box doesn't refetch per keystroke.
   const hasFocus = Boolean(focusSymbol);
   useEffect(() => {
     if (!paramsReady) return;
@@ -111,11 +116,11 @@ export default function DashboardPage() {
     setError(null);
     const themeArg = hasFocus ? undefined : theme ?? undefined;
     api
-      .earnings(windowKey, themeArg)
+      .earnings("all", themeArg)
       .then((r) => setCards(r.cards))
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [paramsReady, windowKey, theme, hasFocus]);
+  }, [paramsReady, theme, hasFocus]);
 
   // Mirror UI state back into the URL so links are shareable both directions.
   // Preserves any unrelated params (e.g. ref=happytrader) for attribution.
@@ -144,15 +149,26 @@ export default function DashboardPage() {
     setFocusSymbol(null);
   };
 
-  // Substring match so the search box narrows as you type (e.g. "NV" → NVDA),
-  // while a full ticker from a deep-link still resolves to just that name.
+  // The selected tab is a client-side date filter over the loaded span. "all"
+  // (r === null) applies no date restriction. Cards carry ISO date strings, so
+  // we compare lexicographically against the ISO range bounds.
+  const windowCards = useMemo(() => {
+    const r = windowRange(windowKey);
+    if (!r) return cards;
+    const [start, end] = r;
+    return cards.filter((c) => c.date >= start && c.date <= end);
+  }, [cards, windowKey]);
+
+  // A symbol search spans every tab: match against the full loaded span, not
+  // just the current window. Substring so it narrows as you type (e.g. "NV" →
+  // NVDA); a full ticker from a deep-link still resolves to just that name.
   const focusedCards = focusSymbol
     ? cards.filter((c) => c.ticker.toUpperCase().includes(focusSymbol))
-    : cards;
+    : windowCards;
   const symbolMissing = Boolean(focusSymbol) && focusedCards.length === 0;
-  // If the focused symbol has no report in this window, fall back to the full
-  // (unfiltered) calendar rather than showing an empty/error state.
-  const shownCards = symbolMissing ? cards : focusedCards;
+  // If the search matches nothing anywhere, fall back to the current tab's
+  // cards rather than showing an empty/error state.
+  const shownCards = symbolMissing ? windowCards : focusedCards;
 
   // Sector list is derived from what's actually in this window so we never
   // offer a filter that would return nothing.
@@ -197,15 +213,17 @@ export default function DashboardPage() {
     [filteredCards, sortKey]
   );
 
+  // Group by week for the broad views ("Upcoming" and "All"), but not while a
+  // symbol search is active — search results are a flat cross-tab list.
   const weekGroups = useMemo(
     () =>
-      windowKey === "upcoming"
+      !focusSymbol && (windowKey === "upcoming" || windowKey === "all")
         ? groupByWeek(filteredCards).map((g) => ({
             ...g,
             cards: sortCards(g.cards, sortKey),
           }))
         : null,
-    [windowKey, filteredCards, sortKey]
+    [windowKey, focusSymbol, filteredCards, sortKey]
   );
 
   return (
@@ -338,14 +356,15 @@ export default function DashboardPage() {
           <span className="text-[var(--color-muted)]">
             {symbolMissing ? (
               <>
-                No upcoming earnings for{" "}
-                <span className="font-semibold text-white">{focusSymbol}</span> in this
-                window — showing the full calendar.
+                No earnings for{" "}
+                <span className="font-semibold text-white">{focusSymbol}</span> in the
+                loaded calendar range.
               </>
             ) : (
               <>
-                Focused on{" "}
-                <span className="font-semibold text-white">{focusSymbol}</span>
+                Showing{" "}
+                <span className="font-semibold text-white">{focusSymbol}</span> across all
+                tabs
               </>
             )}
           </span>
@@ -429,10 +448,11 @@ function sortCards(cards: EarningsCard[], sortKey: SortKey): EarningsCard[] {
   });
 }
 
-// Bucket upcoming cards by calendar week relative to today. Week 0 = "This
-// week", week 1 = "Next week", and every later week gets its own group labeled
-// by its Monday ("Week of Jul 20") so a big backlog stays scannable instead of
-// collapsing into one giant "Later" pile. Weeks start Monday; empties dropped.
+// Bucket cards by calendar week relative to today. Week -1 = "Last week"
+// (the "All" view reaches into the past), 0 = "This week", 1 = "Next week",
+// and every other week gets its own group labeled by its Monday ("Week of Jul
+// 20") so a big backlog stays scannable instead of collapsing into one giant
+// pile. Weeks start Monday; empty weeks are dropped.
 function groupByWeek(
   cards: EarningsCard[]
 ): { label: string; cards: EarningsCard[] }[] {
@@ -446,11 +466,12 @@ function groupByWeek(
   for (const c of cards) {
     const d = new Date(`${c.date}T00:00:00`);
     const diffDays = Math.floor((d.getTime() - weekStart.getTime()) / 86400000);
-    const idx = Math.max(0, Math.floor(diffDays / 7));
+    const idx = Math.floor(diffDays / 7);
     (buckets[idx] ??= []).push(c);
   }
 
   const labelFor = (idx: number) => {
+    if (idx === -1) return "Last week";
     if (idx === 0) return "This week";
     if (idx === 1) return "Next week";
     const monday = new Date(weekStart);
@@ -465,6 +486,42 @@ function groupByWeek(
     .map(Number)
     .sort((a, b) => a - b)
     .map((idx) => ({ label: labelFor(idx), cards: buckets[idx] }));
+}
+
+// Client-side mirror of the backend's date_range_for_window, so the window
+// tabs filter the already-loaded span without a refetch. Returns ISO date
+// bounds [start, end] (inclusive), or null for "all" (no date restriction).
+// Weeks start Monday, matching the backend.
+function windowRange(key: string): [string, string] | null {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = (today.getDay() + 6) % 7; // Monday = 0
+  const shift = (base: Date, days: number) => {
+    const d = new Date(base);
+    d.setDate(base.getDate() + days);
+    return d;
+  };
+  if (key === "today") return [isoDate(today), isoDate(today)];
+  if (key === "week") {
+    const s = shift(today, -dow);
+    return [isoDate(s), isoDate(shift(s, 6))];
+  }
+  if (key === "last_week") {
+    const s = shift(today, -dow - 7);
+    return [isoDate(s), isoDate(shift(s, 6))];
+  }
+  if (key === "upcoming") {
+    const nextMonday = shift(today, 7 - dow);
+    return [isoDate(nextMonday), isoDate(shift(nextMonday, 13))];
+  }
+  return null; // "all"
+}
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function MultiSelect({

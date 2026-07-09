@@ -551,6 +551,29 @@ def _to_float(value) -> float | None:
         return None
 
 
+def _spread_intrinsic(legs: list[dict], spot: float | None) -> float | None:
+    """Intrinsic value (per share) of the held leg package at ``spot``: the sum
+    of each leg's intrinsic value, signed +buy / -sell. For a long debit spread
+    this is >= 0 and is the floor price the position is worth right now (a
+    market can't rationally pay less to take it off you). Returns None if we
+    can't price it (missing spot/strike), so callers fall back to no floor."""
+    if not spot:
+        return None
+    total = 0.0
+    for l in legs:
+        strike = l.get("strike")
+        if strike is None:
+            return None
+        if l.get("type") == "call":
+            iv = max(spot - strike, 0.0)
+        elif l.get("type") == "put":
+            iv = max(strike - spot, 0.0)
+        else:
+            return None
+        total += iv if l.get("side") == "buy" else -iv
+    return round(total, 2)
+
+
 def _marketable_net(
     client: AlpacaClient,
     legs: list[dict],
@@ -560,6 +583,7 @@ def _marketable_net(
     quotes: dict | None = None,
     aggressive: bool = True,
     min_credit: float | None = None,
+    max_debit: float | None = None,
 ) -> float | None:
     """Signed net limit price for a leg set, or ``None`` if the market's too wide
     to trade (entries only).
@@ -580,11 +604,17 @@ def _marketable_net(
     (this is what bled AMD/MU: $8+-wide legs mean crossing costs more than the
     spread is worth).
 
-    ``min_credit`` (credit entries only): a hard floor on the credit we'll accept.
+    ``min_credit`` (credit orders): a hard floor on the credit we'll accept. On
+    a credit *exit* (selling a debit spread we own) pass the spread's intrinsic
+    value here so a stale/wide book can never fill us below intrinsic — the bug
+    that closed an in-the-money 85/90 spread for $0.70. ``max_debit`` is the
+    symmetric ceiling for debit exits (never pay more than the spread is worth).
 
     not ``aggressive`` (exits): price at the **mid** nudged only a buffer toward
-    the touch. We already hold the position, so we never cross to a thin bid and
-    give the spread away; if it doesn't fill we just retry next run.
+    the touch, then clamped by the intrinsic floor/ceiling above. We already
+    hold the position, so we never cross to a thin bid and give the spread away;
+    if it doesn't fill (e.g. the book won't meet intrinsic) we just retry next
+    run, and a defined-risk spread settles at intrinsic by expiry anyway.
     """
     syms = [l["symbol"] for l in legs]
     q = quotes if quotes is not None else client.option_quotes(syms)
@@ -601,7 +631,16 @@ def _marketable_net(
 
     if not aggressive:
         # Exit: sell a hair below mid (credit) / pay a hair above mid (debit).
-        price = (mid - buf) if is_credit else (mid + buf)
+        if is_credit:
+            price = mid - buf
+            # Never sell the spread for less than it's intrinsically worth.
+            if min_credit is not None:
+                price = max(price, min_credit)
+        else:
+            price = mid + buf
+            # Never pay more than the spread can possibly be worth.
+            if max_debit is not None:
+                price = min(price, max_debit)
         return _signed(round(max(0.01, price), 2))
 
     def take(sym: str, want: str) -> float:
@@ -734,6 +773,7 @@ def _manage_wave_exits(
         limit = _marketable_net(
             client, close_legs, is_credit=True, mid=exit_value, settings=settings,
             quotes=quotes, aggressive=False,
+            min_credit=_spread_intrinsic(legs, spot_now),
         )
         try:
             order = client.submit_mleg(
@@ -1046,6 +1086,7 @@ def _manage_drift_exits(
         limit = _marketable_net(
             client, close_legs, is_credit=True, mid=exit_value, settings=settings,
             quotes=quotes, aggressive=False,
+            min_credit=_spread_intrinsic(legs, spot_now),
         )
         try:
             order = client.submit_mleg(
@@ -1370,6 +1411,7 @@ def _manage_reddit_exits(
         limit = _marketable_net(
             client, close_legs, is_credit=True, mid=exit_value, settings=settings,
             quotes=quotes, aggressive=False,
+            min_credit=_spread_intrinsic(legs, spot_now),
         )
         try:
             order = client.submit_mleg(

@@ -104,23 +104,20 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Fetch the whole span ("all") once — every tab is then a client-side date
-  // filter over this set, so switching tabs is instant and search spans them
-  // all. Only theme (server-filtered) and focus (ignores theme to find any
-  // ticker) trigger a refetch; the window tab never does. Keying off hasFocus
-  // (a boolean) means typing in the search box doesn't refetch per keystroke.
-  const hasFocus = Boolean(focusSymbol);
+  // Fetch the whole, unfiltered span ("all") exactly once. Window, theme,
+  // sector, cap and symbol search are all applied client-side over this set,
+  // so none of them trigger a network request — switching tabs, picking a
+  // theme, and searching are all instant with no loading spinner.
   useEffect(() => {
     if (!paramsReady) return;
     setLoading(true);
     setError(null);
-    const themeArg = hasFocus ? undefined : theme ?? undefined;
     api
-      .earnings("all", themeArg)
+      .earnings("all")
       .then((r) => setCards(r.cards))
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [paramsReady, theme, hasFocus]);
+  }, [paramsReady]);
 
   // Mirror UI state back into the URL so links are shareable both directions.
   // Preserves any unrelated params (e.g. ref=happytrader) for attribution.
@@ -149,19 +146,28 @@ export default function DashboardPage() {
     setFocusSymbol(null);
   };
 
+  // Theme is a client-side filter (cards carry their theme memberships). A
+  // symbol search ignores the theme so any ticker is findable regardless of
+  // the selected theme.
+  const themeCards = useMemo(() => {
+    if (!theme || focusSymbol) return cards;
+    return cards.filter((c) => c.themes.some((t) => t.key === theme));
+  }, [cards, theme, focusSymbol]);
+
   // The selected tab is a client-side date filter over the loaded span. "all"
   // (r === null) applies no date restriction. Cards carry ISO date strings, so
   // we compare lexicographically against the ISO range bounds.
   const windowCards = useMemo(() => {
     const r = windowRange(windowKey);
-    if (!r) return cards;
+    if (!r) return themeCards;
     const [start, end] = r;
-    return cards.filter((c) => c.date >= start && c.date <= end);
-  }, [cards, windowKey]);
+    return themeCards.filter((c) => c.date >= start && c.date <= end);
+  }, [themeCards, windowKey]);
 
-  // A symbol search spans every tab: match against the full loaded span, not
-  // just the current window. Substring so it narrows as you type (e.g. "NV" →
-  // NVDA); a full ticker from a deep-link still resolves to just that name.
+  // A symbol search spans every tab and theme: match against the full loaded
+  // span, not just the current window. Substring so it narrows as you type
+  // (e.g. "NV" → NVDA); a full ticker from a deep-link still resolves to just
+  // that name.
   const focusedCards = focusSymbol
     ? cards.filter((c) => c.ticker.toUpperCase().includes(focusSymbol))
     : windowCards;

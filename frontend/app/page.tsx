@@ -101,17 +101,21 @@ export default function DashboardPage() {
 
   // Symbol focus wins over theme: when a symbol is requested we fetch the
   // whole window (no theme filter) so the ticker can be found regardless.
+  // We key the fetch off whether a symbol is focused (a boolean), not its exact
+  // text, so typing in the search box narrows the already-loaded window client
+  // side instead of refetching on every keystroke.
+  const hasFocus = Boolean(focusSymbol);
   useEffect(() => {
     if (!paramsReady) return;
     setLoading(true);
     setError(null);
-    const themeArg = focusSymbol ? undefined : theme ?? undefined;
+    const themeArg = hasFocus ? undefined : theme ?? undefined;
     api
       .earnings(windowKey, themeArg)
       .then((r) => setCards(r.cards))
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [paramsReady, windowKey, theme, focusSymbol]);
+  }, [paramsReady, windowKey, theme, hasFocus]);
 
   // Mirror UI state back into the URL so links are shareable both directions.
   // Preserves any unrelated params (e.g. ref=happytrader) for attribution.
@@ -140,8 +144,10 @@ export default function DashboardPage() {
     setFocusSymbol(null);
   };
 
+  // Substring match so the search box narrows as you type (e.g. "NV" → NVDA),
+  // while a full ticker from a deep-link still resolves to just that name.
   const focusedCards = focusSymbol
-    ? cards.filter((c) => c.ticker.toUpperCase() === focusSymbol)
+    ? cards.filter((c) => c.ticker.toUpperCase().includes(focusSymbol))
     : cards;
   const symbolMissing = Boolean(focusSymbol) && focusedCards.length === 0;
   // If the focused symbol has no report in this window, fall back to the full
@@ -242,6 +248,41 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-6">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+            Symbol
+          </span>
+          <div className="relative">
+            <input
+              type="text"
+              value={focusSymbol ?? ""}
+              onChange={(e) =>
+                setFocusSymbol(
+                  e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
+                )
+              }
+              placeholder="Search ticker"
+              spellCheck={false}
+              autoCapitalize="characters"
+              className={`w-36 rounded-lg border bg-[var(--color-panel)] py-1 pl-2.5 pr-6 text-xs font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] ${
+                focusSymbol ? "border-[var(--color-accent)]" : "border-[var(--color-edge)]"
+              }`}
+            />
+            {focusSymbol && (
+              <button
+                type="button"
+                onClick={() => setFocusSymbol(null)}
+                aria-label="Clear symbol search"
+                className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
+              >
+                <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
+                  <path d="M2 2 8 8 M8 2 2 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
             Sort

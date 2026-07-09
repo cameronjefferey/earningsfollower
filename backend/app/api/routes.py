@@ -14,7 +14,7 @@ from app.services.paper import report as paper_report
 
 router = APIRouter()
 
-WINDOWS = {"today", "week", "last_week", "upcoming", "around"}
+WINDOWS = {"all", "today", "week", "last_week", "upcoming", "around"}
 
 
 @router.get("/themes", tags=["reference"])
@@ -24,7 +24,7 @@ def get_themes(db: Session = Depends(get_db)) -> list[dict]:
 
 @router.get("/earnings", tags=["earnings"])
 def get_earnings(
-    window: str = Query("week", description="today|week|last_week|upcoming|around"),
+    window: str = Query("week", description="all|today|week|last_week|upcoming|around"),
     theme: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> dict:

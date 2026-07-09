@@ -126,6 +126,31 @@ class Settings(BaseSettings):
     # illiquid options (huge bid/ask) bleed far more on the round-trip cross than
     # the trade can make, so we simply don't trade them.
     paper_max_cross_slippage_frac: float = 0.25
+    # --- Fair-trade economics gate (app/services/paper/economics.py) ----------
+    # Every entry is checked at its *executable* price (the marketable-cross
+    # limit, re-checked again on the actual fill), never the modeled mid -- the
+    # mid/fill gap (modeled 12.92, filled 21.55) is what let structurally
+    # negative-EV trades through. All four strategies pass through the same gate.
+    #
+    # Fair price for a DEBIT spread: never pay more than this fraction of the
+    # width, so there's always real upside left. 0.60 => max profit >= 40% of
+    # width and reward:risk >= 0.67 (rejects the 0.86-of-width MU/AMD fills).
+    paper_max_debit_width_frac: float = 0.60
+    # Reward:risk floor (max_profit : max_loss), applied to both directions. Set
+    # to 0.25 so it matches the credit spread's own 0.20 credit/width floor (a
+    # credit/width of r implies reward:risk = r/(1-r), and 0.20 => 0.25) -- credit
+    # spreads aren't double-penalized -- and is comfortably met by the 0.60 debit
+    # cap above. Raise it to demand richer trades across the board.
+    paper_min_reward_risk: float = 0.25
+    # Expected-value floor per share: win_prob*max_profit - loss_prob*max_loss.
+    # 0.0 = only take trades that are at worst breakeven on the tail model; raise
+    # above 0 to demand a positive edge. Skipped for a strategy only when it has
+    # no win-probability estimate at all (the price/liquidity gates still apply).
+    paper_min_expected_value: float = 0.0
+    # Per-leg liquidity ceiling: reject any leg whose (ask-bid)/mid exceeds this,
+    # or that lacks a two-sided quote. Keeps us out of options no one is really
+    # trading, where the mid itself is fiction.
+    paper_max_leg_spread_frac: float = 0.15
     # Only place orders when the market is open (skip the overnight and pre/post-
     # open cron ticks where options can't fill anyway).
     paper_market_hours_only: bool = True

@@ -26,7 +26,8 @@ from app.config import get_settings
 from app.db.models import EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.paper.contracts import TradeSpec, build_trade_spec
-from app.services.paper.risk import defined_risk_max_loss
+from app.services.paper.economics import evaluate_entry, fill_within_plan
+from app.services.paper.risk import DEBIT_STRATEGIES, defined_risk_max_loss
 from app.services.paper.drift_trader import DriftSpec, build_drift_spec, drift_conviction
 from app.services.paper.reddit_trader import (
     RedditSpec,
@@ -46,6 +47,11 @@ SELLING_STRUCTURES = {
 }
 
 OPEN_STATES = ("pending", "open", "closing")
+
+# Note sentinel for a fill that breached the fair-trade plan (filled worse than
+# the limit we sent). Flagged trades are flattened on the next manage-exits pass
+# via _exit_reason, which checks this prefix before any strategy-specific logic.
+_BAD_FILL_PREFIX = "bad fill:"
 
 # Equity twin (Reddit): a plain long/short stock position placed alongside the
 # options spread so we can compare which instrument captures the momentum better.
@@ -138,6 +144,7 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
                 if fill:
                     t.entry_credit = abs(fill)
                     _recompute_max_risk(t)
+                    _enforce_fill_economics(t)
                 count += 1
             elif state in ("canceled", "expired", "rejected"):
                 t.status = "canceled"
@@ -247,6 +254,10 @@ def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str |
     # earnings-only guard below.
     if t.signal_id in settings.paper_force_close_id_set:
         return "manual close"
+    # A fill that breached the fair-trade plan (flagged post-fill) is flattened
+    # on the next pass, for every strategy, before the earnings-only guard below.
+    if (t.note or "").startswith(_BAD_FILL_PREFIX):
+        return "flatten: bad entry fill"
     # This is the *earnings* (sell-vol) manager only. Drift, waves and reddit
     # trades each have their own exit manager (_manage_drift_exits, etc.) with
     # strategy-appropriate hold windows, take-profits and stops. Without this
@@ -443,14 +454,18 @@ def _scan_entries(
             }
             for l in spec.legs
         ]
-        limit = _marketable_net(
-            client, order_legs, is_credit=True, mid=spec.net_credit, settings=settings,
-            min_credit=settings.paper_min_credit_width_ratio * spec.width,
+        # Sell-vol win probability = how often the realized move historically
+        # stayed inside the priced move (1 - exceed_rate), so the EV gate knows
+        # how likely this credit spread is to expire out of the money.
+        win_prob = (pb.get("conviction_basis") or {}).get("seller_edge")
+        limit, reason = _gate_entry(
+            client, order_legs, is_credit=True, mid=spec.net_credit,
+            width=spec.width, win_prob=win_prob, settings=settings,
         )
         if limit is None:
             trade.status = "canceled"
-            trade.note = "skipped: market too wide to trade"
-            skipped.append({"ticker": ticker, "reason": "market too wide (illiquid)"})
+            trade.note = f"skipped: {reason}"
+            skipped.append({"ticker": ticker, "reason": reason})
             continue
         try:
             order = client.submit_mleg(
@@ -678,6 +693,46 @@ def _marketable_net(
     return _signed(_mag(cross))
 
 
+def _gate_entry(
+    client: AlpacaClient,
+    order_legs: list[dict],
+    *,
+    is_credit: bool,
+    mid: float,
+    width: float,
+    win_prob: float | None,
+    settings,
+) -> tuple[float | None, str | None]:
+    """Price an entry at the marketable cross and run the fair-trade economics
+    gate on that *executable* price (never the modeled mid). Shared by all four
+    strategies. Returns ``(limit, reason)``: when ``limit`` is None the trade must
+    be skipped and ``reason`` says why -- the market's too wide to price, the
+    contracts are illiquid, or the price fails the reward:risk / expected-value /
+    fair-price gate. We price on the true cross and *reject* rich trades here
+    rather than silently capping the limit, so we never submit an order we can't
+    fill at a fair price (the user's chosen behavior: skip, don't chase)."""
+    quotes = client.option_quotes([l["symbol"] for l in order_legs])
+    min_credit = settings.paper_min_credit_width_ratio * width if is_credit else None
+    limit = _marketable_net(
+        client, order_legs, is_credit=is_credit, mid=mid, settings=settings,
+        quotes=quotes, min_credit=min_credit,
+    )
+    if limit is None:
+        return None, "market too wide (illiquid)"
+    ok, reason, metrics = evaluate_entry(
+        is_credit=is_credit, width=width, price=abs(limit), win_prob=win_prob,
+        legs=order_legs, quotes=quotes, settings=settings,
+    )
+    if not ok:
+        logger.info(
+            "skip entry: %s | limit=%.2f rr=%s ev=%s maxP=%s maxL=%s",
+            reason, abs(limit), metrics.reward_risk, metrics.expected_value,
+            metrics.max_profit, metrics.max_loss,
+        )
+        return None, reason
+    return limit, None
+
+
 def _recompute_max_risk(trade: PaperTrade) -> None:
     """Re-derive max_risk from the *actual* booked entry price.
 
@@ -697,6 +752,27 @@ def _recompute_max_risk(trade: PaperTrade) -> None:
         trade.max_risk = risk
 
 
+def _enforce_fill_economics(trade: PaperTrade) -> None:
+    """Re-check a freshly-booked entry against the fair-trade plan at its *actual*
+    fill price. Alpaca paper can fill worse than the limit we sent, so a fill that
+    blows past the fair-price band or the reward:risk floor is a structurally
+    losing position -- flag it (via the note sentinel) so the next manage-exits
+    pass flattens it rather than holding a doomed trade. Options spreads only;
+    equity twins have no defined width to evaluate."""
+    if _is_equity(trade) or trade.width is None:
+        return
+    is_credit = (trade.strategy or "earnings") not in DEBIT_STRATEGIES
+    ok, reason = fill_within_plan(
+        is_credit, trade.width, trade.entry_credit, get_settings()
+    )
+    if not ok:
+        trade.note = f"{_BAD_FILL_PREFIX} {reason}"[:500]
+        logger.warning(
+            "bad entry fill on %s: %s (fill %.2f on %.0f-wide) -> flag to flatten",
+            trade.signal_id, reason, trade.entry_credit or 0.0, trade.width,
+        )
+
+
 def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
     """If the just-submitted entry already filled (marketable orders usually do),
     promote it to open immediately so it's tracked without waiting for the next
@@ -709,6 +785,7 @@ def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
         if fill:
             trade.entry_credit = abs(fill)
             _recompute_max_risk(trade)
+            _enforce_fill_economics(trade)
         return True
     return False
 
@@ -930,13 +1007,16 @@ def _scan_wave_entries(
             }
             for l in spec.legs
         ]
-        limit = _marketable_net(
-            client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
+        # wr is the historical sympathy win rate gated above -- feed it to the EV
+        # gate so a rich debit only clears when the edge actually supports it.
+        limit, reason = _gate_entry(
+            client, order_legs, is_credit=False, mid=spec.net_debit,
+            width=spec.width, win_prob=wr, settings=settings,
         )
         if limit is None:
             trade.status = "canceled"
-            trade.note = "skipped: market too wide to trade"
-            skipped.append({"ticker": target, "reason": "market too wide (illiquid)"})
+            trade.note = f"skipped: {reason}"
+            skipped.append({"ticker": target, "reason": reason})
             continue
         try:
             order = client.submit_mleg(
@@ -1248,13 +1328,15 @@ def _scan_drift_entries(
             }
             for l in spec.legs
         ]
-        limit = _marketable_net(
-            client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
+        win_prob = (setup.get("history") or {}).get("win_rate_5d")
+        limit, reason = _gate_entry(
+            client, order_legs, is_credit=False, mid=spec.net_debit,
+            width=spec.width, win_prob=win_prob, settings=settings,
         )
         if limit is None:
             trade.status = "canceled"
-            trade.note = "skipped: market too wide to trade"
-            skipped.append({"ticker": ticker, "reason": "market too wide (illiquid)"})
+            trade.note = f"skipped: {reason}"
+            skipped.append({"ticker": ticker, "reason": reason})
             continue
         try:
             order = client.submit_mleg(
@@ -1352,6 +1434,11 @@ def _next_drift_signal_id(db: Session) -> str:
 
 _CONVICTION_RANK = {"low": 0, "medium": 1, "high": 2}
 _PUMP_RANK = {"low": 0, "medium": 1, "high": 2}
+# Reddit has no per-name historical win rate, so we proxy the win probability
+# off conviction for the expected-value gate. Deliberately modest -- a directional
+# debit bet on hype is roughly a coin flip even when conviction is high -- so the
+# EV gate only clears a Reddit spread when the debit leaves plenty of upside.
+_REDDIT_WIN_PROB = {"high": 0.55, "medium": 0.50, "low": 0.45}
 
 
 def _manage_reddit_exits(
@@ -1689,13 +1776,15 @@ def _scan_reddit_entries(
             }
             for l in spec.legs
         ]
-        limit = _marketable_net(
-            client, order_legs, is_credit=False, mid=spec.net_debit, settings=settings
+        win_prob = _REDDIT_WIN_PROB.get(sig.get("conviction"), 0.45)
+        limit, reason = _gate_entry(
+            client, order_legs, is_credit=False, mid=spec.net_debit,
+            width=spec.width, win_prob=win_prob, settings=settings,
         )
         if limit is None:
             trade.status = "canceled"
-            trade.note = "skipped: market too wide to trade"
-            skipped.append({"ticker": ticker, "reason": "market too wide (illiquid)"})
+            trade.note = f"skipped: {reason}"
+            skipped.append({"ticker": ticker, "reason": reason})
             continue
         try:
             order = client.submit_mleg(
@@ -1727,6 +1816,14 @@ def _open_reddit_equity_twin(
     direction (short for bearish), sized to the same dollar risk as the spread —
     an A/B twin to see whether the shares beat the options on the same signal."""
     if not settings.paper_reddit_equity_twin_enabled:
+        return
+    # Only mirror an option leg that actually opened cleanly and passed the
+    # fair-trade gate -- never a leg that failed to fill or was flagged a bad
+    # fill (about to be flattened). The twin's dollar risk is matched to that
+    # gated option leg, so its sizing inherits the same discipline.
+    if option_trade.status != "open" or (option_trade.note or "").startswith(
+        _BAD_FILL_PREFIX
+    ):
         return
     notional = option_trade.max_risk or 0.0
     spot = option_trade.spot_entry or client.stock_price(option_trade.ticker)

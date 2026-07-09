@@ -242,9 +242,20 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
 def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str | None:
     """Decide whether (and why) to close an open trade now."""
     # Operational override: flatten specific signal ids on request (e.g. a bad
-    # fill) through the normal close path so the DB stays consistent.
+    # fill) through the normal close path so the DB stays consistent. This is a
+    # manual escape hatch and applies to every strategy, so it runs before the
+    # earnings-only guard below.
     if t.signal_id in settings.paper_force_close_id_set:
         return "manual close"
+    # This is the *earnings* (sell-vol) manager only. Drift, waves and reddit
+    # trades each have their own exit manager (_manage_drift_exits, etc.) with
+    # strategy-appropriate hold windows, take-profits and stops. Without this
+    # guard the "post-earnings" harvest below would instantly flatten every
+    # drift trade — a drift entry is by definition placed *after* the print, so
+    # earnings_date < today is always true — closing it on the first cron cycle
+    # before its own manager ever runs.
+    if (t.strategy or "earnings") != "earnings":
+        return None
     # Planned exit: the print has passed — close to capture the IV crush. We
     # wait until strictly after the earnings date so we don't close ahead of an
     # after-market report on the day itself.

@@ -184,8 +184,11 @@ class Settings(BaseSettings):
     #     name is directional but not a sell-vol setup, still take the shares, sized
     #     to the conviction budget the options WOULD have risked.
     paper_earnings_equity_enabled: bool = True
-    # Cap on simultaneous open earnings-equity positions.
-    paper_earnings_equity_max_open: int = 8
+    # Cap on simultaneous open earnings-equity positions. Set high on purpose:
+    # this book is a data-gathering experiment (equity vs options on the same
+    # signals), so we want breadth. The practical ceiling becomes Alpaca paper
+    # buying power, not this number -- orders that would exceed it just don't fill.
+    paper_earnings_equity_max_open: int = 40
     # Underlying-move exits for the equity leg (held through the print, then the
     # post-earnings close mirrors the options harvest; these are the pre/at-print
     # guardrails). Earnings moves are larger than the intraday Reddit ride, so the

@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import Company, EarningsEvent, ImpliedMove, ThemeMembership
 from app.services.analyst import analyst_payload
 from app.services.implied import implied_payload
@@ -133,8 +134,9 @@ def company_detail(db: Session, ticker: str) -> dict | None:
     realized_abs_moves = [
         abs(e["move_pct"]) for e in reactions["events"] if e["move_pct"] is not None
     ]
+    sell_strike_frac = get_settings().paper_sell_strike_em_frac
     implied = implied_payload(
-        db, ticker, summary["avg_abs_move_pct"], realized_abs_moves
+        db, ticker, summary["avg_abs_move_pct"], realized_abs_moves, sell_strike_frac
     )
 
     spot = implied["underlying_price"] if implied else None

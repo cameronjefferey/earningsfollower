@@ -14,6 +14,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 
+from app.config import get_settings
+
+# Wing sits this many expected-move units outside the short strike. Keeping the
+# span fixed (rather than the old 1.0/1.6 pair) preserves the defined-risk width
+# as the short is pulled in to a fraction of the move.
+WING_SPAN_EM = 0.6
+
 
 @dataclass
 class PlayLeg:
@@ -51,11 +58,15 @@ def build_playbook(
     prices: list[dict],
     next_earnings_date: str | None,
     next_earnings_timing: str | None = None,
+    sell_strike_em_frac: float | None = None,
 ) -> dict | None:
     """Return a structured, explicit earnings play, or None if there isn't
     enough history to say anything responsible."""
     if not summary or summary.get("sample_size", 0) < 4:
         return None
+
+    if sell_strike_em_frac is None:
+        sell_strike_em_frac = get_settings().paper_sell_strike_em_frac
 
     spot = (implied or {}).get("underlying_price")
     em = (implied or {}).get("expected_move_pct")
@@ -66,8 +77,17 @@ def build_playbook(
         direction, vol_stance, summary, implied, dir_score
     )
 
+    # Win-probability recomputed at the (closer) short strike we actually sell:
+    # since the short sits at frac x EM, the honest breach rate is the share of
+    # realized moves that reached that distance, not the full move.
+    exceed_at_strike = (implied or {}).get("exceed_rate_at_strike")
+    conviction_basis["sell_strike_em_frac"] = sell_strike_em_frac
+    conviction_basis["seller_edge_at_strike"] = (
+        round(1 - exceed_at_strike, 3) if exceed_at_strike is not None else None
+    )
+
     structure, structure_detail, legs = _structure(
-        direction, vol_stance, spot, em
+        direction, vol_stance, spot, em, sell_strike_em_frac
     )
     timing = _timing(next_earnings_date, vol_stance)
     invalidation = _invalidation(direction, spot, em, prices)
@@ -316,52 +336,62 @@ def _conviction(
 
 
 def _structure(
-    direction: str, vol_stance: str, spot: float | None, em: float | None
+    direction: str,
+    vol_stance: str,
+    spot: float | None,
+    em: float | None,
+    sell_strike_em_frac: float = 1.0,
 ) -> tuple[str, str, list[PlayLeg]]:
     sized = spot is not None and em is not None
 
     def k(mult: float) -> float | None:
         return _round_strike(spot * (1 + mult * em)) if sized else None
 
+    # Short-strike distance for sell-vol legs (fraction of the expected move) and
+    # the wing a fixed span further out. Debit / neutral legs still reference the
+    # full move (k(+/-1.0)) below.
+    sf = sell_strike_em_frac
+    wf = sell_strike_em_frac + WING_SPAN_EM
+
     # Sell premium: defined-risk credit spreads / condor sized to the move.
     if vol_stance == "sell":
         if direction == "bearish":
-            short, long = k(+1.0), k(+1.6)
+            short, long = k(+sf), k(+wf)
             legs = [
                 PlayLeg("Sell", "call", "short call", short,
-                        "just above the expected-move high"),
+                        f"~{sf:.2f}x the expected move OTM"),
                 PlayLeg("Buy", "call", "long call (wing)", long, "defines max risk"),
             ]
             detail = (
-                "Sell a call near the top of the expected move and buy a higher call "
-                "to cap risk. Net credit; wins if the stock falls, stays flat, or "
-                "rises less than the expected move. IV crush after the print helps."
+                "Sell a call a fraction of the expected move above spot and buy a "
+                "higher call to cap risk. Net credit; wins if the stock falls, stays "
+                "flat, or rises less than that. IV crush after the print helps."
             )
             return "Bear call (call credit) spread", detail, legs
         if direction == "bullish":
-            short, long = k(-1.0), k(-1.6)
+            short, long = k(-sf), k(-wf)
             legs = [
                 PlayLeg("Sell", "put", "short put", short,
-                        "just below the expected-move low"),
+                        f"~{sf:.2f}x the expected move OTM"),
                 PlayLeg("Buy", "put", "long put (wing)", long, "defines max risk"),
             ]
             detail = (
-                "Sell a put near the bottom of the expected move and buy a lower put "
-                "to cap risk. Net credit; wins if the stock rises, stays flat, or "
-                "falls less than the expected move. IV crush after the print helps."
+                "Sell a put a fraction of the expected move below spot and buy a "
+                "lower put to cap risk. Net credit; wins if the stock rises, stays "
+                "flat, or falls less than that. IV crush after the print helps."
             )
             return "Bull put (put credit) spread", detail, legs
         # neutral + sell vol -> iron condor
         legs = [
-            PlayLeg("Sell", "call", "short call", k(+1.0), "expected-move high"),
-            PlayLeg("Buy", "call", "long call (wing)", k(+1.6), "caps upside risk"),
-            PlayLeg("Sell", "put", "short put", k(-1.0), "expected-move low"),
-            PlayLeg("Buy", "put", "long put (wing)", k(-1.6), "caps downside risk"),
+            PlayLeg("Sell", "call", "short call", k(+sf), f"~{sf:.2f}x move OTM"),
+            PlayLeg("Buy", "call", "long call (wing)", k(+wf), "caps upside risk"),
+            PlayLeg("Sell", "put", "short put", k(-sf), f"~{sf:.2f}x move OTM"),
+            PlayLeg("Buy", "put", "long put (wing)", k(-wf), "caps downside risk"),
         ]
         detail = (
-            "Sell both an out-of-the-money call and put at the edges of the expected "
-            "move, with long wings outside them. Net credit; wins if the stock stays "
-            "inside the expected move through the print."
+            "Sell both an out-of-the-money call and put a fraction of the expected "
+            "move out, with long wings outside them. Net credit; wins if the stock "
+            "stays inside those strikes through the print."
         )
         return "Iron condor", detail, legs
 

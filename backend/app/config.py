@@ -83,8 +83,15 @@ class Settings(BaseSettings):
     paper_max_open: int = 12
     # Enter a setup only when earnings is within this many calendar days. Wider
     # gets us positioned earlier (more IV to sell, but more days of directional
-    # drift before the print).
-    paper_entry_window_days: int = 7
+    # drift before the print). Impact analysis showed 10 captures clean ~10-day-out
+    # directional names (INTC/MXL/TXN) without dragging in the illiquid 14-day tail.
+    paper_entry_window_days: int = 10
+    # Where to place the SHORT strike of a sell-vol spread/condor, as a fraction of
+    # the expected move. 1.0 sells a full move OTM, which on high-IV names collects
+    # almost nothing vs the wing width and gets gated; pulling it in to ~0.65
+    # collects real premium (win-probability is recomputed at this closer strike so
+    # the EV gate stays honest).
+    paper_sell_strike_em_frac: float = 0.65
     # Floor on the modeled credit (per share) worth trading.
     paper_min_credit: float = 0.10
     # Operational override: comma-separated signal ids to force-close on the next
@@ -154,6 +161,26 @@ class Settings(BaseSettings):
     # Only place orders when the market is open (skip the overnight and pre/post-
     # open cron ticks where options can't fill anyway).
     paper_market_hours_only: bool = True
+
+    # --- Earnings equity book (options A/B twin) ------------------------------
+    # Alongside the earnings options play, take a plain equity position on the same
+    # directional lean (long a bullish name, short a bearish one) so we can compare
+    # whether the shares beat the options on the same signal. Equity is inherently
+    # directional, so NEUTRAL (iron condor) names get no equity leg. Fires two ways:
+    #   - twin: when the options spread opens, size the shares to the SAME dollars
+    #     the spread risks (its max loss) -- "an equal amount on equity as options".
+    #   - standalone: when the options trade is gated (illiquid / too thin) or the
+    #     name is directional but not a sell-vol setup, still take the shares, sized
+    #     to the conviction budget the options WOULD have risked.
+    paper_earnings_equity_enabled: bool = True
+    # Cap on simultaneous open earnings-equity positions.
+    paper_earnings_equity_max_open: int = 8
+    # Underlying-move exits for the equity leg (held through the print, then the
+    # post-earnings close mirrors the options harvest; these are the pre/at-print
+    # guardrails). Earnings moves are larger than the intraday Reddit ride, so the
+    # bands are wider than the Reddit equity twin's.
+    paper_earnings_equity_take_profit_pct: float = 0.10
+    paper_earnings_equity_stop_pct: float = 0.07
 
     # --- Waves strategy (peer-earnings sympathy ride) -------------------------
     # A separate, directional strategy: when a tracked peer reports a strong

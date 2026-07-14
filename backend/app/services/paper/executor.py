@@ -103,12 +103,20 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_reddit_exits(db, client, settings, dry_run)
+        summary["closed"] += _manage_earnings_equity_exits(db, client, settings, dry_run)
         opened, skipped = _scan_entries(db, client, equity, settings, dry_run)
         w_opened, w_skipped = _scan_wave_entries(db, client, equity, settings, dry_run)
         d_opened, d_skipped = _scan_drift_entries(db, client, equity, settings, dry_run)
         r_opened, r_skipped = _scan_reddit_entries(db, client, equity, settings, dry_run)
-        summary["opened"] = opened + w_opened + d_opened + r_opened
-        summary["skipped"] = skipped + w_skipped + d_skipped + r_skipped
+        # Earnings-equity runs after the options scan so it can size a twin to
+        # the spread that just opened for the same name (or stand alone otherwise).
+        eq_opened, eq_skipped = _scan_earnings_equity_entries(
+            db, client, equity, settings, dry_run
+        )
+        summary["opened"] = opened + w_opened + d_opened + r_opened + eq_opened
+        summary["skipped"] = (
+            skipped + w_skipped + d_skipped + r_skipped + eq_skipped
+        )
     except AlpacaError as e:
         logger.error("Alpaca error during paper run: %s", e)
         summary["status"] = "error"
@@ -455,9 +463,12 @@ def _scan_entries(
             for l in spec.legs
         ]
         # Sell-vol win probability = how often the realized move historically
-        # stayed inside the priced move (1 - exceed_rate), so the EV gate knows
-        # how likely this credit spread is to expire out of the money.
-        win_prob = (pb.get("conviction_basis") or {}).get("seller_edge")
+        # stayed inside the strike we actually sell. Since the short is pulled in
+        # to frac x EM, use the strike-level edge (1 - exceed_rate_at_strike);
+        # fall back to the full-move seller_edge if the strike-level recompute
+        # wasn't available. This keeps the EV gate honest for the closer strike.
+        basis = pb.get("conviction_basis") or {}
+        win_prob = basis.get("seller_edge_at_strike") or basis.get("seller_edge")
         limit, reason = _gate_entry(
             client, order_legs, is_credit=True, mid=spec.net_credit,
             width=spec.width, win_prob=win_prob, settings=settings,
@@ -788,6 +799,313 @@ def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
             _enforce_fill_economics(trade)
         return True
     return False
+
+
+# --- earnings equity book (options A/B twin) ---------------------------------
+
+
+def _earnings_equity_shares(notional: float | None, spot: float | None) -> int:
+    """Whole shares a given dollar notional buys at ``spot`` (0 if unpriceable).
+    Same convention as the Reddit twin: floor, no fractional shares."""
+    if not spot or spot <= 0 or not notional or notional <= 0:
+        return 0
+    return int(notional // spot)
+
+
+def _scan_earnings_equity_entries(
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+) -> tuple[int, list]:
+    """Directional equity book that shadows the earnings options play, so we can
+    compare whether the shares beat the options on the same signal.
+
+    Fires for any bullish/bearish earnings name in the window (neutral / iron
+    condor names get no equity leg -- shares are inherently directional). Two
+    sizings:
+      - twin: when the options spread for this event opened cleanly this cycle,
+        risk the SAME dollars the spread risks (its max loss).
+      - standalone: when the options trade was gated (illiquid / too thin) or the
+        name is directional but not a sell-vol setup, still take the shares, sized
+        to the conviction budget the options would have used.
+    """
+    if not settings.paper_earnings_equity_enabled:
+        return 0, []
+    today = date.today()
+    window_end = today + timedelta(days=settings.paper_entry_window_days)
+
+    open_n = len(
+        db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.strategy == "earnings",
+                PaperTrade.structure.in_(EQUITY_STRUCTURES),
+                PaperTrade.status.in_(OPEN_STATES),
+            )
+        ).all()
+    )
+
+    events = db.scalars(
+        select(EarningsEvent)
+        .where(EarningsEvent.date >= today, EarningsEvent.date <= window_end)
+        .order_by(EarningsEvent.date.asc())
+    ).all()
+
+    opened = 0
+    skipped: list[dict] = []
+    seen: set[str] = set()
+    for ev in events:
+        ticker = ev.ticker
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+
+        if open_n + opened >= settings.paper_earnings_equity_max_open:
+            skipped.append(
+                {"ticker": ticker, "reason": "max open earnings-equity positions"}
+            )
+            continue
+
+        # One equity position per (ticker, earnings_date).
+        existing = db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.ticker == ticker,
+                PaperTrade.earnings_date == ev.date,
+                PaperTrade.strategy == "earnings",
+                PaperTrade.structure.in_(EQUITY_STRUCTURES),
+            )
+        ).first()
+        if existing:
+            continue
+
+        detail = company_detail(db, ticker)
+        pb = (detail or {}).get("playbook")
+        if not pb:
+            skipped.append({"ticker": ticker, "reason": "no playbook"})
+            continue
+        direction = pb.get("direction")
+        if direction not in ("bullish", "bearish"):
+            # Neutral names (iron condors) get no equity leg.
+            skipped.append(
+                {"ticker": ticker, "reason": f"not directional ({direction})"}
+            )
+            continue
+
+        im = (detail or {}).get("implied_move") or {}
+        spot = im.get("underlying_price") or pb.get("spot") or client.stock_price(ticker)
+        if not spot or spot <= 0:
+            skipped.append({"ticker": ticker, "reason": "no spot price"})
+            continue
+
+        # Twin sizing when a real options spread for this event is on the book
+        # (opened cleanly, not flagged a bad fill); otherwise the conviction
+        # budget the options scan would have risked.
+        opt = db.scalars(
+            select(PaperTrade).where(
+                PaperTrade.ticker == ticker,
+                PaperTrade.earnings_date == ev.date,
+                PaperTrade.strategy == "earnings",
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
+                PaperTrade.status.in_(OPEN_STATES),
+            )
+        ).first()
+        twin_of = None
+        if (
+            opt is not None
+            and opt.status == "open"
+            and opt.max_risk
+            and not (opt.note or "").startswith(_BAD_FILL_PREFIX)
+        ):
+            notional = opt.max_risk
+            twin_of = opt.signal_id
+        else:
+            risk_frac = settings.paper_risk_fraction(pb["conviction"])
+            notional = equity * risk_frac
+
+        shares = _earnings_equity_shares(notional, spot)
+        if shares < 1:
+            skipped.append(
+                {
+                    "ticker": ticker,
+                    "reason": f"notional ${notional:.0f} < 1 share @ ${spot:.2f}",
+                }
+            )
+            continue
+
+        trade = _record_earnings_equity_trade(
+            db, ticker, ev, pb, spot, shares, notional, equity, twin_of,
+            expected_move_pct=im.get("expected_move_pct"),
+        )
+        side = "buy" if direction == "bullish" else "sell"
+        if dry_run:
+            logger.info(
+                "[dry-run] EARNINGS-EQ %s %s %d shares @ ~%.2f (%s, %s, risk $%.0f)",
+                ticker, side, shares, spot, "twin" if twin_of else "standalone",
+                pb["conviction"], notional,
+            )
+            trade.note = "dry-run (not submitted)"
+            opened += 1
+            continue
+
+        try:
+            order = client.submit_stock_order(
+                symbol=ticker, qty=shares, side=side, client_order_id=trade.signal_id,
+            )
+        except AlpacaError as e:
+            logger.error("Earnings equity failed for %s: %s", ticker, e)
+            trade.status = "canceled"
+            trade.note = f"submit error: {e}"[:500]
+            skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            continue
+        trade.entry_order_id = order.get("id")
+        _apply_entry_fill(trade, order)
+        opened += 1
+
+    if not dry_run:
+        db.commit()
+    return opened, skipped
+
+
+def _record_earnings_equity_trade(
+    db: Session,
+    ticker: str,
+    ev: EarningsEvent,
+    pb: dict,
+    spot: float,
+    shares: int,
+    notional: float,
+    equity: float | None,
+    twin_of: str | None,
+    expected_move_pct: float | None = None,
+) -> PaperTrade:
+    signal_id = _next_earnings_equity_signal_id(db)
+    bullish = pb.get("direction") == "bullish"
+    structure = EQUITY_LONG if bullish else EQUITY_SHORT
+    thesis = {
+        "instrument": "equity",
+        "headline": pb.get("headline"),
+        "bias_reasons": pb.get("bias_reasons"),
+        "conviction_basis": pb.get("conviction_basis"),
+        "sizing": "twin" if twin_of else "standalone",
+        "twin_of": twin_of,
+    }
+    trade = PaperTrade(
+        signal_id=signal_id,
+        strategy="earnings",
+        ticker=ticker,
+        earnings_date=ev.date,
+        structure=structure,
+        direction=pb["direction"],
+        vol_stance=pb.get("vol_stance") or "neutral",
+        conviction=pb["conviction"],
+        thesis=json.dumps(thesis)[:2048],
+        status="pending",
+        legs=None,
+        contracts=shares,
+        expiration=None,
+        width=None,
+        entry_credit=round(spot, 2),      # price per share (provisional; fill overrides)
+        modeled_credit=round(spot, 2),
+        max_risk=round(notional, 2),
+        expected_move_pct=expected_move_pct,
+        spot_entry=round(spot, 2),
+        equity_at_entry=round(equity, 2) if equity else None,
+    )
+    db.add(trade)
+    db.flush()
+    return trade
+
+
+def _next_earnings_equity_signal_id(db: Session) -> str:
+    stamp = date.today().strftime("%Y%m%d")
+    prefix = f"EE-{stamp}-"
+    n = len(
+        db.scalars(
+            select(PaperTrade).where(PaperTrade.signal_id.like(f"{prefix}%"))
+        ).all()
+    )
+    return f"{prefix}{n + 1:03d}"
+
+
+def _manage_earnings_equity_exits(
+    db: Session, client: AlpacaClient, settings, dry_run: bool
+) -> int:
+    """Close open earnings-equity positions: the planned post-earnings harvest
+    (mirrors the options IV-crush close so the A/B shares a lifecycle), a %-move
+    take-profit/stop on the underlying (the pre/at-print guardrail), and the
+    force-close / bad-fill escape hatches."""
+    today = date.today()
+    closed = 0
+    trades = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == "earnings",
+            PaperTrade.structure.in_(EQUITY_STRUCTURES),
+            PaperTrade.status == "open",
+        )
+    ).all()
+    for t in trades:
+        spot_now = client.stock_price(t.ticker)
+        if not spot_now:
+            continue
+        reason = _earnings_equity_exit_reason(t, spot_now, today, settings)
+        if reason is None:
+            continue
+        if dry_run:
+            logger.info(
+                "[dry-run] would close earnings-eq %s (%s) at %.2f",
+                t.signal_id, reason, spot_now,
+            )
+            continue
+        # Close = the opposite side (sell a long, buy back a short).
+        side = "sell" if t.structure == EQUITY_LONG else "buy"
+        try:
+            order = client.submit_stock_order(
+                symbol=t.ticker, qty=t.contracts or 1, side=side,
+                client_order_id=f"{t.signal_id}-x",
+            )
+        except AlpacaError as e:
+            logger.error("Earnings equity close failed for %s: %s", t.signal_id, e)
+            continue
+        t.exit_order_id = order.get("id")
+        t.exit_debit = round(spot_now, 2)  # price per share on close (provisional)
+        t.status = "closing"
+        t.note = reason
+        t.spot_at_exit = round(spot_now, 2)
+        if t.spot_entry:
+            t.realized_move_pct = round(spot_now / t.spot_entry - 1, 4)
+        _finalize_pnl(t)
+        closed += 1
+    if not dry_run:
+        db.commit()
+    return closed
+
+
+def _earnings_equity_exit_reason(
+    t: PaperTrade, spot_now: float, today: date, settings
+) -> str | None:
+    # Operational escape hatches first (shared with the options manager).
+    if t.signal_id in settings.paper_force_close_id_set:
+        return "manual close"
+    if (t.note or "").startswith(_BAD_FILL_PREFIX):
+        return "flatten: bad entry fill"
+    # Underlying-move take-profit / stop (guardrail before and through the print).
+    if t.spot_entry:
+        move = spot_now / t.spot_entry - 1.0  # signed move since entry
+        tp = settings.paper_earnings_equity_take_profit_pct
+        sl = settings.paper_earnings_equity_stop_pct
+        if t.structure == EQUITY_LONG:
+            if move >= tp:
+                return f"take-profit ({move:+.1%})"
+            if move <= -sl:
+                return f"stop ({move:+.1%})"
+        else:  # short: profits when the stock falls
+            if move <= -tp:
+                return f"take-profit ({move:+.1%})"
+            if move >= sl:
+                return f"stop ({move:+.1%})"
+    # Planned harvest: the print has passed. Mirror the options manager and wait
+    # until strictly after the earnings date (avoid closing ahead of an after-
+    # market report on the day itself).
+    if t.earnings_date and t.earnings_date < today:
+        return "post-earnings"
+    return None
 
 
 # --- waves strategy ----------------------------------------------------------

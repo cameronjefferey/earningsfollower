@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -55,16 +55,39 @@ def date_range_for_window(window: str) -> tuple[date, date]:
 
 def list_themes(db: Session) -> list[dict]:
     universe = load_universe()
-    out = []
+    counts = dict(
+        db.execute(
+            select(ThemeMembership.theme_key, func.count(ThemeMembership.ticker))
+            .group_by(ThemeMembership.theme_key)
+        ).all()
+    )
+    labels = dict(
+        db.execute(
+            select(ThemeMembership.theme_key, ThemeMembership.theme_label)
+        ).all()
+    )
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    # Curated themes first, in their configured order.
     for theme in universe.themes:
-        n = len(
-            db.scalars(
-                select(ThemeMembership.ticker).where(
-                    ThemeMembership.theme_key == theme.key
-                )
-            ).all()
+        out.append(
+            {
+                "key": theme.key,
+                "label": theme.label,
+                "ticker_count": counts.get(theme.key, 0),
+            }
         )
-        out.append({"key": theme.key, "label": theme.label, "ticker_count": n})
+        seen.add(theme.key)
+    # Then sector themes discovered from the whole-market calendar sweep.
+    for key in sorted(k for k in counts if k not in seen and k.startswith("sector_")):
+        out.append(
+            {
+                "key": key,
+                "label": labels.get(key, key),
+                "ticker_count": counts[key],
+            }
+        )
     return out
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -203,6 +204,39 @@ def _build_universe(
     return sorted(membership.keys())
 
 
+def _sector_theme(sector: str) -> tuple[str, str]:
+    """Map a company sector to a synthetic theme (key, label).
+
+    Sector themes let wave detection group *any* co-sector names that come in
+    through the whole-market calendar sweep, so the peer graph isn't limited to
+    the hand-curated themes (e.g. DAL <-> UAL group under "Industrials").
+    """
+    label = sector.strip()
+    slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    return f"sector_{slug}", label
+
+
+def _ensure_theme_membership(
+    db: Session, ticker: str, key: str, label: str, *, seed: bool
+) -> None:
+    ticker = ticker.upper()
+    existing = db.scalar(
+        select(ThemeMembership).where(
+            ThemeMembership.ticker == ticker,
+            ThemeMembership.theme_key == key,
+        )
+    )
+    if existing:
+        existing.theme_label = label
+        existing.is_seed = existing.is_seed or seed
+    else:
+        db.add(
+            ThemeMembership(
+                ticker=ticker, theme_key=key, theme_label=label, is_seed=seed
+            )
+        )
+
+
 def _build_calendar_universe(
     db: Session, fmp: FMPClient, settings
 ) -> tuple[list[str], set[str]]:
@@ -281,6 +315,12 @@ def _build_calendar_universe(
                 company.market_cap = float(info["marketCap"])
             except (TypeError, ValueError):
                 pass
+        # Group by sector so wave/peer detection works across the whole market,
+        # not just the curated themes. Curated seeds keep their richer themes and
+        # simply gain their sector as an additional (non-seed) membership.
+        if company.sector:
+            key, label = _sector_theme(company.sector)
+            _ensure_theme_membership(db, sym, key, label, seed=False)
     db.commit()
 
     logger.info(

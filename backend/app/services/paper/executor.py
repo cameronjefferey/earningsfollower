@@ -154,6 +154,15 @@ def run(db: Session, dry_run: bool = False) -> dict:
 # --- reconcile ---------------------------------------------------------------
 
 
+def _exit_is_urgent(reason: str | None) -> bool:
+    """An exit we want filled *now*, even if it means crossing a wide option
+    book: a manual/force flatten, a bad-fill flatten, or any stop. Planned
+    exits (post-earnings harvest, hold-window, take-profit) stay patient at mid
+    so we don't dump a spread into a thin bid for a few cents."""
+    r = (reason or "").lower()
+    return r == "manual close" or r.startswith("flatten") or "stop" in r
+
+
 def _close_client_order_id(signal_id: str) -> str:
     """Unique per close *attempt*. A close limit can lapse (canceled/expired) and
     the position gets re-armed to retry; a fixed id (e.g. ``<sig>-x``) makes
@@ -268,7 +277,8 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
             continue
         limit = _marketable_net(
             client, close_legs, is_credit=False, mid=exit_net, settings=settings,
-            quotes=quotes, aggressive=False,
+            quotes=quotes, aggressive=_exit_is_urgent(reason),
+            exit_cross=_exit_is_urgent(reason),
         )
         try:
             order = client.submit_mleg(
@@ -646,6 +656,7 @@ def _marketable_net(
     settings,
     quotes: dict | None = None,
     aggressive: bool = True,
+    exit_cross: bool = False,
     min_credit: float | None = None,
     max_debit: float | None = None,
 ) -> float | None:
@@ -685,7 +696,9 @@ def _marketable_net(
     buf = settings.paper_fill_buffer
 
     def _mag(price: float) -> float:
-        if is_credit and min_credit is not None:
+        # An urgent exit (exit_cross) crosses to the touch to guarantee a fill;
+        # don't clamp it back to intrinsic or it may rest unfilled.
+        if is_credit and min_credit is not None and not exit_cross:
             price = max(price, min_credit)
         return round(max(0.01, price), 2)
 
@@ -730,8 +743,13 @@ def _marketable_net(
 
     # Liquidity guard: refuse to open when crossing gives up too much of the
     # spread's mid value — a wide market bleeds far more on the round trip than
-    # the trade can make.
-    if mid > 0 and abs(cross - mid) > settings.paper_max_cross_slippage_frac * mid:
+    # the trade can make. Skipped for urgent exits (exit_cross): we already hold
+    # the position and want out now, so we pay the touch regardless of width.
+    if (
+        mid > 0
+        and not exit_cross
+        and abs(cross - mid) > settings.paper_max_cross_slippage_frac * mid
+    ):
         logger.info(
             "skip entry: market too wide (mid %.2f vs cross %.2f, slip %.0f%% > %.0f%%)",
             mid, cross, abs(cross - mid) / mid * 100,
@@ -1254,7 +1272,8 @@ def _manage_wave_exits(
             continue
         limit = _marketable_net(
             client, close_legs, is_credit=True, mid=exit_value, settings=settings,
-            quotes=quotes, aggressive=False,
+            quotes=quotes, aggressive=_exit_is_urgent(reason),
+            exit_cross=_exit_is_urgent(reason),
             min_credit=_spread_intrinsic(legs, spot_now),
         )
         try:
@@ -1570,7 +1589,8 @@ def _manage_drift_exits(
             continue
         limit = _marketable_net(
             client, close_legs, is_credit=True, mid=exit_value, settings=settings,
-            quotes=quotes, aggressive=False,
+            quotes=quotes, aggressive=_exit_is_urgent(reason),
+            exit_cross=_exit_is_urgent(reason),
             min_credit=_spread_intrinsic(legs, spot_now),
         )
         try:
@@ -1902,7 +1922,8 @@ def _manage_reddit_exits(
             continue
         limit = _marketable_net(
             client, close_legs, is_credit=True, mid=exit_value, settings=settings,
-            quotes=quotes, aggressive=False,
+            quotes=quotes, aggressive=_exit_is_urgent(reason),
+            exit_cross=_exit_is_urgent(reason),
             min_credit=_spread_intrinsic(legs, spot_now),
         )
         try:

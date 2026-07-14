@@ -23,6 +23,7 @@ from app.services.paper.executor import (  # noqa: E402
     _close_client_order_id,
     _earnings_equity_exit_reason,
     _earnings_equity_shares,
+    _exit_is_urgent,
 )
 
 
@@ -159,6 +160,28 @@ def test_close_client_order_id_is_unique_per_attempt():
     assert a != b
     assert a.startswith("EE-20260714-003-x-")
     assert b.startswith("EE-20260714-003-x-")
+
+
+def test_exit_urgency_classifier():
+    """Manual flatten and any stop cross the market; planned exits stay patient."""
+    for urgent in (
+        "manual close",
+        "flatten: bad entry fill",
+        "stop-loss (30% of risk)",
+        "late stop (25% of risk, 1DTE)",
+        "stop (gave back the move)",
+        "stop (-7.2%)",
+    ):
+        assert _exit_is_urgent(urgent), urgent
+    for patient in (
+        "post-earnings",
+        "hold window elapsed",
+        "pre-earnings exit",
+        "take-profit (+8.0% underlying)",
+        "drift window elapsed",
+        None,
+    ):
+        assert not _exit_is_urgent(patient), patient
 
 
 def _run_all() -> int:

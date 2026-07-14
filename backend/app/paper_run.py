@@ -25,7 +25,30 @@ def main() -> None:
         action="store_true",
         help="Preview trades without submitting any orders.",
     )
+    parser.add_argument(
+        "--test-telegram",
+        action="store_true",
+        help="Send a test Telegram message to verify the bot config, then exit.",
+    )
     args = parser.parse_args()
+
+    if args.test_telegram:
+        from datetime import datetime
+
+        from app.services.notify import send_telegram, telegram_configured
+
+        if not telegram_configured():
+            logger.error(
+                "Telegram not configured — set TELEGRAM_BOT_TOKEN and "
+                "TELEGRAM_CHAT_ID in .env (or the Render environment)."
+            )
+            raise SystemExit(1)
+        ok = send_telegram(
+            f"EarningsFollower test alert — bot is wired up "
+            f"({datetime.now():%Y-%m-%d %H:%M})."
+        )
+        logger.info("Test message %s.", "sent" if ok else "failed to send")
+        raise SystemExit(0 if ok else 1)
 
     init_db()
     db = SessionLocal()

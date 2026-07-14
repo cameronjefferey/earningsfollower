@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
 
+    # --- Telegram trade alerts (optional) ------------------------------------
+    # When both a bot token and a chat id are set, the paper trader sends a short
+    # message after each live run summarizing the trades it just opened/closed, so
+    # you get pinged when there's something new to look at. Create a bot via
+    # @BotFather for the token; get your chat id by messaging the bot once and
+    # reading https://api.telegram.org/bot<token>/getUpdates (or message @userinfobot).
+    # Empty config = silent (never sends), and dry-runs never notify.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    telegram_notify_trades: bool = True
+
     # --- Calendar-driven universe --------------------------------------------
     # Beyond the curated themes, screen the whole market: each refresh pulls the
     # earnings calendar for a window and ingests every liquid name reporting in

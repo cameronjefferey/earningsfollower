@@ -25,6 +25,7 @@ from app.clients.alpaca import AlpacaClient, AlpacaError
 from app.config import get_settings
 from app.db.models import EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
+from app.services.notify import send_telegram, telegram_configured
 from app.services.paper.contracts import TradeSpec, build_trade_spec
 from app.services.paper.economics import evaluate_entry, fill_within_plan
 from app.services.paper.risk import DEBIT_STRATEGIES, defined_risk_max_loss
@@ -99,6 +100,23 @@ def run(db: Session, dry_run: bool = False) -> dict:
             summary["skipped"] = [{"reason": "market closed"}]
             return summary
 
+        # Snapshot the book before we manage/scan so we can tell you exactly which
+        # positions this run opened or closed (the Telegram alert at the end).
+        # Live runs only; dry-runs and an unconfigured bot stay silent.
+        notify_on = (
+            settings.telegram_notify_trades and not dry_run and telegram_configured()
+        )
+        pre_open_status: dict[str, str] = {}
+        pre_ids: set[str] = set()
+        if notify_on:
+            pre_open_status = {
+                t.signal_id: t.status
+                for t in db.scalars(
+                    select(PaperTrade).where(PaperTrade.status.in_(OPEN_STATES))
+                ).all()
+            }
+            pre_ids = set(db.scalars(select(PaperTrade.signal_id)).all())
+
         summary["closed"] = _manage_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
@@ -117,6 +135,12 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["skipped"] = (
             skipped + w_skipped + d_skipped + r_skipped + eq_skipped
         )
+
+        if notify_on:
+            try:
+                _notify_trades(db, pre_ids, pre_open_status)
+            except Exception as e:  # noqa: BLE001 - never let a notify break the run
+                logger.warning("trade notification failed: %s", e)
     except AlpacaError as e:
         logger.error("Alpaca error during paper run: %s", e)
         summary["status"] = "error"
@@ -2269,3 +2293,71 @@ def _next_reddit_signal_id(db: Session) -> str:
         ).all()
     )
     return f"{prefix}{n + 1:03d}"
+
+
+# --- trade notifications -----------------------------------------------------
+
+
+def _notify_trades(
+    db: Session, pre_ids: set[str], pre_open_status: dict[str, str]
+) -> None:
+    """Send a Telegram alert summarizing the trades this run just opened/closed.
+
+    Opened = rows that didn't exist before the run and got an entry order (skips
+    canceled/failed submissions and dry-run previews). Closed = positions that
+    were open before the run and have since moved to closing/closed."""
+    new_rows = db.scalars(
+        select(PaperTrade).where(PaperTrade.signal_id.notin_(pre_ids or {"\x00"}))
+    ).all()
+    opened = [t for t in new_rows if t.entry_order_id and t.status != "canceled"]
+
+    closed: list[PaperTrade] = []
+    for sig, prev in pre_open_status.items():
+        t = db.scalars(
+            select(PaperTrade).where(PaperTrade.signal_id == sig)
+        ).first()
+        if t and t.status in ("closing", "closed") and t.status != prev:
+            closed.append(t)
+
+    if not opened and not closed:
+        return
+    send_telegram(_format_trade_alert(opened, closed))
+
+
+def _format_trade_alert(
+    opened: list[PaperTrade], closed: list[PaperTrade]
+) -> str:
+    lines = [f"EarningsFollower: {len(opened)} opened, {len(closed)} closed"]
+    if opened:
+        lines.append("")
+        lines.append("OPENED")
+        lines.extend(_open_alert_line(t) for t in opened)
+    if closed:
+        lines.append("")
+        lines.append("CLOSED")
+        lines.extend(_close_alert_line(t) for t in closed)
+    return "\n".join(lines)
+
+
+def _open_alert_line(t: PaperTrade) -> str:
+    strat = t.strategy or "earnings"
+    conv = t.conviction or "?"
+    if _is_equity(t):
+        side = "Long" if t.structure == EQUITY_LONG else "Short"
+        px = t.entry_credit or t.spot_entry or 0.0
+        return f"- {t.ticker}: {side} {t.contracts} sh @ ${px:.2f} ({strat} equity, {conv})"
+    # Options: sell-vol earnings collects a credit; the debit strategies pay one.
+    kind = "credit" if strat == "earnings" else "debit"
+    return (
+        f"- {t.ticker}: {t.structure} x{t.contracts}, "
+        f"{kind} ${t.entry_credit or 0.0:.2f} ({strat}, {conv})"
+    )
+
+
+def _close_alert_line(t: PaperTrade) -> str:
+    pnl = t.realized_pnl
+    if pnl is None:
+        pnl_txt = "P&L pending"
+    else:
+        pnl_txt = f"{'+' if pnl >= 0 else '-'}${abs(pnl):.2f}"
+    return f"- {t.ticker}: {t.structure} {pnl_txt} ({t.note or 'closed'})"

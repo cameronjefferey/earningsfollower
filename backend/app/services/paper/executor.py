@@ -107,16 +107,18 @@ def run(db: Session, dry_run: bool = False) -> dict:
         notify_on = (
             settings.telegram_notify_trades and not dry_run and telegram_configured()
         )
-        pre_open_status: dict[str, str] = {}
-        pre_ids: set[str] = set()
+        # Snapshot every trade's status so the alert can fire on the actual FILL
+        # (status reaches "open"/"closed"), never on mere order submission
+        # ("pending"/"closing") — a resting limit that hasn't filled is not a
+        # trade yet, and a re-armed close shouldn't read as a new open.
+        pre_status: dict[str, str] = {}
         if notify_on:
-            pre_open_status = {
-                t.signal_id: t.status
-                for t in db.scalars(
-                    select(PaperTrade).where(PaperTrade.status.in_(OPEN_STATES))
+            pre_status = {
+                sig: status
+                for sig, status in db.execute(
+                    select(PaperTrade.signal_id, PaperTrade.status)
                 ).all()
             }
-            pre_ids = set(db.scalars(select(PaperTrade.signal_id)).all())
 
         summary["closed"] = _manage_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
@@ -139,7 +141,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
 
         if notify_on:
             try:
-                _notify_trades(db, pre_ids, pre_open_status)
+                _notify_trades(db, pre_status)
             except Exception as e:  # noqa: BLE001 - never let a notify break the run
                 logger.warning("trade notification failed: %s", e)
     except AlpacaError as e:
@@ -2384,26 +2386,26 @@ def _next_reddit_signal_id(db: Session) -> str:
 # --- trade notifications -----------------------------------------------------
 
 
-def _notify_trades(
-    db: Session, pre_ids: set[str], pre_open_status: dict[str, str]
-) -> None:
-    """Send a Telegram alert summarizing the trades this run just opened/closed.
+def _notify_trades(db: Session, pre_status: dict[str, str]) -> None:
+    """Send a Telegram alert for trades that actually FILLED this run.
 
-    Opened = rows that didn't exist before the run and got an entry order (skips
-    canceled/failed submissions and dry-run previews). Closed = positions that
-    were open before the run and have since moved to closing/closed."""
-    new_rows = db.scalars(
-        select(PaperTrade).where(PaperTrade.signal_id.notin_(pre_ids or {"\x00"}))
+    We alert on the fill, not the order: an entry that's still a resting limit
+    ("pending") or a close that's been submitted but hasn't filled ("closing")
+    is not reported. Comparing each trade's status against the pre-run snapshot:
+      - opened = reached "open" from a not-yet-filled state (new/"pending"),
+        excluding a "closing"->"open" re-arm (a lapsed close, not a new entry).
+      - closed = reached "closed" (the close order filled)."""
+    rows = db.scalars(
+        select(PaperTrade).where(PaperTrade.status.in_(("open", "closed")))
     ).all()
-    opened = [t for t in new_rows if t.entry_order_id and t.status != "canceled"]
-
-    closed: list[PaperTrade] = []
-    for sig, prev in pre_open_status.items():
-        t = db.scalars(
-            select(PaperTrade).where(PaperTrade.signal_id == sig)
-        ).first()
-        if t and t.status in ("closing", "closed") and t.status != prev:
-            closed.append(t)
+    opened = [
+        t for t in rows
+        if t.status == "open" and pre_status.get(t.signal_id) in (None, "pending")
+    ]
+    closed = [
+        t for t in rows
+        if t.status == "closed" and pre_status.get(t.signal_id) != "closed"
+    ]
 
     if not opened and not closed:
         return

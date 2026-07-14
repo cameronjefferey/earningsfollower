@@ -919,6 +919,13 @@ def _scan_earnings_equity_entries(
                 {"ticker": ticker, "reason": f"not directional ({direction})"}
             )
             continue
+        conviction = pb.get("conviction")
+        if conviction not in ("medium", "high"):
+            # Low-conviction directional reads are noise for an outright share bet.
+            skipped.append(
+                {"ticker": ticker, "reason": f"conviction too low ({conviction})"}
+            )
+            continue
 
         im = (detail or {}).get("implied_move") or {}
         spot = im.get("underlying_price") or pb.get("spot") or client.stock_price(ticker)

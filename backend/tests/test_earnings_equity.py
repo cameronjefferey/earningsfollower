@@ -20,6 +20,7 @@ from app.services.implied import compute_vol_edge  # noqa: E402
 from app.services.paper.executor import (  # noqa: E402
     EQUITY_LONG,
     EQUITY_SHORT,
+    _close_client_order_id,
     _earnings_equity_exit_reason,
     _earnings_equity_shares,
 )
@@ -148,6 +149,16 @@ def test_force_close_and_bad_fill_take_priority():
     assert _earnings_equity_exit_reason(t, 100.0, date.today(), s) == "manual close"
     t2 = _trade(EQUITY_LONG, 100.0, note="bad fill: something", signal_id="EE-2")
     assert _earnings_equity_exit_reason(t2, 100.0, date.today(), s) == "flatten: bad entry fill"
+
+
+def test_close_client_order_id_is_unique_per_attempt():
+    """Regression: a re-armed close must not reuse a fixed id, or Alpaca 422s
+    ('client_order_id must be unique') and the position never closes."""
+    a = _close_client_order_id("EE-20260714-003")
+    b = _close_client_order_id("EE-20260714-003")
+    assert a != b
+    assert a.startswith("EE-20260714-003-x-")
+    assert b.startswith("EE-20260714-003-x-")
 
 
 def _run_all() -> int:

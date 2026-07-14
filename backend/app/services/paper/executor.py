@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 
@@ -153,6 +154,15 @@ def run(db: Session, dry_run: bool = False) -> dict:
 # --- reconcile ---------------------------------------------------------------
 
 
+def _close_client_order_id(signal_id: str) -> str:
+    """Unique per close *attempt*. A close limit can lapse (canceled/expired) and
+    the position gets re-armed to retry; a fixed id (e.g. ``<sig>-x``) makes
+    Alpaca reject every retry with ``client_order_id must be unique``, stranding
+    the position open forever. A fresh suffix per attempt avoids that -- the DB
+    tracks the returned Alpaca order id, so we never need to reproduce this."""
+    return f"{signal_id}-x-{uuid.uuid4().hex[:8]}"
+
+
 def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
     """Promote pending->open and closing->closed based on Alpaca order status."""
     count = 0
@@ -265,7 +275,7 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
                 legs=close_legs,
                 qty=t.contracts or 1,
                 limit_price=limit,
-                client_order_id=f"{t.signal_id}-x",
+                client_order_id=_close_client_order_id(t.signal_id),
             )
         except AlpacaError as e:
             logger.error("Close failed for %s: %s", t.signal_id, e)
@@ -1131,7 +1141,7 @@ def _manage_earnings_equity_exits(
         try:
             order = client.submit_stock_order(
                 symbol=t.ticker, qty=t.contracts or 1, side=side,
-                client_order_id=f"{t.signal_id}-x",
+                client_order_id=_close_client_order_id(t.signal_id),
             )
         except AlpacaError as e:
             logger.error("Earnings equity close failed for %s: %s", t.signal_id, e)
@@ -1252,7 +1262,7 @@ def _manage_wave_exits(
                 legs=close_legs,
                 qty=t.contracts or 1,
                 limit_price=limit,
-                client_order_id=f"{t.signal_id}-x",
+                client_order_id=_close_client_order_id(t.signal_id),
             )
         except AlpacaError as e:
             logger.error("Wave close failed for %s: %s", t.signal_id, e)
@@ -1568,7 +1578,7 @@ def _manage_drift_exits(
                 legs=close_legs,
                 qty=t.contracts or 1,
                 limit_price=limit,
-                client_order_id=f"{t.signal_id}-x",
+                client_order_id=_close_client_order_id(t.signal_id),
             )
         except AlpacaError as e:
             logger.error("Drift close failed for %s: %s", t.signal_id, e)
@@ -1900,7 +1910,7 @@ def _manage_reddit_exits(
                 legs=close_legs,
                 qty=t.contracts or 1,
                 limit_price=limit,
-                client_order_id=f"{t.signal_id}-x",
+                client_order_id=_close_client_order_id(t.signal_id),
             )
         except AlpacaError as e:
             logger.error("Reddit close failed for %s: %s", t.signal_id, e)
@@ -1995,7 +2005,7 @@ def _manage_one_equity_exit(
     try:
         order = client.submit_stock_order(
             symbol=t.ticker, qty=t.contracts or 1, side=side,
-            client_order_id=f"{t.signal_id}-x",
+            client_order_id=_close_client_order_id(t.signal_id),
         )
     except AlpacaError as e:
         logger.error("Equity close failed for %s: %s", t.signal_id, e)

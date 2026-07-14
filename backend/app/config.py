@@ -189,6 +189,11 @@ class Settings(BaseSettings):
     # signals), so we want breadth. The practical ceiling becomes Alpaca paper
     # buying power, not this number -- orders that would exceed it just don't fill.
     paper_earnings_equity_max_open: int = 40
+    # Cap per sector so a single sector's earnings week (e.g. 20+ regional banks
+    # all reporting together) can't flood the book with one correlated, same-
+    # direction bet -- take a couple of the best names and let the waves strategy
+    # ride the rest of the sector sympathy. 0 disables the per-sector cap.
+    paper_earnings_equity_max_per_sector: int = 3
     # Underlying-move exits for the equity leg (held through the print, then the
     # post-earnings close mirrors the options harvest; these are the pre/at-print
     # guardrails). Earnings moves are larger than the intraday Reddit ride, so the

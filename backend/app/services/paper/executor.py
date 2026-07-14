@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.alpaca import AlpacaClient, AlpacaError
 from app.config import get_settings
-from app.db.models import EarningsEvent, PaperTrade, PriceBar
+from app.db.models import Company, EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.notify import send_telegram, telegram_configured
 from app.services.paper.contracts import TradeSpec, build_trade_spec
@@ -864,15 +864,29 @@ def _scan_earnings_equity_entries(
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
 
-    open_n = len(
-        db.scalars(
-            select(PaperTrade).where(
-                PaperTrade.strategy == "earnings",
-                PaperTrade.structure.in_(EQUITY_STRUCTURES),
-                PaperTrade.status.in_(OPEN_STATES),
-            )
-        ).all()
-    )
+    open_positions = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == "earnings",
+            PaperTrade.structure.in_(EQUITY_STRUCTURES),
+            PaperTrade.status.in_(OPEN_STATES),
+        )
+    ).all()
+    open_n = len(open_positions)
+    # Seed the per-sector tally from what's already on the book so the cap holds
+    # across cron runs, not just within a single scan.
+    sector_counts: dict[str, int] = {}
+    if settings.paper_earnings_equity_max_per_sector > 0 and open_positions:
+        sectors = {
+            c.ticker: (c.sector or "unknown")
+            for c in db.scalars(
+                select(Company).where(
+                    Company.ticker.in_({t.ticker for t in open_positions})
+                )
+            ).all()
+        }
+        for t in open_positions:
+            sec = sectors.get(t.ticker, "unknown")
+            sector_counts[sec] = sector_counts.get(sec, 0) + 1
 
     events = db.scalars(
         select(EarningsEvent)
@@ -920,12 +934,28 @@ def _scan_earnings_equity_entries(
             )
             continue
         conviction = pb.get("conviction")
-        if conviction not in ("medium", "high"):
-            # Low-conviction directional reads are noise for an outright share bet.
+        if conviction != "high":
+            # Only the strongest directional reads earn an outright share bet;
+            # everything else is noise (or belongs to the waves sympathy book).
             skipped.append(
-                {"ticker": ticker, "reason": f"conviction too low ({conviction})"}
+                {"ticker": ticker, "reason": f"conviction not high ({conviction})"}
             )
             continue
+
+        # Per-sector cap: take only a couple of names from any one sector so a
+        # single sector's earnings week can't flood the book with one correlated
+        # bet; the waves strategy rides the rest of the sector sympathy.
+        cap_per_sector = settings.paper_earnings_equity_max_per_sector
+        if cap_per_sector > 0:
+            company = db.get(Company, ticker.upper())
+            sector = (company.sector if company else None) or "unknown"
+            if sector_counts.get(sector, 0) >= cap_per_sector:
+                skipped.append(
+                    {"ticker": ticker, "reason": f"sector cap reached ({sector})"}
+                )
+                continue
+        else:
+            sector = None
 
         im = (detail or {}).get("implied_move") or {}
         spot = im.get("underlying_price") or pb.get("spot") or client.stock_price(ticker)
@@ -981,6 +1011,8 @@ def _scan_earnings_equity_entries(
             )
             trade.note = "dry-run (not submitted)"
             opened += 1
+            if sector:
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
             continue
 
         try:
@@ -996,6 +1028,8 @@ def _scan_earnings_equity_entries(
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
         opened += 1
+        if sector:
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
 
     if not dry_run:
         db.commit()

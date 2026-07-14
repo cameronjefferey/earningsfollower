@@ -630,10 +630,87 @@ function Buckets({ title, data }: { title: string; data: Record<string, PaperBuc
   );
 }
 
+type ClosedSortKey =
+  | "ticker"
+  | "strategy"
+  | "structure"
+  | "earnings_date"
+  | "closed_at"
+  | "entry_credit"
+  | "exit_debit"
+  | "max_risk"
+  | "realized_pnl";
+
+const CLOSED_COLUMNS: {
+  key: ClosedSortKey;
+  label: string;
+  numeric?: boolean;
+}[] = [
+  { key: "ticker", label: "Ticker" },
+  { key: "strategy", label: "Type" },
+  { key: "structure", label: "Structure" },
+  { key: "earnings_date", label: "Reported" },
+  { key: "closed_at", label: "Closed" },
+  { key: "entry_credit", label: "Credit", numeric: true },
+  { key: "exit_debit", label: "Exit", numeric: true },
+  { key: "max_risk", label: "Risk", numeric: true },
+  { key: "realized_pnl", label: "P&L", numeric: true },
+];
+
+// String columns default to A→Z on first click; numbers and dates default to
+// high→low (biggest win / most risk / most recent first) since that's what you
+// usually want to eyeball.
+const DEFAULT_ASC: Record<ClosedSortKey, boolean> = {
+  ticker: true,
+  strategy: true,
+  structure: true,
+  earnings_date: false,
+  closed_at: false,
+  entry_credit: false,
+  exit_debit: false,
+  max_risk: false,
+  realized_pnl: false,
+};
+
+function compareTrades(
+  a: PaperTrade,
+  b: PaperTrade,
+  key: ClosedSortKey,
+  dir: "asc" | "desc"
+): number {
+  const av = a[key];
+  const bv = b[key];
+  const aNull = av === null || av === undefined;
+  const bNull = bv === null || bv === undefined;
+  if (aNull && bNull) return 0;
+  if (aNull) return 1; // nulls always sink to the bottom
+  if (bNull) return -1;
+  let cmp: number;
+  if (typeof av === "number" && typeof bv === "number") {
+    cmp = av - bv;
+  } else {
+    // ISO date strings sort lexically == chronologically.
+    cmp = String(av).localeCompare(String(bv));
+  }
+  return dir === "asc" ? cmp : -cmp;
+}
+
 export default function PaperPage() {
   const [data, setData] = useState<PaperResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: ClosedSortKey; dir: "asc" | "desc" }>({
+    key: "closed_at",
+    dir: "desc",
+  });
+
+  function toggleSort(key: ClosedSortKey) {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: DEFAULT_ASC[key] ? "asc" : "desc" }
+    );
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -648,6 +725,9 @@ export default function PaperPage() {
   if (error || !data) return <EmptyState title="Couldn't load the paper scorecard." />;
 
   const { stats, account, open, closed } = data;
+  const sortedClosed = [...closed].sort((a, b) =>
+    compareTrades(a, b, sort.key, sort.dir)
+  );
 
   return (
     <div>
@@ -742,18 +822,30 @@ export default function PaperPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-[var(--color-muted)] text-xs uppercase tracking-wide">
-                    <th className="py-2 pr-4">Ticker</th>
-                    <th className="py-2 pr-4">Type</th>
-                    <th className="py-2 pr-4">Structure</th>
-                    <th className="py-2 pr-4">Reported</th>
-                    <th className="py-2 pr-4">Credit</th>
-                    <th className="py-2 pr-4">Exit</th>
-                    <th className="py-2 pr-4">P&L</th>
+                    {CLOSED_COLUMNS.map((col) => {
+                      const active = sort.key === col.key;
+                      return (
+                        <th key={col.key} className="py-2 pr-4">
+                          <button
+                            type="button"
+                            onClick={() => toggleSort(col.key)}
+                            className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-white ${
+                              active ? "text-white" : ""
+                            }`}
+                          >
+                            {col.label}
+                            <span className="text-[9px]">
+                              {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
+                            </span>
+                          </button>
+                        </th>
+                      );
+                    })}
                     <th className="py-2 pr-4">Signal</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {closed.map((t) => (
+                  {sortedClosed.map((t) => (
                     <tr key={t.signal_id} className="border-t border-[var(--color-edge)]">
                       <td className="py-2 pr-4 font-semibold">
                         <Link
@@ -768,8 +860,10 @@ export default function PaperPage() {
                       </td>
                       <td className="py-2 pr-4 text-[var(--color-muted)]">{t.structure}</td>
                       <td className="py-2 pr-4">{fmtDate(t.earnings_date)}</td>
+                      <td className="py-2 pr-4">{fmtDate(t.closed_at)}</td>
                       <td className="py-2 pr-4">${t.entry_credit?.toFixed(2) ?? "—"}</td>
                       <td className="py-2 pr-4">${t.exit_debit?.toFixed(2) ?? "—"}</td>
+                      <td className="py-2 pr-4">{money(t.max_risk)}</td>
                       <td className={`py-2 pr-4 font-semibold ${moveClass(t.realized_pnl)}`}>
                         {signedMoney(t.realized_pnl)}
                       </td>

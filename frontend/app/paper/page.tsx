@@ -672,14 +672,11 @@ const DEFAULT_ASC: Record<ClosedSortKey, boolean> = {
   realized_pnl: false,
 };
 
-function compareTrades(
-  a: PaperTrade,
-  b: PaperTrade,
-  key: ClosedSortKey,
+function cmpValues(
+  av: string | number | null | undefined,
+  bv: string | number | null | undefined,
   dir: "asc" | "desc"
 ): number {
-  const av = a[key];
-  const bv = b[key];
   const aNull = av === null || av === undefined;
   const bNull = bv === null || bv === undefined;
   if (aNull && bNull) return 0;
@@ -695,6 +692,63 @@ function compareTrades(
   return dir === "asc" ? cmp : -cmp;
 }
 
+function compareTrades(
+  a: PaperTrade,
+  b: PaperTrade,
+  key: ClosedSortKey,
+  dir: "asc" | "desc"
+): number {
+  return cmpValues(a[key], b[key], dir);
+}
+
+type OpenSortKey =
+  | "ticker"
+  | "strategy"
+  | "earnings_date"
+  | "opened_at"
+  | "max_risk"
+  | "gain";
+
+const OPEN_SORTS: { key: OpenSortKey; label: string }[] = [
+  { key: "gain", label: "Gain %" },
+  { key: "max_risk", label: "Risk" },
+  { key: "earnings_date", label: "Reported" },
+  { key: "opened_at", label: "Opened" },
+  { key: "ticker", label: "Ticker" },
+  { key: "strategy", label: "Type" },
+];
+
+const OPEN_DEFAULT_ASC: Record<OpenSortKey, boolean> = {
+  ticker: true,
+  strategy: true,
+  earnings_date: false,
+  opened_at: false,
+  max_risk: false,
+  gain: false,
+};
+
+// Direction-adjusted unrealized move from entry: positive = the position is
+// in the money. For a bull it's the up-move, for a bear the down-move; for a
+// neutral (iron condor) staying near entry is best, so tighter ranks higher.
+function openGain(t: PaperTrade): number | null {
+  if (t.spot_now == null || !t.spot_entry) return null;
+  const move = t.spot_now / t.spot_entry - 1;
+  if (t.direction === "bullish") return move;
+  if (t.direction === "bearish") return -move;
+  return -Math.abs(move);
+}
+
+function compareOpen(
+  a: PaperTrade,
+  b: PaperTrade,
+  key: OpenSortKey,
+  dir: "asc" | "desc"
+): number {
+  const av = key === "gain" ? openGain(a) : a[key];
+  const bv = key === "gain" ? openGain(b) : b[key];
+  return cmpValues(av, bv, dir);
+}
+
 export default function PaperPage() {
   const [data, setData] = useState<PaperResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -703,12 +757,24 @@ export default function PaperPage() {
     key: "closed_at",
     dir: "desc",
   });
+  const [openSort, setOpenSort] = useState<{ key: OpenSortKey; dir: "asc" | "desc" }>({
+    key: "opened_at",
+    dir: "desc",
+  });
 
   function toggleSort(key: ClosedSortKey) {
     setSort((prev) =>
       prev.key === key
         ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
         : { key, dir: DEFAULT_ASC[key] ? "asc" : "desc" }
+    );
+  }
+
+  function toggleOpenSort(key: OpenSortKey) {
+    setOpenSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: OPEN_DEFAULT_ASC[key] ? "asc" : "desc" }
     );
   }
 
@@ -727,6 +793,9 @@ export default function PaperPage() {
   const { stats, account, open, closed } = data;
   const sortedClosed = [...closed].sort((a, b) =>
     compareTrades(a, b, sort.key, sort.dir)
+  );
+  const sortedOpen = [...open].sort((a, b) =>
+    compareOpen(a, b, openSort.key, openSort.dir)
   );
 
   return (
@@ -788,10 +857,39 @@ export default function PaperPage() {
         />
       </div>
 
-      <h2 className="font-semibold mb-3">Open positions</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 className="font-semibold">Open positions</h2>
+        {open.length ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-[var(--color-muted)] mr-1">
+              Sort
+            </span>
+            {OPEN_SORTS.map((s) => {
+              const active = openSort.key === s.key;
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => toggleOpenSort(s.key)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                    active
+                      ? "border-[var(--color-accent)] text-white bg-[var(--color-accent)]/15"
+                      : "border-[var(--color-edge)] text-[var(--color-muted)] hover:text-white"
+                  }`}
+                >
+                  {s.label}
+                  <span className="text-[9px]">
+                    {active ? (openSort.dir === "asc" ? "▲" : "▼") : "↕"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
       {open.length ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-          {open.map((t) => (
+          {sortedOpen.map((t) => (
             <OpenCard key={t.signal_id} trade={t} />
           ))}
         </div>

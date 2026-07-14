@@ -175,6 +175,10 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
                 t.opened_at = datetime.utcnow()
                 if fill:
                     t.entry_credit = abs(fill)
+                    if _is_equity(t):
+                        # Anchor move-based exits to the real fill, not the
+                        # pre-fill spot estimate (often a stale daily close).
+                        t.spot_entry = round(abs(fill), 2)
                     _recompute_max_risk(t)
                     _enforce_fill_economics(t)
                 count += 1
@@ -819,6 +823,10 @@ def _apply_entry_fill(trade: PaperTrade, order: dict) -> bool:
         fill = _to_float(order.get("filled_avg_price"))
         if fill:
             trade.entry_credit = abs(fill)
+            if _is_equity(trade):
+                # Anchor move-based exits to the real fill, not the pre-fill
+                # spot estimate (often a stale daily close).
+                trade.spot_entry = round(abs(fill), 2)
             _recompute_max_risk(trade)
             _enforce_fill_economics(trade)
         return True
@@ -1092,8 +1100,9 @@ def _manage_earnings_equity_exits(
         t.status = "closing"
         t.note = reason
         t.spot_at_exit = round(spot_now, 2)
-        if t.spot_entry:
-            t.realized_move_pct = round(spot_now / t.spot_entry - 1, 4)
+        entry_px = t.entry_credit or t.spot_entry
+        if entry_px:
+            t.realized_move_pct = round(spot_now / entry_px - 1, 4)
         _finalize_pnl(t)
         closed += 1
     if not dry_run:
@@ -1110,8 +1119,11 @@ def _earnings_equity_exit_reason(
     if (t.note or "").startswith(_BAD_FILL_PREFIX):
         return "flatten: bad entry fill"
     # Underlying-move take-profit / stop (guardrail before and through the print).
-    if t.spot_entry:
-        move = spot_now / t.spot_entry - 1.0  # signed move since entry
+    # Anchor to the real fill (entry_credit); spot_entry may be a stale pre-fill
+    # estimate for positions opened before this reference was corrected.
+    entry_px = t.entry_credit or t.spot_entry
+    if entry_px:
+        move = spot_now / entry_px - 1.0  # signed move since entry
         tp = settings.paper_earnings_equity_take_profit_pct
         sl = settings.paper_earnings_equity_stop_pct
         if t.structure == EQUITY_LONG:
@@ -1905,9 +1917,10 @@ def _reddit_equity_exit_reason(t: PaperTrade, spot_now: float, settings) -> str 
         held_hours = (datetime.utcnow() - t.opened_at).total_seconds() / 3600.0
         if held_hours >= settings.paper_reddit_hold_hours:
             return "hold window elapsed"
-    if not t.spot_entry:
+    entry_px = t.entry_credit or t.spot_entry
+    if not entry_px:
         return None
-    move = spot_now / t.spot_entry - 1.0  # signed underlying move since entry
+    move = spot_now / entry_px - 1.0  # signed underlying move since entry
     tp = settings.paper_reddit_equity_take_profit_pct
     sl = settings.paper_reddit_equity_stop_pct
     if t.structure == EQUITY_LONG:
@@ -1951,8 +1964,9 @@ def _manage_one_equity_exit(
     t.status = "closing"
     t.note = reason
     t.spot_at_exit = round(spot_now, 2)
-    if t.spot_entry:
-        t.realized_move_pct = round(spot_now / t.spot_entry - 1, 4)
+    entry_px = t.entry_credit or t.spot_entry
+    if entry_px:
+        t.realized_move_pct = round(spot_now / entry_px - 1, 4)
     _finalize_pnl(t)
     return True
 

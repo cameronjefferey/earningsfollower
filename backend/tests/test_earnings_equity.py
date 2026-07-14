@@ -90,11 +90,15 @@ def test_sizing_rejects_when_share_unaffordable_or_unpriced():
 # --- equity exit logic -------------------------------------------------------
 
 
-def _trade(structure: str, spot_entry: float, earnings_date=None, note=None, signal_id="EE-1"):
+def _trade(structure: str, spot_entry: float, earnings_date=None, note=None,
+           signal_id="EE-1", entry_credit=None):
     return SimpleNamespace(
         signal_id=signal_id,
         structure=structure,
         spot_entry=spot_entry,
+        # Exits anchor to the real fill; default it to spot_entry for the simple
+        # cases where the pre-fill estimate and the fill agree.
+        entry_credit=spot_entry if entry_credit is None else entry_credit,
         earnings_date=earnings_date,
         note=note,
     )
@@ -114,6 +118,20 @@ def test_short_equity_take_profit_and_stop():
     # Short profits when the stock falls.
     assert _earnings_equity_exit_reason(t, 89.0, date.today(), s).startswith("take-profit")
     assert _earnings_equity_exit_reason(t, 108.0, date.today(), s).startswith("stop")
+
+
+def test_exit_move_anchors_to_fill_not_stale_spot_entry():
+    """Regression: a stale pre-fill spot_entry must not trigger a phantom stop.
+
+    ERIC filled at 10.15 but spot_entry was recorded as 11.72; measured off the
+    stale estimate the position read -13.9% and stopped out while it was actually
+    flat vs its real fill. The exit must use entry_credit (the fill)."""
+    s = FakeSettings()
+    t = _trade(EQUITY_LONG, spot_entry=11.72, entry_credit=10.15)
+    # ~flat vs the real fill -> no exit, despite -13.9% vs the stale spot_entry.
+    assert _earnings_equity_exit_reason(t, 10.09, date.today(), s) is None
+    # A genuine 8% drop from the fill still stops out.
+    assert _earnings_equity_exit_reason(t, 9.30, date.today(), s).startswith("stop")
 
 
 def test_post_earnings_harvest_after_print():

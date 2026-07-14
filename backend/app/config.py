@@ -144,6 +144,18 @@ class Settings(BaseSettings):
     # illiquid options (huge bid/ask) bleed far more on the round-trip cross than
     # the trade can make, so we simply don't trade them.
     paper_max_cross_slippage_frac: float = 0.25
+    # --- Walk-limit exits -----------------------------------------------------
+    # For urgent option-spread exits (manual close / stops) we don't just cross
+    # the market and pay the touch. We "walk" the net limit: start patient at
+    # ~mid and concede a penny every few seconds toward the marketable cross,
+    # so we give up only as much edge as the book actually demands to fill. If
+    # it still hasn't filled by the per-order budget, drop the final marketable
+    # order and let the next reconcile finish it. Set enabled=False to fall back
+    # to the immediate single cross.
+    paper_walk_limit_enabled: bool = True
+    paper_walk_step: float = 0.01            # net-price concession per step
+    paper_walk_interval_seconds: float = 2.0  # dwell at each price before repricing
+    paper_walk_max_seconds: float = 30.0      # per-order wall-clock budget
     # --- Fair-trade economics gate (app/services/paper/economics.py) ----------
     # Every entry is checked at its *executable* price (the marketable-cross
     # limit, re-checked again on the actual fill), never the modeled mid -- the

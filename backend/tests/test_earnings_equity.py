@@ -24,6 +24,7 @@ from app.services.paper.executor import (  # noqa: E402
     _earnings_equity_exit_reason,
     _earnings_equity_shares,
     _exit_is_urgent,
+    _walk_mleg_to_fill,
 )
 
 
@@ -32,6 +33,10 @@ class FakeSettings:
     paper_earnings_equity_take_profit_pct: float = 0.10
     paper_earnings_equity_stop_pct: float = 0.07
     paper_force_close_id_set: set = field(default_factory=set)
+    paper_walk_limit_enabled: bool = True
+    paper_walk_step: float = 0.01
+    paper_walk_interval_seconds: float = 0.0  # no real sleeping in tests
+    paper_walk_max_seconds: float = 5.0
 
 
 # --- strike-level win probability --------------------------------------------
@@ -182,6 +187,66 @@ def test_exit_urgency_classifier():
         None,
     ):
         assert not _exit_is_urgent(patient), patient
+
+
+class _FakeClient:
+    """Fills the Nth submitted order; records prices submitted and cancels."""
+
+    def __init__(self, fill_after: int):
+        self.fill_after = fill_after
+        self.submits: list[float] = []
+        self.cancels: list[str] = []
+        self._n = 0
+        self._orders: dict[str, dict] = {}
+
+    def submit_mleg(self, legs, qty, limit_price, client_order_id):
+        self._n += 1
+        oid = f"o{self._n}"
+        self.submits.append(limit_price)
+        filled = self._n >= self.fill_after
+        self._orders[oid] = {
+            "id": oid,
+            "status": "filled" if filled else "new",
+            "filled_avg_price": limit_price if filled else None,
+        }
+        return {"id": oid, "status": "accepted"}
+
+    def get_order(self, oid):
+        return self._orders.get(oid, {})
+
+    def cancel_order(self, oid):
+        self.cancels.append(oid)
+
+
+def test_walk_debit_steps_up_until_filled():
+    """A debit close walks the net UP a penny at a time toward the ask; stops
+    the instant it fills, conceding no more than needed."""
+    s = FakeSettings()
+    c = _FakeClient(fill_after=3)
+    order = _walk_mleg_to_fill(c, [], 1, "EF-1", start=1.00, end=1.10, settings=s)
+    assert order["status"] == "filled"
+    assert c.submits == [1.00, 1.01, 1.02]  # stopped as soon as it filled
+    assert len(c.cancels) == 2               # cancelled the two that didn't fill
+
+
+def test_walk_credit_steps_toward_bid():
+    """A credit close (negative net) walks toward the less-negative bid side."""
+    s = FakeSettings()
+    c = _FakeClient(fill_after=2)
+    order = _walk_mleg_to_fill(c, [], 1, "RS-1", start=-1.00, end=-0.90, settings=s)
+    assert order["status"] == "filled"
+    assert c.submits == [-1.00, -0.99]
+
+
+def test_walk_drops_final_marketable_when_unfilled():
+    """If nothing fills, it walks to the marketable end and leaves that order for
+    reconcile (never gives up more than the cross)."""
+    s = FakeSettings()
+    c = _FakeClient(fill_after=999)
+    order = _walk_mleg_to_fill(c, [], 1, "EF-2", start=1.00, end=1.02, settings=s)
+    assert "id" in order
+    assert c.submits[-1] == 1.02           # final order sits at the cross
+    assert c.submits[0] == 1.00            # but started patient at mid
 
 
 def _run_all() -> int:

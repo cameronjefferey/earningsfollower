@@ -274,5 +274,13 @@ class AlpacaClient:
             self._request("GET", self.trading_base, f"/v2/orders/{order_id}") or {}
         )
 
+    def cancel_order(self, order_id: str) -> None:
+        """Cancel a working order. A 404/422 (already filled or gone) is not an
+        error for our purposes -- the walk-limit just moves on."""
+        try:
+            self._request("DELETE", self.trading_base, f"/v2/orders/{order_id}")
+        except (AlpacaError, httpx.HTTPError):
+            pass
+
     def list_positions(self) -> list[dict[str, Any]]:
         return self._request("GET", self.trading_base, "/v2/positions") or []

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
@@ -277,17 +278,11 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
                 "[dry-run] would close %s (%s) at net %.2f", t.signal_id, reason, exit_net
             )
             continue
-        limit = _marketable_net(
-            client, close_legs, is_credit=False, mid=exit_net, settings=settings,
-            quotes=quotes, aggressive=_exit_is_urgent(reason),
-            exit_cross=_exit_is_urgent(reason),
-        )
         try:
-            order = client.submit_mleg(
-                legs=close_legs,
-                qty=t.contracts or 1,
-                limit_price=limit,
-                client_order_id=_close_client_order_id(t.signal_id),
+            order = _submit_spread_close(
+                client, close_legs, t.contracts or 1, t.signal_id,
+                is_credit=False, mid=exit_net, urgent=_exit_is_urgent(reason),
+                settings=settings, quotes=quotes,
             )
         except AlpacaError as e:
             logger.error("Close failed for %s: %s", t.signal_id, e)
@@ -760,6 +755,92 @@ def _marketable_net(
         return None
 
     return _signed(_mag(cross))
+
+
+def _walk_mleg_to_fill(
+    client: AlpacaClient,
+    legs: list[dict],
+    qty: int,
+    signal_id: str,
+    start: float,
+    end: float,
+    settings,
+) -> dict:
+    """Close a spread by walking the net limit from ``start`` (patient, ~mid)
+    toward ``end`` (the marketable cross), conceding ``paper_walk_step`` per
+    dwell until it fills or the per-order budget elapses -- then drop a final
+    order at ``end`` and let reconcile finish it. Prices are signed nets
+    (negative = credit, positive = debit); we always step from start toward end.
+    Returns the order to record as the exit (the filled one, or the final)."""
+    step = max(0.01, settings.paper_walk_step)
+    interval = max(0.0, settings.paper_walk_interval_seconds)
+    deadline = time.monotonic() + max(0.0, settings.paper_walk_max_seconds)
+    up = end >= start
+    price = round(start, 2)
+
+    def _submit(px: float) -> dict:
+        return client.submit_mleg(
+            legs=legs, qty=qty, limit_price=px,
+            client_order_id=_close_client_order_id(signal_id),
+        )
+
+    while True:
+        order = _submit(price)
+        oid = order.get("id")
+        if interval:
+            time.sleep(interval)
+        try:
+            probe = client.get_order(oid) if oid else {}
+        except AlpacaError:
+            probe = {}
+        if (probe.get("status") or "").lower() == "filled":
+            return probe
+        if oid:
+            client.cancel_order(oid)
+        reached = price >= end if up else price <= end
+        if reached or time.monotonic() >= deadline:
+            return _submit(round(end, 2))
+        price = round(price + step, 2) if up else round(price - step, 2)
+        if (up and price > end) or (not up and price < end):
+            price = round(end, 2)
+
+
+def _submit_spread_close(
+    client: AlpacaClient,
+    legs: list[dict],
+    qty: int,
+    signal_id: str,
+    *,
+    is_credit: bool,
+    mid: float,
+    urgent: bool,
+    settings,
+    quotes: dict | None = None,
+    min_credit: float | None = None,
+    max_debit: float | None = None,
+) -> dict:
+    """Submit the closing order for an option spread. Non-urgent (planned
+    harvest / take-profit): one patient limit at ~mid. Urgent (manual close /
+    stop): walk the limit from mid toward the marketable cross so we concede
+    only as much as the book demands to fill."""
+    patient = _marketable_net(
+        client, legs, is_credit=is_credit, mid=mid, settings=settings,
+        quotes=quotes, aggressive=False, min_credit=min_credit, max_debit=max_debit,
+    )
+    if not (urgent and settings.paper_walk_limit_enabled):
+        return client.submit_mleg(
+            legs=legs, qty=qty, limit_price=patient,
+            client_order_id=_close_client_order_id(signal_id),
+        )
+    cross = _marketable_net(
+        client, legs, is_credit=is_credit, mid=mid, settings=settings,
+        quotes=quotes, aggressive=True, exit_cross=True,
+    )
+    if cross is None:
+        cross = patient
+    return _walk_mleg_to_fill(
+        client, legs, qty, signal_id, start=patient, end=cross, settings=settings,
+    )
 
 
 def _gate_entry(
@@ -1272,18 +1353,12 @@ def _manage_wave_exits(
                 "[dry-run] would close wave %s (%s) at %.2f", t.signal_id, reason, exit_value
             )
             continue
-        limit = _marketable_net(
-            client, close_legs, is_credit=True, mid=exit_value, settings=settings,
-            quotes=quotes, aggressive=_exit_is_urgent(reason),
-            exit_cross=_exit_is_urgent(reason),
-            min_credit=_spread_intrinsic(legs, spot_now),
-        )
         try:
-            order = client.submit_mleg(
-                legs=close_legs,
-                qty=t.contracts or 1,
-                limit_price=limit,
-                client_order_id=_close_client_order_id(t.signal_id),
+            order = _submit_spread_close(
+                client, close_legs, t.contracts or 1, t.signal_id,
+                is_credit=True, mid=exit_value, urgent=_exit_is_urgent(reason),
+                settings=settings, quotes=quotes,
+                min_credit=_spread_intrinsic(legs, spot_now),
             )
         except AlpacaError as e:
             logger.error("Wave close failed for %s: %s", t.signal_id, e)
@@ -1589,18 +1664,12 @@ def _manage_drift_exits(
                 "[dry-run] would close drift %s (%s) at %.2f", t.signal_id, reason, exit_value
             )
             continue
-        limit = _marketable_net(
-            client, close_legs, is_credit=True, mid=exit_value, settings=settings,
-            quotes=quotes, aggressive=_exit_is_urgent(reason),
-            exit_cross=_exit_is_urgent(reason),
-            min_credit=_spread_intrinsic(legs, spot_now),
-        )
         try:
-            order = client.submit_mleg(
-                legs=close_legs,
-                qty=t.contracts or 1,
-                limit_price=limit,
-                client_order_id=_close_client_order_id(t.signal_id),
+            order = _submit_spread_close(
+                client, close_legs, t.contracts or 1, t.signal_id,
+                is_credit=True, mid=exit_value, urgent=_exit_is_urgent(reason),
+                settings=settings, quotes=quotes,
+                min_credit=_spread_intrinsic(legs, spot_now),
             )
         except AlpacaError as e:
             logger.error("Drift close failed for %s: %s", t.signal_id, e)
@@ -1922,18 +1991,12 @@ def _manage_reddit_exits(
                 t.signal_id, reason, exit_value,
             )
             continue
-        limit = _marketable_net(
-            client, close_legs, is_credit=True, mid=exit_value, settings=settings,
-            quotes=quotes, aggressive=_exit_is_urgent(reason),
-            exit_cross=_exit_is_urgent(reason),
-            min_credit=_spread_intrinsic(legs, spot_now),
-        )
         try:
-            order = client.submit_mleg(
-                legs=close_legs,
-                qty=t.contracts or 1,
-                limit_price=limit,
-                client_order_id=_close_client_order_id(t.signal_id),
+            order = _submit_spread_close(
+                client, close_legs, t.contracts or 1, t.signal_id,
+                is_credit=True, mid=exit_value, urgent=_exit_is_urgent(reason),
+                settings=settings, quotes=quotes,
+                min_credit=_spread_intrinsic(legs, spot_now),
             )
         except AlpacaError as e:
             logger.error("Reddit close failed for %s: %s", t.signal_id, e)

@@ -630,6 +630,54 @@ function Buckets({ title, data }: { title: string; data: Record<string, PaperBuc
   );
 }
 
+function isEquityTrade(t: PaperTrade): boolean {
+  return t.structure === "Long shares" || t.structure === "Short shares";
+}
+
+type Filters = { strategy: string; direction: string; instrument: string };
+
+function matchesFilters(t: PaperTrade, f: Filters): boolean {
+  if (f.strategy !== "all" && (t.strategy ?? "earnings") !== f.strategy) return false;
+  if (f.direction !== "all" && t.direction !== f.direction) return false;
+  if (f.instrument !== "all") {
+    const eq = isEquityTrade(t);
+    if (f.instrument === "equity" && !eq) return false;
+    if (f.instrument === "options" && eq) return false;
+  }
+  return true;
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="inline-flex items-center gap-1.5">
+      <span className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-md border border-[var(--color-edge)] bg-[var(--color-panel-2)] px-2 py-1 text-xs text-white focus:outline-none focus:border-[var(--color-accent)]"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 type ClosedSortKey =
   | "ticker"
   | "strategy"
@@ -761,6 +809,11 @@ export default function PaperPage() {
     key: "opened_at",
     dir: "desc",
   });
+  const [filters, setFilters] = useState<Filters>({
+    strategy: "all",
+    direction: "all",
+    instrument: "all",
+  });
 
   function toggleSort(key: ClosedSortKey) {
     setSort((prev) =>
@@ -791,12 +844,18 @@ export default function PaperPage() {
   if (error || !data) return <EmptyState title="Couldn't load the paper scorecard." />;
 
   const { stats, account, open, closed } = data;
-  const sortedClosed = [...closed].sort((a, b) =>
+  const filteredClosed = closed.filter((t) => matchesFilters(t, filters));
+  const filteredOpen = open.filter((t) => matchesFilters(t, filters));
+  const sortedClosed = [...filteredClosed].sort((a, b) =>
     compareTrades(a, b, sort.key, sort.dir)
   );
-  const sortedOpen = [...open].sort((a, b) =>
+  const sortedOpen = [...filteredOpen].sort((a, b) =>
     compareOpen(a, b, openSort.key, openSort.dir)
   );
+  const filtersActive =
+    filters.strategy !== "all" ||
+    filters.direction !== "all" ||
+    filters.instrument !== "all";
 
   return (
     <div>
@@ -857,6 +916,59 @@ export default function PaperPage() {
         />
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 mb-4 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] px-3 py-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+          Filter
+        </span>
+        <FilterSelect
+          label="Strategy"
+          value={filters.strategy}
+          onChange={(v) => setFilters((f) => ({ ...f, strategy: v }))}
+          options={[
+            { value: "all", label: "All" },
+            { value: "earnings", label: "Earnings" },
+            { value: "waves", label: "Waves" },
+            { value: "drift", label: "Drift" },
+            { value: "reddit", label: "Reddit" },
+          ]}
+        />
+        <FilterSelect
+          label="Direction"
+          value={filters.direction}
+          onChange={(v) => setFilters((f) => ({ ...f, direction: v }))}
+          options={[
+            { value: "all", label: "All" },
+            { value: "bullish", label: "Bullish" },
+            { value: "bearish", label: "Bearish" },
+            { value: "neutral", label: "Neutral" },
+          ]}
+        />
+        <FilterSelect
+          label="Instrument"
+          value={filters.instrument}
+          onChange={(v) => setFilters((f) => ({ ...f, instrument: v }))}
+          options={[
+            { value: "all", label: "All" },
+            { value: "equity", label: "Equity" },
+            { value: "options", label: "Options" },
+          ]}
+        />
+        <span className="text-[11px] text-[var(--color-muted)]">
+          {filteredOpen.length} open · {filteredClosed.length} closed
+        </span>
+        {filtersActive ? (
+          <button
+            type="button"
+            onClick={() =>
+              setFilters({ strategy: "all", direction: "all", instrument: "all" })
+            }
+            className="ml-auto text-[11px] font-semibold text-[var(--color-accent)] hover:underline"
+          >
+            Clear filters
+          </button>
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h2 className="font-semibold">Open positions</h2>
         {open.length ? (
@@ -887,12 +999,17 @@ export default function PaperPage() {
           </div>
         ) : null}
       </div>
-      {open.length ? (
+      {sortedOpen.length ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
           {sortedOpen.map((t) => (
             <OpenCard key={t.signal_id} trade={t} />
           ))}
         </div>
+      ) : open.length && filtersActive ? (
+        <EmptyState
+          title="No open positions match these filters."
+          hint="Adjust or clear the filters to see the other open positions."
+        />
       ) : (
         <EmptyState
           title="No open positions."
@@ -943,6 +1060,16 @@ export default function PaperPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {sortedClosed.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={CLOSED_COLUMNS.length + 1}
+                        className="py-4 text-center text-[var(--color-muted)]"
+                      >
+                        No closed trades match these filters.
+                      </td>
+                    </tr>
+                  ) : null}
                   {sortedClosed.map((t) => (
                     <tr key={t.signal_id} className="border-t border-[var(--color-edge)]">
                       <td className="py-2 pr-4 font-semibold">

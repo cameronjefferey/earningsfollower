@@ -857,6 +857,26 @@ export default function PaperPage() {
     filters.direction !== "all" ||
     filters.instrument !== "all";
 
+  // Subset KPIs for the current filter. Mirror the backend's definitions
+  // exactly (report.py) so "no filter" reproduces the top scorecards:
+  //   win_rate / avg_pnl use the count of closed trades with a non-null P&L,
+  //   while the "wins" caption denominator is the closed count.
+  const fClosedCount = filteredClosed.length;
+  const fPnls = filteredClosed
+    .map((t) => t.realized_pnl)
+    .filter((p): p is number => p != null);
+  const fWins = fPnls.filter((p) => p > 0).length;
+  const fTotalPnl = fPnls.reduce((s, p) => s + p, 0);
+  const fWinRate = fPnls.length ? fWins / fPnls.length : null;
+  const fAvgPnl = fPnls.length ? fTotalPnl / fPnls.length : null;
+  const fOpenRisk = filteredOpen.reduce((s, t) => s + (t.max_risk ?? 0), 0);
+  const subsetParts = [
+    filters.strategy !== "all" ? filters.strategy : null,
+    filters.direction !== "all" ? filters.direction : null,
+    filters.instrument !== "all" ? filters.instrument : null,
+  ].filter(Boolean) as string[];
+  const subsetLabel = subsetParts.length ? subsetParts.join(" · ") : "All trades";
+
   return (
     <div>
       <div className="mb-6">
@@ -967,6 +987,45 @@ export default function PaperPage() {
             Clear filters
           </button>
         ) : null}
+      </div>
+
+      <div className="mb-6">
+        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          <span className="font-semibold">Selected subset</span>
+          <span
+            className={`rounded-full px-2 py-0.5 ${
+              filtersActive
+                ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+                : "bg-[var(--color-panel-2)]"
+            }`}
+          >
+            {subsetLabel}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Stat
+            label="Realized P&L"
+            value={signedMoney(fTotalPnl)}
+            valueClass={moveClass(fTotalPnl)}
+            sub={`${fClosedCount} closed`}
+          />
+          <Stat
+            label="Win rate"
+            value={fWinRate !== null ? `${(fWinRate * 100).toFixed(0)}%` : "—"}
+            sub={`${fWins}/${fClosedCount} wins`}
+          />
+          <Stat
+            label="Open positions"
+            value={filteredOpen.length}
+            sub={`${money(fOpenRisk)} at risk`}
+          />
+          <Stat
+            label="Avg / trade"
+            value={signedMoney(fAvgPnl)}
+            valueClass={moveClass(fAvgPnl)}
+            sub="per closed trade"
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">

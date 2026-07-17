@@ -185,6 +185,20 @@ class Settings(BaseSettings):
     # open cron ticks where options can't fill anyway).
     paper_market_hours_only: bool = True
 
+    # --- Calibration feedback (learning loop closes the loop) -----------------
+    # Feed the realized-vs-predicted win rate learned from the trade-decision
+    # store back into the entry EV gate: recalibrate each strategy's model
+    # win-probability by how optimistic/pessimistic it has actually been. Off by
+    # default -- gather data first, then flip it on once the calibration is
+    # meaningful. Sizing stays conviction-based; this only nudges the +EV gate.
+    paper_calibration_enabled: bool = False
+    # Require at least this many graded (closed) trades in a strategy before its
+    # calibration is trusted enough to apply.
+    paper_calibration_min_samples: int = 20
+    # Hard cap on how far calibration may move a win-probability, so even a wild
+    # historical ratio can only nudge the gate, never swing it.
+    paper_calibration_max_delta: float = 0.15
+
     # --- Earnings equity book (options A/B twin) ------------------------------
     # Alongside the earnings options play, take a plain equity position on the same
     # directional lean (long a bullish name, short a bearish one) so we can compare

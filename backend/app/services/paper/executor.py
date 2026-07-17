@@ -28,6 +28,7 @@ from app.config import get_settings
 from app.db.models import Company, EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.notify import send_telegram, telegram_configured
+from app.services.paper.calibration import adjust_win_prob, compute_calibration
 from app.services.paper.contracts import TradeSpec, build_trade_spec
 from app.services.paper.decisions import (
     drift_features,
@@ -147,10 +148,22 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_reddit_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_earnings_equity_exits(db, client, settings, dry_run)
-        opened, skipped = _scan_entries(db, client, equity, settings, dry_run)
-        w_opened, w_skipped = _scan_wave_entries(db, client, equity, settings, dry_run)
-        d_opened, d_skipped = _scan_drift_entries(db, client, equity, settings, dry_run)
-        r_opened, r_skipped = _scan_reddit_entries(db, client, equity, settings, dry_run)
+
+        # Calibration feedback: recalibrate each strategy's model win-probability
+        # by its realized track record before the EV gate sees it (opt-in, and a
+        # no-op empty map when disabled). Never let it break the run.
+        try:
+            calib = compute_calibration(db, settings)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("calibration compute failed: %s", e)
+            calib = {}
+        if calib:
+            summary["calibration"] = {s: e.multiplier for s, e in calib.items()}
+
+        opened, skipped = _scan_entries(db, client, equity, settings, dry_run, calib)
+        w_opened, w_skipped = _scan_wave_entries(db, client, equity, settings, dry_run, calib)
+        d_opened, d_skipped = _scan_drift_entries(db, client, equity, settings, dry_run, calib)
+        r_opened, r_skipped = _scan_reddit_entries(db, client, equity, settings, dry_run, calib)
         # Earnings-equity runs after the options scan so it can size a twin to
         # the spread that just opened for the same name (or stand alone otherwise).
         eq_opened, eq_skipped = _scan_earnings_equity_entries(
@@ -419,7 +432,8 @@ def _breached_short(legs: list[dict], spot: float) -> bool:
 
 
 def _scan_entries(
-    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
+    calib: dict | None = None,
 ) -> tuple[int, list]:
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
@@ -560,6 +574,7 @@ def _scan_entries(
         # wasn't available. This keeps the EV gate honest for the closer strike.
         basis = pb.get("conviction_basis") or {}
         win_prob = basis.get("seller_edge_at_strike") or basis.get("seller_edge")
+        win_prob = adjust_win_prob(win_prob, "earnings", calib, settings)
         limit, reason = _gate_entry(
             client, order_legs, is_credit=True, mid=spec.net_credit,
             width=spec.width, win_prob=win_prob, settings=settings,
@@ -1489,7 +1504,8 @@ def _wave_exit_reason(t: PaperTrade, spot_now: float | None, today: date, settin
 
 
 def _scan_wave_entries(
-    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
+    calib: dict | None = None,
 ) -> tuple[int, list]:
     if not settings.paper_waves_enabled:
         return 0, []
@@ -1639,9 +1655,10 @@ def _scan_wave_entries(
         ]
         # wr is the historical sympathy win rate gated above -- feed it to the EV
         # gate so a rich debit only clears when the edge actually supports it.
+        win_prob = adjust_win_prob(wr, "waves", calib, settings)
         limit, reason = _gate_entry(
             client, order_legs, is_credit=False, mid=spec.net_debit,
-            width=spec.width, win_prob=wr, settings=settings,
+            width=spec.width, win_prob=win_prob, settings=settings,
         )
         if limit is None:
             trade.status = "canceled"
@@ -1864,7 +1881,8 @@ def _drift_exit_reason(
 
 
 def _scan_drift_entries(
-    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
+    calib: dict | None = None,
 ) -> tuple[int, list]:
     if not settings.paper_drift_enabled:
         logger.info("drift scan: disabled (paper_drift_enabled=False)")
@@ -2011,6 +2029,7 @@ def _scan_drift_entries(
             for l in spec.legs
         ]
         win_prob = (setup.get("history") or {}).get("win_rate_5d")
+        win_prob = adjust_win_prob(win_prob, "drift", calib, settings)
         limit, reason = _gate_entry(
             client, order_legs, is_credit=False, mid=spec.net_debit,
             width=spec.width, win_prob=win_prob, settings=settings,
@@ -2310,7 +2329,8 @@ def _manage_one_equity_exit(
 
 
 def _scan_reddit_entries(
-    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
+    calib: dict | None = None,
 ) -> tuple[int, list]:
     if not settings.paper_reddit_enabled:
         logger.info("reddit scan: disabled (paper_reddit_enabled=False)")
@@ -2516,9 +2536,10 @@ def _scan_reddit_entries(
             }
             for l in spec.legs
         ]
+        gate_win_prob = adjust_win_prob(win_prob, "reddit", calib, settings)
         limit, reason = _gate_entry(
             client, order_legs, is_credit=False, mid=spec.net_debit,
-            width=spec.width, win_prob=win_prob, settings=settings,
+            width=spec.width, win_prob=gate_win_prob, settings=settings,
         )
         if limit is None:
             trade.status = "canceled"

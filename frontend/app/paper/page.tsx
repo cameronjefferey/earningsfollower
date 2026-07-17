@@ -2,8 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, PaperResponse, PaperTrade, PaperBucket } from "@/lib/api";
+import {
+  api,
+  PaperResponse,
+  PaperTrade,
+  PaperBucket,
+  AttributionResponse,
+} from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
+import { Attribution } from "@/components/Attribution";
 import { fmtDate, moveClass } from "@/lib/format";
 
 const DIR_COLOR: Record<string, string> = {
@@ -799,6 +806,7 @@ function compareOpen(
 
 export default function PaperPage() {
   const [data, setData] = useState<PaperResponse | null>(null);
+  const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ClosedSortKey; dir: "asc" | "desc" }>({
@@ -838,6 +846,12 @@ export default function PaperPage() {
       .then(setData)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    // Attribution is secondary — load it independently so a slow/empty report
+    // never blocks the scorecard, and swallow its errors.
+    api
+      .paperAttribution()
+      .then(setAttribution)
+      .catch(() => setAttribution(null));
   }, []);
 
   if (loading) return <Spinner label="Loading paper trades…" />;
@@ -1075,6 +1089,8 @@ export default function PaperPage() {
           hint="The worker opens trades when a tracked name reports within the next few days and the playbook flags rich IV."
         />
       )}
+
+      <Attribution report={attribution} />
 
       {closed.length ? (
         <>

@@ -355,6 +355,121 @@ export interface PaperResponse {
   closed: PaperTrade[];
 }
 
+export interface AttrCohort {
+  key: string;
+  n: number;
+  wins: number;
+  win_rate: number;
+  win_rate_ci: [number, number];
+  total_pnl: number;
+  avg_pnl: number;
+  avg_pnl_ci: [number, number] | null;
+  avg_win_prob: number | null;
+  calibration_gap: number | null;
+}
+
+export interface AttrCorr {
+  r: number;
+  ci: [number, number];
+  n: number;
+  significant: boolean;
+}
+
+export interface AttrTercile {
+  band: string;
+  range: [number, number];
+  n: number;
+  win_rate: number;
+  avg_pnl: number;
+}
+
+export interface AttrNumericFeature {
+  feature: string;
+  label: string;
+  n: number;
+  corr_win: AttrCorr | null;
+  corr_pnl: AttrCorr | null;
+  terciles: AttrTercile[];
+}
+
+export interface AttrCalibrationBucket {
+  range: [number, number];
+  n: number;
+  avg_predicted: number;
+  realized_win_rate: number;
+}
+
+export interface AttrCalibration {
+  n: number;
+  avg_predicted: number | null;
+  realized_win_rate: number | null;
+  buckets: AttrCalibrationBucket[];
+}
+
+export interface AttrCounterfactualSide {
+  n: number;
+  avg_fav_move_5d: number;
+  up_rate: number;
+}
+
+export interface AttrCounterfactual {
+  strategy: string;
+  opened: AttrCounterfactualSide | null;
+  skipped: AttrCounterfactualSide | null;
+}
+
+export interface AttrOverall {
+  n: number;
+  wins: number;
+  win_rate: number | null;
+  total_pnl: number;
+  avg_pnl: number | null;
+}
+
+export interface AttributionResponse {
+  generated_at: string;
+  graded_trades: number;
+  overall: AttrOverall;
+  min_samples: number;
+  cohort_labels: Record<string, string>;
+  cohorts: Record<string, AttrCohort[]>;
+  numeric_features: AttrNumericFeature[];
+  calibration: AttrCalibration;
+  counterfactual: AttrCounterfactual[];
+  notes: string[];
+}
+
+export interface NarrativeSection {
+  title: string;
+  points: string[];
+}
+
+export interface CalibrationStrategy {
+  strategy: string;
+  n: number;
+  predicted: number;
+  realized: number;
+  multiplier: number;
+  applicable: boolean;
+}
+
+export interface CalibrationState {
+  enabled: boolean;
+  min_samples: number;
+  max_delta: number;
+  strategies: CalibrationStrategy[];
+}
+
+export interface NarrativeResponse {
+  source: "llm" | "heuristic" | "empty";
+  generated_at: string;
+  headline: string;
+  sections: NarrativeSection[];
+  hypotheses: string[];
+  caveats: string[];
+  calibration: CalibrationState;
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -380,4 +495,7 @@ export const api = {
   reddit: (refresh = false) =>
     getJSON<RedditResponse>(`/reddit?refresh=${refresh}`),
   paper: () => getJSON<PaperResponse>("/paper"),
+  paperAttribution: (minSamples = 5) =>
+    getJSON<AttributionResponse>(`/paper/attribution?min_samples=${minSamples}`),
+  paperNarrative: () => getJSON<NarrativeResponse>("/paper/narrative"),
 };

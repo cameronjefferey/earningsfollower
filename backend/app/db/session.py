@@ -41,6 +41,7 @@ def init_db() -> None:
     models.Base.metadata.create_all(bind=engine)
     _ensure_paper_trade_columns()
     _backfill_paper_trade_max_risk()
+    _seed_trade_decisions()
 
 
 # Columns added to paper_trades after its initial release. SQLAlchemy's
@@ -102,6 +103,46 @@ def _backfill_paper_trade_max_risk() -> None:
             db.commit()
             logging.getLogger("earningsfollower").info(
                 "Backfilled max_risk on %d paper trade(s).", changed
+            )
+
+
+def _seed_trade_decisions() -> None:
+    """One-time seed of the trade_decisions feature store from existing trades.
+
+    Runs only when the table is still empty but there are historical trades to
+    learn from (i.e. right after this feature first ships), so the learning
+    journal isn't blind to everything placed before it existed. Cheap no-op on
+    every boot thereafter (two COUNT queries). Going forward the executor writes
+    decisions live; this just closes the gap on history."""
+    import logging
+
+    from sqlalchemy import func, select
+
+    from app.db.models import PaperTrade, TradeDecision
+
+    with SessionLocal() as db:
+        try:
+            if db.scalar(select(func.count()).select_from(TradeDecision)):
+                return  # already populated (seeded or written live)
+            if not db.scalar(select(func.count()).select_from(PaperTrade)):
+                return  # nothing to seed from
+            from app.services.paper.decisions import (
+                backfill_from_paper_trades,
+                sync_labels,
+            )
+
+            created = backfill_from_paper_trades(db)
+            db.commit()
+            sync_labels(db)
+            db.commit()
+            if created:
+                logging.getLogger("earningsfollower").info(
+                    "Seeded %d trade decision(s) from history.", created
+                )
+        except Exception as e:  # noqa: BLE001 - seeding must never block startup
+            db.rollback()
+            logging.getLogger("earningsfollower").warning(
+                "trade_decisions seed skipped: %s", e
             )
 
 

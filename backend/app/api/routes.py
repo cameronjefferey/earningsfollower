@@ -6,11 +6,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
+from app.research.attribution import attribution_report
 from app.services import dashboard, drift, reddit_sentiment, waves
 from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
+from app.services.paper.calibration import calibration_state
+from app.services.paper.narrator import build_narrative
 
 router = APIRouter()
 
@@ -95,6 +99,31 @@ def get_reddit(
 @router.get("/paper", tags=["paper"])
 def get_paper(db: Session = Depends(get_db)) -> dict:
     return paper_report.scorecard(db)
+
+
+@router.get("/paper/attribution", tags=["paper"])
+def get_paper_attribution(
+    min_samples: int = Query(
+        5, ge=1, le=100, description="Hide cohorts/features thinner than this"
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Signal attribution over the trade-decision feature store: which cohorts and
+    entry features actually predict winners, with sample sizes + confidence
+    intervals, calibration, and the opened-vs-skipped counterfactual."""
+    return attribution_report(db, min_samples=min_samples)
+
+
+@router.get("/paper/narrative", tags=["paper"])
+def get_paper_narrative(db: Session = Depends(get_db)) -> dict:
+    """A plain-English post-mortem of the attribution numbers (LLM when a key is
+    configured, deterministic heuristic otherwise), plus the current calibration
+    state feeding back into the entry gate."""
+    settings = get_settings()
+    report = attribution_report(db)
+    calib = calibration_state(db, settings)
+    narrative = build_narrative(report, calib)
+    return {**narrative, "calibration": calib}
 
 
 def _run_refresh() -> None:

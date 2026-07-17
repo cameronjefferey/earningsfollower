@@ -432,55 +432,84 @@ def _close_n_bars_after(db: Session, ticker: str, ref: date, n: int) -> float | 
     return bar.close
 
 
-def sync_labels(db: Session) -> int:
-    """Fill in realized labels for opened decisions whose trade has progressed.
+# A skipped decision has no trade to close, so its underlying-move labels can only
+# resolve once bars exist. After this many days we stop retrying (bars would exist
+# by now, or the ticker isn't tracked) and finalize the row so we don't rescan it.
+_SKIP_LABEL_GIVEUP_DAYS = 15
 
-    Copies the at-exit outcome/P&L from the linked PaperTrade (marking the row
-    ``final`` once the trade is closed) and computes the underlying's +1d/+5d move
-    from the entry anchor. Idempotent: only touches rows not yet ``final`` and
-    only writes horizons once their bars exist, so it's safe to run every cycle."""
+
+def _fill_horizon_moves(
+    db: Session, row: TradeDecision, ticker: str, entry_px: float | None, ref: date | None
+) -> bool:
+    """Write the +1d/+5d underlying move (signed and direction-adjusted) from an
+    entry anchor, once the bars exist. Returns True if anything was written."""
+    if not entry_px or not ref:
+        return False
+    changed = False
+    long = row.direction == "bullish"
+    for n, mcol, fcol in ((1, "move_1d", "fav_move_1d"), (5, "move_5d", "fav_move_5d")):
+        if getattr(row, mcol) is not None:
+            continue
+        close = _close_n_bars_after(db, ticker, ref, n)
+        if close:
+            move = round(close / entry_px - 1, 4)
+            setattr(row, mcol, move)
+            if row.direction in ("bullish", "bearish"):
+                setattr(row, fcol, round(move if long else -move, 4))
+            changed = True
+    return changed
+
+
+def sync_labels(db: Session) -> int:
+    """Fill in realized labels for decisions whose outcome has resolved.
+
+    For ``opened`` decisions: copy the at-exit outcome/P&L from the linked
+    PaperTrade (marking the row ``final`` once the trade closes) and compute the
+    underlying's +1d/+5d move from the entry anchor.
+
+    For ``skipped`` decisions (the counterfactuals): there's no trade, so only the
+    underlying move from the decision date is computed — this is what lets us ask
+    "did the gate reject winners?". These finalize once the +5d bar exists (or are
+    given up on after a couple weeks so they aren't rescanned forever).
+
+    Idempotent: only touches rows not yet ``final`` and only writes horizons once
+    their bars exist, so it's safe to run every cycle."""
     updated = 0
+    today = date.today()
     rows = db.scalars(
-        select(TradeDecision).where(
-            TradeDecision.decision == "opened",
-            TradeDecision.signal_id.is_not(None),
-            TradeDecision.label_status != "final",
-        )
+        select(TradeDecision).where(TradeDecision.label_status != "final")
     ).all()
     for row in rows:
-        trade = db.scalars(
-            select(PaperTrade).where(PaperTrade.signal_id == row.signal_id)
-        ).first()
-        if trade is None:
-            continue
         changed = False
 
-        # At-exit labels (only meaningful once the trade actually closed).
-        if trade.status == "closed":
-            row.outcome = trade.outcome
-            row.realized_pnl = trade.realized_pnl
-            row.realized_move_pct = trade.realized_move_pct
-            row.breached_short = trade.breached_short
-            row.label_status = "final"
-            changed = True
-
-        # Multi-horizon underlying move from the entry anchor (the real fill spot
-        # when we have it, else the modeled entry spot). Only write once the bars
-        # exist, so a fresh trade fills these in over the following days.
-        entry_px = trade.spot_entry or row.spot
-        ref = (trade.opened_at.date() if trade.opened_at else None) or row.earnings_date
-        if entry_px and ref:
-            long = row.direction == "bullish"
-            for n, mcol, fcol in ((1, "move_1d", "fav_move_1d"), (5, "move_5d", "fav_move_5d")):
-                if getattr(row, mcol) is not None:
-                    continue
-                close = _close_n_bars_after(db, trade.ticker, ref, n)
-                if close and entry_px:
-                    move = round(close / entry_px - 1, 4)
-                    setattr(row, mcol, move)
-                    if row.direction in ("bullish", "bearish"):
-                        setattr(row, fcol, round(move if long else -move, 4))
-                    changed = True
+        if row.decision == "opened" and row.signal_id:
+            trade = db.scalars(
+                select(PaperTrade).where(PaperTrade.signal_id == row.signal_id)
+            ).first()
+            if trade is None:
+                continue
+            # At-exit labels (only meaningful once the trade actually closed).
+            if trade.status == "closed":
+                row.outcome = trade.outcome
+                row.realized_pnl = trade.realized_pnl
+                row.realized_move_pct = trade.realized_move_pct
+                row.breached_short = trade.breached_short
+                row.label_status = "final"
+                changed = True
+            entry_px = trade.spot_entry or row.spot
+            ref = (trade.opened_at.date() if trade.opened_at else None) or row.earnings_date
+            if _fill_horizon_moves(db, row, trade.ticker, entry_px, ref):
+                changed = True
+        else:
+            # Skipped counterfactual: underlying move from the decision date.
+            if _fill_horizon_moves(db, row, row.ticker, row.spot, row.decision_date):
+                changed = True
+            # Finalize once the full horizon resolved, or give up after a while so
+            # unpriceable/untracked skips don't get rescanned every cycle.
+            aged_out = (today - row.decision_date).days >= _SKIP_LABEL_GIVEUP_DAYS
+            if row.move_5d is not None or aged_out:
+                row.label_status = "final"
+                changed = True
 
         if changed:
             row.labels_updated_at = datetime.utcnow()

@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -253,6 +254,122 @@ class RedditSignal(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+
+
+class TradeDecision(Base):
+    """A flat, append-only feature/label store for the paper trader's decisions.
+
+    One row per (strategy, ticker, event) decision the executor makes on a scan —
+    both trades it OPENED and setups it SKIPPED — so we can later learn which
+    signals actually predict winners without survivorship bias (the skips are the
+    counterfactuals). Unlike ``PaperTrade.thesis`` (a truncated JSON blob), every
+    signal that drove the decision is promoted to a typed column so it can be
+    grouped/filtered/regressed directly in SQL or handed to a model.
+
+    Design notes ("build it right"):
+      - Immutable at decision time: features are snapshotted when the call is made,
+        never rewritten. Only the *label* columns are filled in later (at exit).
+      - Regime-versioned: ``playbook_version`` + ``regime_json`` capture the code
+        version and the tunable knobs in force, so a P&L shift can be attributed
+        to signal edge vs. a config change.
+      - Multi-horizon labels: the underlying's move at +1d / +5d is stored
+        alongside the at-exit realized P&L, so signal quality (was the lean right?)
+        is separable from exit-policy quality (did we harvest it well?).
+      - Wide + sparse on purpose: strategy-specific columns are nullable and only
+        filled for the strategy they belong to. ``features_json`` keeps the full,
+        untruncated feature dict for auditing / the long tail.
+    """
+
+    __tablename__ = "trade_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    decision_date: Mapped[date] = mapped_column(Date, index=True)
+    strategy: Mapped[str] = mapped_column(String(16), index=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    earnings_date: Mapped[date | None] = mapped_column(Date)
+    # "opened" (a trade was placed) or "skipped" (rejected on this scan).
+    decision: Mapped[str] = mapped_column(String(16), index=True)
+    # Why it was skipped (None for opened) — the executor's own reason string.
+    skip_reason: Mapped[str | None] = mapped_column(String(256))
+    # Links an "opened" decision to its PaperTrade (for label sync). Not unique:
+    # a ticker can be skipped many times before it ever opens.
+    signal_id: Mapped[str | None] = mapped_column(String(32), index=True)
+
+    # Regime: what code + knobs produced this decision.
+    playbook_version: Mapped[str] = mapped_column(String(16), default="1")
+    regime_json: Mapped[str | None] = mapped_column(Text)
+
+    # --- Common signal features ---------------------------------------------
+    direction: Mapped[str | None] = mapped_column(String(16))
+    vol_stance: Mapped[str | None] = mapped_column(String(16))
+    structure: Mapped[str | None] = mapped_column(String(64))
+    conviction: Mapped[str | None] = mapped_column(String(16))
+    conviction_reason: Mapped[str | None] = mapped_column(String(256))
+    # The win probability actually fed to the EV gate (the model's own belief),
+    # so realized outcome vs. this gives calibration directly, across strategies.
+    win_prob: Mapped[float | None] = mapped_column(Float)
+    expected_move_pct: Mapped[float | None] = mapped_column(Float)
+    spot: Mapped[float | None] = mapped_column(Float)
+    # Modeled trade shape (mid), before the fill: credit for sell-vol, debit for
+    # the directional books. Width/contracts/max_risk describe the sizing.
+    modeled_price: Mapped[float | None] = mapped_column(Float)
+    width: Mapped[float | None] = mapped_column(Float)
+    contracts: Mapped[int | None] = mapped_column(Integer)
+    max_risk: Mapped[float | None] = mapped_column(Float)
+    risk_frac: Mapped[float | None] = mapped_column(Float)
+    equity_at_decision: Mapped[float | None] = mapped_column(Float)
+
+    # --- Earnings (sell-vol) features ---------------------------------------
+    dir_score: Mapped[float | None] = mapped_column(Float)
+    seller_edge: Mapped[float | None] = mapped_column(Float)
+    seller_edge_at_strike: Mapped[float | None] = mapped_column(Float)
+    exceed_rate: Mapped[float | None] = mapped_column(Float)
+    edge_sample: Mapped[int | None] = mapped_column(Integer)
+    richness: Mapped[float | None] = mapped_column(Float)
+    data_suspect: Mapped[bool | None] = mapped_column(Boolean)
+
+    # --- Waves (sympathy) features ------------------------------------------
+    trigger: Mapped[str | None] = mapped_column(String(16))
+    trigger_move_pct: Mapped[float | None] = mapped_column(Float)
+    expected_runup_pct: Mapped[float | None] = mapped_column(Float)
+
+    # --- Drift (PEAD) features ----------------------------------------------
+    surprise_pct: Mapped[float | None] = mapped_column(Float)
+    move_pct: Mapped[float | None] = mapped_column(Float)
+    drift_edge_5d: Mapped[float | None] = mapped_column(Float)
+    drift_score: Mapped[float | None] = mapped_column(Float)
+
+    # --- Waves/Drift shared history edge (win rate + sample size) -----------
+    hist_win_rate: Mapped[float | None] = mapped_column(Float)
+    hist_samples: Mapped[int | None] = mapped_column(Integer)
+
+    # --- Reddit (social) features -------------------------------------------
+    sentiment: Mapped[float | None] = mapped_column(Float)
+    mention_count: Mapped[int | None] = mapped_column(Integer)
+    mention_velocity: Mapped[float | None] = mapped_column(Float)
+    pump_risk: Mapped[str | None] = mapped_column(String(8))
+    scored_by: Mapped[str | None] = mapped_column(String(16))
+
+    # Full, untruncated feature dict for auditing and the long tail.
+    features_json: Mapped[str | None] = mapped_column(Text)
+
+    # --- Labels (filled in later by sync_labels, from the linked PaperTrade
+    #     and price bars). "pending" until the trade closes, then "final". -----
+    label_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    outcome: Mapped[str | None] = mapped_column(String(16))
+    realized_pnl: Mapped[float | None] = mapped_column(Float)
+    realized_move_pct: Mapped[float | None] = mapped_column(Float)
+    breached_short: Mapped[bool | None] = mapped_column(Boolean)
+    # Underlying move from entry at fixed horizons (signed, and direction-adjusted
+    # so positive = the trade's thesis was right regardless of long/short).
+    move_1d: Mapped[float | None] = mapped_column(Float)
+    move_5d: Mapped[float | None] = mapped_column(Float)
+    fav_move_1d: Mapped[float | None] = mapped_column(Float)
+    fav_move_5d: Mapped[float | None] = mapped_column(Float)
+    labels_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class RefreshLog(Base):

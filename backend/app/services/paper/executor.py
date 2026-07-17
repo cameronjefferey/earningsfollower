@@ -29,6 +29,15 @@ from app.db.models import Company, EarningsEvent, PaperTrade, PriceBar
 from app.services.dashboard import company_detail
 from app.services.notify import send_telegram, telegram_configured
 from app.services.paper.contracts import TradeSpec, build_trade_spec
+from app.services.paper.decisions import (
+    drift_features,
+    earnings_features,
+    record_decision,
+    reddit_features,
+    regime_snapshot,
+    sync_labels,
+    wave_features,
+)
 from app.services.paper.economics import evaluate_entry, fill_within_plan
 from app.services.paper.risk import DEBIT_STRATEGIES, defined_risk_max_loss
 from app.services.paper.drift_trader import DriftSpec, build_drift_spec, drift_conviction
@@ -97,6 +106,18 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["market_open"] = market_open
 
         summary["reconciled"] = _reconcile(db, client, dry_run)
+
+        # Fill in realized labels for past decisions whose trades have since
+        # closed or aged (best-effort; never let the learning journal break a run).
+        # Runs every cycle, including closed-market ones, so labels stay fresh.
+        try:
+            labeled = sync_labels(db)
+            if labeled and not dry_run:
+                db.commit()
+            summary["labeled"] = labeled
+        except Exception as e:  # noqa: BLE001
+            logger.warning("label sync failed: %s", e)
+
         if not market_open:
             logger.info("market closed; reconciling only, no orders this run")
             summary["skipped"] = [{"reason": "market closed"}]
@@ -402,6 +423,7 @@ def _scan_entries(
 ) -> tuple[int, list]:
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
+    regime = regime_snapshot(settings)
 
     open_n = len(
         db.scalars(
@@ -443,9 +465,14 @@ def _scan_entries(
         if not pb:
             skipped.append({"ticker": ticker, "reason": "no playbook"})
             continue
+        im = (detail or {}).get("implied_move") or {}
         if pb["vol_stance"] != "sell" or pb["structure"] not in SELLING_STRUCTURES:
-            skipped.append(
-                {"ticker": ticker, "reason": f"not a sell-vol setup ({pb['structure']})"}
+            reason = f"not a sell-vol setup ({pb['structure']})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=earnings_features(pb, im, equity=equity),
             )
             continue
 
@@ -461,31 +488,45 @@ def _scan_entries(
         )
         if spec is None:
             skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=earnings_features(pb, im, risk_frac=risk_frac, equity=equity),
+            )
             continue
         if spec.net_credit < settings.paper_min_credit:
-            skipped.append({"ticker": ticker, "reason": f"credit too thin ({spec.net_credit})"})
+            reason = f"credit too thin ({spec.net_credit})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
+            )
             continue
 
         contracts = int(budget // spec.max_risk_per_contract)
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:
-            skipped.append(
-                {
-                    "ticker": ticker,
-                    "reason": (
-                        f"spread too wide for {pb['conviction']} budget "
-                        f"({risk_frac:.1%} = ${budget:.0f}; risk ${spec.max_risk_per_contract:.0f}/ct)"
-                    ),
-                }
+            reason = (
+                f"spread too wide for {pb['conviction']} budget "
+                f"({risk_frac:.1%} = ${budget:.0f}; risk ${spec.max_risk_per_contract:.0f}/ct)"
+            )
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
             )
             continue
 
-        im = (detail or {}).get("implied_move") or {}
         trade = _record_trade(
             db, ticker, ev, pb, spec, contracts,
             expected_move_pct=im.get("expected_move_pct"),
             spot_entry=im.get("underlying_price") or pb.get("spot"),
             equity=equity,
+        )
+        feats = earnings_features(
+            pb, im, spec=spec, contracts=contracts, risk_frac=risk_frac, equity=equity
         )
 
         if dry_run:
@@ -495,6 +536,11 @@ def _scan_entries(
                 contracts, spec.net_credit, spec.max_risk_per_contract * contracts,
             )
             trade.note = "dry-run (not submitted)"
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="opened",
+                earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
+                features=feats,
+            )
             opened += 1
             continue
 
@@ -522,6 +568,11 @@ def _scan_entries(
             trade.status = "canceled"
             trade.note = f"skipped: {reason}"
             skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=feats,
+            )
             continue
         try:
             order = client.submit_mleg(
@@ -535,9 +586,19 @@ def _scan_entries(
             trade.status = "canceled"
             trade.note = f"submit error: {e}"[:500]
             skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            record_decision(
+                db, strategy="earnings", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=f"submit error: {e}", regime=regime,
+                features=feats,
+            )
             continue
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="opened",
+            earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
+            features=feats,
+        )
         opened += 1
 
     if not dry_run:
@@ -974,6 +1035,7 @@ def _scan_earnings_equity_entries(
         return 0, []
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
+    regime = regime_snapshot(settings)
 
     open_positions = db.scalars(
         select(PaperTrade).where(
@@ -1040,16 +1102,24 @@ def _scan_earnings_equity_entries(
         direction = pb.get("direction")
         if direction not in ("bullish", "bearish"):
             # Neutral names (iron condors) get no equity leg.
-            skipped.append(
-                {"ticker": ticker, "reason": f"not directional ({direction})"}
+            reason = f"not directional ({direction})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings_equity", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=earnings_features(pb, equity=equity),
             )
             continue
         conviction = pb.get("conviction")
         if conviction != "high":
             # Only the strongest directional reads earn an outright share bet;
             # everything else is noise (or belongs to the waves sympathy book).
-            skipped.append(
-                {"ticker": ticker, "reason": f"conviction not high ({conviction})"}
+            reason = f"conviction not high ({conviction})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="earnings_equity", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=reason, regime=regime,
+                features=earnings_features(pb, equity=equity),
             )
             continue
 
@@ -1113,6 +1183,14 @@ def _scan_earnings_equity_entries(
             db, ticker, ev, pb, spot, shares, notional, equity, twin_of,
             expected_move_pct=im.get("expected_move_pct"),
         )
+        feats = earnings_features(pb, im, equity=equity)
+        feats.update({
+            "structure": trade.structure,
+            "contracts": shares,
+            "max_risk": round(notional, 2),
+            "spot": round(spot, 2),
+            "modeled_price": round(spot, 2),
+        })
         side = "buy" if direction == "bullish" else "sell"
         if dry_run:
             logger.info(
@@ -1121,6 +1199,11 @@ def _scan_earnings_equity_entries(
                 pb["conviction"], notional,
             )
             trade.note = "dry-run (not submitted)"
+            record_decision(
+                db, strategy="earnings_equity", ticker=ticker, decision="opened",
+                earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
+                features=feats,
+            )
             opened += 1
             if sector:
                 sector_counts[sector] = sector_counts.get(sector, 0) + 1
@@ -1135,9 +1218,19 @@ def _scan_earnings_equity_entries(
             trade.status = "canceled"
             trade.note = f"submit error: {e}"[:500]
             skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            record_decision(
+                db, strategy="earnings_equity", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=f"submit error: {e}", regime=regime,
+                features=feats,
+            )
             continue
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
+        record_decision(
+            db, strategy="earnings_equity", ticker=ticker, decision="opened",
+            earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
+            features=feats,
+        )
         opened += 1
         if sector:
             sector_counts[sector] = sector_counts.get(sector, 0) + 1
@@ -1401,6 +1494,7 @@ def _scan_wave_entries(
     if not settings.paper_waves_enabled:
         return 0, []
     today = date.today()
+    regime = regime_snapshot(settings)
     try:
         signals = current_sympathy_waves(
             db,
@@ -1436,11 +1530,24 @@ def _scan_wave_entries(
 
         stats = sig.get("stats") or {}
         wr, n = stats.get("win_rate"), stats.get("sample_size")
+        sig_date = _parse_iso(sig.get("target_report_date"))
         if wr is None or wr < settings.paper_wave_min_winrate:
-            skipped.append({"ticker": target, "reason": f"win rate too low ({wr})"})
+            reason = f"win rate too low ({wr})"
+            skipped.append({"ticker": target, "reason": reason})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=sig_date, skip_reason=reason, regime=regime,
+                features=wave_features(sig, conviction=wave_conviction(sig), equity=equity),
+            )
             continue
         if n is None or n < settings.paper_wave_min_samples:
-            skipped.append({"ticker": target, "reason": f"too few samples ({n})"})
+            reason = f"too few samples ({n})"
+            skipped.append({"ticker": target, "reason": reason})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=sig_date, skip_reason=reason, regime=regime,
+                features=wave_features(sig, conviction=wave_conviction(sig), equity=equity),
+            )
             continue
 
         # The catalyst is the peer's print, not the target's — so the target's
@@ -1468,6 +1575,7 @@ def _scan_wave_entries(
             continue
 
         budget = equity * settings.paper_wave_risk_frac
+        conv = wave_conviction(sig)
         spec, reason = build_wave_spec(
             client, sig, risk_budget=budget,
             min_dte=settings.paper_wave_min_dte,
@@ -1475,27 +1583,48 @@ def _scan_wave_entries(
         )
         if spec is None:
             skipped.append({"ticker": target, "reason": reason})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=tgt_date, skip_reason=reason, regime=regime,
+                features=wave_features(
+                    sig, conviction=conv, risk_frac=settings.paper_wave_risk_frac,
+                    equity=equity,
+                ),
+            )
             continue
 
         per_contract = spec.net_debit * 100
         contracts = int(budget // per_contract) if per_contract > 0 else 0
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:
-            skipped.append(
-                {
-                    "ticker": target,
-                    "reason": f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
-                }
+            reason = f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})"
+            skipped.append({"ticker": target, "reason": reason})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=tgt_date, skip_reason=reason, regime=regime,
+                features=wave_features(
+                    sig, conviction=conv, spec=spec,
+                    risk_frac=settings.paper_wave_risk_frac, equity=equity,
+                ),
             )
             continue
 
         trade = _record_wave_trade(db, sig, spec, tgt_date, contracts, equity)
+        feats = wave_features(
+            sig, conviction=conv, spec=spec, contracts=contracts,
+            risk_frac=settings.paper_wave_risk_frac, equity=equity,
+        )
         if dry_run:
             logger.info(
                 "[dry-run] WAVE %s %s spread x%d @ debit %.2f (trigger %s)",
                 target, spec.option_type, contracts, spec.net_debit, sig.get("trigger"),
             )
             trade.note = "dry-run (not submitted)"
+            record_decision(
+                db, strategy="waves", ticker=target, decision="opened",
+                earnings_date=tgt_date, signal_id=trade.signal_id, regime=regime,
+                features=feats,
+            )
             opened += 1
             continue
 
@@ -1518,6 +1647,11 @@ def _scan_wave_entries(
             trade.status = "canceled"
             trade.note = f"skipped: {reason}"
             skipped.append({"ticker": target, "reason": reason})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=tgt_date, skip_reason=reason, regime=regime,
+                features=feats,
+            )
             continue
         try:
             order = client.submit_mleg(
@@ -1531,9 +1665,19 @@ def _scan_wave_entries(
             trade.status = "canceled"
             trade.note = f"submit error: {e}"[:500]
             skipped.append({"ticker": target, "reason": f"submit error: {e}"})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=tgt_date, skip_reason=f"submit error: {e}", regime=regime,
+                features=feats,
+            )
             continue
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
+        record_decision(
+            db, strategy="waves", ticker=target, decision="opened",
+            earnings_date=tgt_date, signal_id=trade.signal_id, regime=regime,
+            features=feats,
+        )
         opened += 1
 
     if not dry_run:
@@ -1725,6 +1869,7 @@ def _scan_drift_entries(
     if not settings.paper_drift_enabled:
         logger.info("drift scan: disabled (paper_drift_enabled=False)")
         return 0, []
+    regime = regime_snapshot(settings)
     try:
         from app.services.drift import drift_setups
 
@@ -1756,14 +1901,33 @@ def _scan_drift_entries(
             continue
         seen.add(ticker)
 
+        setup_date = _parse_iso(setup.get("report_date"))
         if open_n + opened >= settings.paper_drift_max_open:
             skipped.append({"ticker": ticker, "reason": "max open drift positions"})
             continue
         if (setup.get("plan") or {}).get("entry_quality") == "late":
-            skipped.append({"ticker": ticker, "reason": "late entry (drift window mostly gone)"})
+            reason = "late entry (drift window mostly gone)"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=setup_date, skip_reason=reason, regime=regime,
+                features=drift_features(
+                    setup, conviction=drift_conviction(setup),
+                    risk_frac=settings.paper_drift_risk_frac, equity=equity,
+                ),
+            )
             continue
         if (setup.get("score") or 0) < settings.paper_drift_min_score:
-            skipped.append({"ticker": ticker, "reason": f"score below floor ({setup.get('score')})"})
+            reason = f"score below floor ({setup.get('score')})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=setup_date, skip_reason=reason, regime=regime,
+                features=drift_features(
+                    setup, conviction=drift_conviction(setup),
+                    risk_frac=settings.paper_drift_risk_frac, equity=equity,
+                ),
+            )
             continue
 
         report_date = _parse_iso(setup.get("report_date"))
@@ -1787,24 +1951,41 @@ def _scan_drift_entries(
             continue
 
         budget = equity * settings.paper_drift_risk_frac
+        conv = drift_conviction(setup)
         spec, reason = build_drift_spec(client, setup, risk_budget=budget)
         if spec is None:
             skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=report_date, skip_reason=reason, regime=regime,
+                features=drift_features(
+                    setup, conviction=conv,
+                    risk_frac=settings.paper_drift_risk_frac, equity=equity,
+                ),
+            )
             continue
 
         per_contract = spec.net_debit * 100
         contracts = int(budget // per_contract) if per_contract > 0 else 0
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:
-            skipped.append(
-                {
-                    "ticker": ticker,
-                    "reason": f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
-                }
+            reason = f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=report_date, skip_reason=reason, regime=regime,
+                features=drift_features(
+                    setup, conviction=conv, spec=spec,
+                    risk_frac=settings.paper_drift_risk_frac, equity=equity,
+                ),
             )
             continue
 
         trade = _record_drift_trade(db, setup, spec, report_date, contracts, equity)
+        feats = drift_features(
+            setup, conviction=conv, spec=spec, contracts=contracts,
+            risk_frac=settings.paper_drift_risk_frac, equity=equity,
+        )
         if dry_run:
             logger.info(
                 "[dry-run] DRIFT %s %s spread x%d @ debit %.2f (edge %s)",
@@ -1812,6 +1993,11 @@ def _scan_drift_entries(
                 (setup.get("history") or {}).get("avg_drift_5d_pct"),
             )
             trade.note = "dry-run (not submitted)"
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="opened",
+                earnings_date=report_date, signal_id=trade.signal_id, regime=regime,
+                features=feats,
+            )
             opened += 1
             continue
 
@@ -1833,6 +2019,11 @@ def _scan_drift_entries(
             trade.status = "canceled"
             trade.note = f"skipped: {reason}"
             skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=report_date, skip_reason=reason, regime=regime,
+                features=feats,
+            )
             continue
         try:
             order = client.submit_mleg(
@@ -1846,9 +2037,19 @@ def _scan_drift_entries(
             trade.status = "canceled"
             trade.note = f"submit error: {e}"[:500]
             skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=report_date, skip_reason=f"submit error: {e}", regime=regime,
+                features=feats,
+            )
             continue
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
+        record_decision(
+            db, strategy="drift", ticker=ticker, decision="opened",
+            earnings_date=report_date, signal_id=trade.signal_id, regime=regime,
+            features=feats,
+        )
         opened += 1
 
     if not dry_run:
@@ -2114,6 +2315,7 @@ def _scan_reddit_entries(
     if not settings.paper_reddit_enabled:
         logger.info("reddit scan: disabled (paper_reddit_enabled=False)")
         return 0, []
+    regime = regime_snapshot(settings)
     try:
         # persist=False on dry runs: current_reddit_signals commits when it
         # journals, which would otherwise prematurely persist the other
@@ -2177,22 +2379,45 @@ def _scan_reddit_entries(
                 {"ticker": ticker, "reason": "daily new-entry cap reached"}
             )
             continue
+        def _reddit_skip_feats() -> dict:
+            return reddit_features(
+                sig, conviction=reddit_conviction(sig),
+                win_prob=_REDDIT_WIN_PROB.get(sig.get("conviction"), 0.45),
+                equity=equity,
+            )
+
         if sig.get("is_noise"):
-            skipped.append({"ticker": ticker, "reason": "noise (no clear lean)"})
+            reason = "noise (no clear lean)"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime, features=_reddit_skip_feats(),
+            )
             continue
         if sig.get("direction") not in ("bullish", "bearish"):
-            skipped.append({"ticker": ticker, "reason": "no directional lean"})
+            reason = "no directional lean"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime, features=_reddit_skip_feats(),
+            )
             continue
         if _CONVICTION_RANK.get(sig.get("conviction"), 0) < min_conv:
-            skipped.append(
-                {"ticker": ticker, "reason": f"conviction too low ({sig.get('conviction')})"}
+            reason = f"conviction too low ({sig.get('conviction')})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime, features=_reddit_skip_feats(),
             )
             continue
         # Anti-pump guard: refuse anything at/above the pump-risk ceiling so we're
         # never late-stage exit liquidity.
         if _PUMP_RANK.get(sig.get("pump_risk"), 0) > max_pump:
-            skipped.append(
-                {"ticker": ticker, "reason": f"pump risk too high ({sig.get('pump_risk')})"}
+            reason = f"pump risk too high ({sig.get('pump_risk')})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime, features=_reddit_skip_feats(),
             )
             continue
 
@@ -2229,26 +2454,44 @@ def _scan_reddit_entries(
             )
             continue
 
-        risk_frac = settings.paper_reddit_risk_fraction(reddit_conviction(sig))
+        conv = reddit_conviction(sig)
+        risk_frac = settings.paper_reddit_risk_fraction(conv)
+        win_prob = _REDDIT_WIN_PROB.get(sig.get("conviction"), 0.45)
         budget = equity * risk_frac
         spec, reason = build_reddit_spec(client, sig, risk_budget=budget)
         if spec is None:
             skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime,
+                features=reddit_features(
+                    sig, conviction=conv, win_prob=win_prob,
+                    risk_frac=risk_frac, equity=equity,
+                ),
+            )
             continue
 
         per_contract = spec.net_debit * 100
         contracts = int(budget // per_contract) if per_contract > 0 else 0
         contracts = min(contracts, settings.paper_max_contracts)
         if contracts < 1:
-            skipped.append(
-                {
-                    "ticker": ticker,
-                    "reason": f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})",
-                }
+            reason = f"debit too rich (${per_contract:.0f}/ct vs ${budget:.0f})"
+            skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime,
+                features=reddit_features(
+                    sig, conviction=conv, win_prob=win_prob, spec=spec,
+                    risk_frac=risk_frac, equity=equity,
+                ),
             )
             continue
 
         trade = _record_reddit_trade(db, sig, spec, contracts, equity)
+        feats = reddit_features(
+            sig, conviction=conv, win_prob=win_prob, spec=spec,
+            contracts=contracts, risk_frac=risk_frac, equity=equity,
+        )
         if dry_run:
             logger.info(
                 "[dry-run] REDDIT %s %s spread x%d @ debit %.2f (%s, %.1fx, %s)",
@@ -2257,6 +2500,10 @@ def _scan_reddit_entries(
                 sig.get("scored_by"),
             )
             trade.note = "dry-run (not submitted)"
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="opened",
+                signal_id=trade.signal_id, regime=regime, features=feats,
+            )
             opened += 1
             continue
 
@@ -2269,7 +2516,6 @@ def _scan_reddit_entries(
             }
             for l in spec.legs
         ]
-        win_prob = _REDDIT_WIN_PROB.get(sig.get("conviction"), 0.45)
         limit, reason = _gate_entry(
             client, order_legs, is_credit=False, mid=spec.net_debit,
             width=spec.width, win_prob=win_prob, settings=settings,
@@ -2278,6 +2524,10 @@ def _scan_reddit_entries(
             trade.status = "canceled"
             trade.note = f"skipped: {reason}"
             skipped.append({"ticker": ticker, "reason": reason})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=reason, regime=regime, features=feats,
+            )
             continue
         try:
             order = client.submit_mleg(
@@ -2291,9 +2541,17 @@ def _scan_reddit_entries(
             trade.status = "canceled"
             trade.note = f"submit error: {e}"[:500]
             skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            record_decision(
+                db, strategy="reddit", ticker=ticker, decision="skipped",
+                skip_reason=f"submit error: {e}", regime=regime, features=feats,
+            )
             continue
         trade.entry_order_id = order.get("id")
         _apply_entry_fill(trade, order)
+        record_decision(
+            db, strategy="reddit", ticker=ticker, decision="opened",
+            signal_id=trade.signal_id, regime=regime, features=feats,
+        )
         opened += 1
         _open_reddit_equity_twin(db, client, sig, trade, settings)
 

@@ -317,6 +317,21 @@ def _counterfactual(db: Session, min_samples: int) -> list[dict]:
     return out
 
 
+def _overall(rows: list[TradeDecision]) -> dict:
+    n = len(rows)
+    if not n:
+        return {"n": 0, "wins": 0, "win_rate": None, "total_pnl": 0.0, "avg_pnl": None}
+    pnls = np.array([r.realized_pnl for r in rows], dtype=float)
+    wins = sum(1 for r in rows if _is_win(r))
+    return {
+        "n": n,
+        "wins": wins,
+        "win_rate": round(wins / n, 3),
+        "total_pnl": round(float(np.sum(pnls)), 2),
+        "avg_pnl": round(float(np.mean(pnls)), 2),
+    }
+
+
 def attribution_report(db: Session, min_samples: int = DEFAULT_MIN_SAMPLES) -> dict:
     """Assemble the full signal-attribution report from the feature store."""
     rows = _closed(db)
@@ -343,6 +358,7 @@ def attribution_report(db: Session, min_samples: int = DEFAULT_MIN_SAMPLES) -> d
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "graded_trades": n,
+        "overall": _overall(rows),
         "min_samples": min_samples,
         "cohort_labels": cohort_labels,
         "cohorts": cohorts,

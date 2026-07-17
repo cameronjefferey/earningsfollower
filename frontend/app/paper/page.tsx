@@ -2,19 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  api,
-  PaperResponse,
-  PaperTrade,
-  PaperBucket,
-  AttributionResponse,
-  NarrativeResponse,
-  ProgressResponse,
-} from "@/lib/api";
+import { api, PaperResponse, PaperTrade, PaperBucket } from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
-import { Attribution } from "@/components/Attribution";
-import { Narrative } from "@/components/Narrative";
-import { WeeklyProgress } from "@/components/WeeklyProgress";
 import { fmtDate, moveClass } from "@/lib/format";
 
 const DIR_COLOR: Record<string, string> = {
@@ -810,9 +799,6 @@ function compareOpen(
 
 export default function PaperPage() {
   const [data, setData] = useState<PaperResponse | null>(null);
-  const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
-  const [narrative, setNarrative] = useState<NarrativeResponse | null>(null);
-  const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ClosedSortKey; dir: "asc" | "desc" }>({
@@ -852,21 +838,6 @@ export default function PaperPage() {
       .then(setData)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-    // Attribution is secondary — load it independently so a slow/empty report
-    // never blocks the scorecard, and swallow its errors.
-    api
-      .paperAttribution()
-      .then(setAttribution)
-      .catch(() => setAttribution(null));
-    // The narrative may call an LLM, so load it last and independently.
-    api
-      .paperNarrative()
-      .then(setNarrative)
-      .catch(() => setNarrative(null));
-    api
-      .paperProgress()
-      .then(setProgress)
-      .catch(() => setProgress(null));
   }, []);
 
   if (loading) return <Spinner label="Loading paper trades…" />;
@@ -919,7 +890,11 @@ export default function PaperPage() {
           <span style={{ color: "#ff6a3d" }}>reddit</span> (social-attention sentiment —
           monitor Reddit and trade a defined-risk debit spread when chatter on a tracked
           name spikes with a clear lean). Each trade is sized by conviction and journaled
-          with a unique signal id. This is the live scorecard.
+          with a unique signal id. This is the live scorecard — head to the{" "}
+          <Link href="/learning" className="text-[var(--color-accent)] hover:underline">
+            Learning
+          </Link>{" "}
+          tab to see what it&apos;s figuring out over time.
         </p>
       </div>
 
@@ -1104,10 +1079,6 @@ export default function PaperPage() {
           hint="The worker opens trades when a tracked name reports within the next few days and the playbook flags rich IV."
         />
       )}
-
-      <WeeklyProgress report={progress} />
-      <Narrative report={narrative} />
-      <Attribution report={attribution} />
 
       {closed.length ? (
         <>

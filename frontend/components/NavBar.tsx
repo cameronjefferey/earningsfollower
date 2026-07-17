@@ -9,6 +9,7 @@ const links = [
   { href: "/drift", label: "Drift" },
   { href: "/reddit", label: "Reddit" },
   { href: "/paper", label: "Paper" },
+  { href: "/learning", label: "Learning" },
 ];
 
 export function NavBar() {

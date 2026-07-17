@@ -23,13 +23,13 @@ Pure numpy (no scipy/sklearn) so it adds no deployment weight.
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import TradeDecision
+from app.db.models import PaperTrade, TradeDecision
 
 # Don't report a cohort/feature thinner than this — it's noise, not signal.
 DEFAULT_MIN_SAMPLES = 5
@@ -140,14 +140,24 @@ def pearson_ci(x: np.ndarray, y: np.ndarray) -> dict | None:
 # --- data loading ------------------------------------------------------------
 
 
-def _closed(db: Session) -> list[TradeDecision]:
-    """Opened decisions with a realized P&L label — the trades we can grade."""
-    return db.scalars(
-        select(TradeDecision).where(
-            TradeDecision.decision == "opened",
-            TradeDecision.realized_pnl.is_not(None),
+def _closed(db: Session, as_of: datetime | None = None) -> list[TradeDecision]:
+    """Opened decisions with a realized P&L label — the trades we can grade.
+
+    When ``as_of`` is given, only trades whose linked position had actually closed
+    by that moment are returned, so we can reconstruct exactly what was known at
+    any past point in time (the basis for the week-to-week learning tracker)."""
+    q = select(TradeDecision).where(
+        TradeDecision.decision == "opened",
+        TradeDecision.realized_pnl.is_not(None),
+    )
+    if as_of is not None:
+        q = q.join(
+            PaperTrade, PaperTrade.signal_id == TradeDecision.signal_id
+        ).where(
+            PaperTrade.closed_at.is_not(None),
+            PaperTrade.closed_at < as_of,
         )
-    ).all()
+    return db.scalars(q).all()
 
 
 def _is_win(row: TradeDecision) -> bool:
@@ -284,13 +294,19 @@ def _calibration(rows: list[TradeDecision]) -> dict:
     }
 
 
-def _counterfactual(db: Session, min_samples: int) -> list[dict]:
+def _counterfactual(
+    db: Session, min_samples: int, as_of: datetime | None = None
+) -> list[dict]:
     """Compare opened vs. skipped setups on the underlying's direction-adjusted
     +5d move, per strategy. If skipped setups moved favorably about as often as
     opened ones, the gate may be rejecting winners (worth a look)."""
-    rows = db.scalars(
-        select(TradeDecision).where(TradeDecision.fav_move_5d.is_not(None))
-    ).all()
+    q = select(TradeDecision).where(TradeDecision.fav_move_5d.is_not(None))
+    if as_of is not None:
+        # A skip's 5-day outcome is knowable ~a week after the decision; only
+        # count ones that had resolved by ``as_of``.
+        cutoff = as_of.date() - timedelta(days=7)
+        q = q.where(TradeDecision.decision_date <= cutoff)
+    rows = db.scalars(q).all()
     by: dict[str, dict[str, list[float]]] = {}
     for r in rows:
         strat = r.strategy or "?"
@@ -332,9 +348,15 @@ def _overall(rows: list[TradeDecision]) -> dict:
     }
 
 
-def attribution_report(db: Session, min_samples: int = DEFAULT_MIN_SAMPLES) -> dict:
-    """Assemble the full signal-attribution report from the feature store."""
-    rows = _closed(db)
+def attribution_report(
+    db: Session,
+    min_samples: int = DEFAULT_MIN_SAMPLES,
+    as_of: datetime | None = None,
+) -> dict:
+    """Assemble the full signal-attribution report from the feature store. Pass
+    ``as_of`` to reconstruct the report as it would have read at a past moment
+    (used by the weekly learning tracker)."""
+    rows = _closed(db, as_of=as_of)
     n = len(rows)
 
     notes: list[str] = []
@@ -364,7 +386,7 @@ def attribution_report(db: Session, min_samples: int = DEFAULT_MIN_SAMPLES) -> d
         "cohorts": cohorts,
         "numeric_features": _numeric_attribution(rows, min_samples),
         "calibration": _calibration(rows),
-        "counterfactual": _counterfactual(db, min_samples),
+        "counterfactual": _counterfactual(db, min_samples, as_of=as_of),
         "notes": notes,
     }
 

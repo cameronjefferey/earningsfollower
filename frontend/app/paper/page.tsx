@@ -9,10 +9,12 @@ import {
   PaperBucket,
   AttributionResponse,
   NarrativeResponse,
+  ProgressResponse,
 } from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
 import { Attribution } from "@/components/Attribution";
 import { Narrative } from "@/components/Narrative";
+import { WeeklyProgress } from "@/components/WeeklyProgress";
 import { fmtDate, moveClass } from "@/lib/format";
 
 const DIR_COLOR: Record<string, string> = {
@@ -810,6 +812,7 @@ export default function PaperPage() {
   const [data, setData] = useState<PaperResponse | null>(null);
   const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
   const [narrative, setNarrative] = useState<NarrativeResponse | null>(null);
+  const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ClosedSortKey; dir: "asc" | "desc" }>({
@@ -860,6 +863,10 @@ export default function PaperPage() {
       .paperNarrative()
       .then(setNarrative)
       .catch(() => setNarrative(null));
+    api
+      .paperProgress()
+      .then(setProgress)
+      .catch(() => setProgress(null));
   }, []);
 
   if (loading) return <Spinner label="Loading paper trades…" />;
@@ -1098,6 +1105,7 @@ export default function PaperPage() {
         />
       )}
 
+      <WeeklyProgress report={progress} />
       <Narrative report={narrative} />
       <Attribution report={attribution} />
 

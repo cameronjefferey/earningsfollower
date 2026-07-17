@@ -106,6 +106,30 @@ def run(db: Session, dry_run: bool = False) -> dict:
             market_open = client.is_market_open()
         summary["market_open"] = market_open
 
+        # Snapshot the book BEFORE reconcile/scan so the Telegram alert catches
+        # fills the reconcile step flips from "pending"->"open" and positions it
+        # closes this cycle. Snapshotting *after* reconcile (the old behavior)
+        # hid every fill that landed between runs -- the common case for resting
+        # limit orders -- so almost nothing ever alerted. Live runs only;
+        # dry-runs and an unconfigured bot stay silent.
+        notify_on = (
+            settings.telegram_notify_trades and not dry_run and telegram_configured()
+        )
+        if not notify_on and settings.telegram_notify_trades and not dry_run:
+            logger.info("telegram alerts enabled but bot token/chat id not configured")
+        # Every trade's status before this run so the alert fires on the actual
+        # FILL (status reaches "open"/"closed"), never on mere order submission
+        # ("pending"/"closing") -- a resting limit that hasn't filled is not a
+        # trade yet, and a re-armed close shouldn't read as a new open.
+        pre_status: dict[str, str] = {}
+        if notify_on:
+            pre_status = {
+                sig: status
+                for sig, status in db.execute(
+                    select(PaperTrade.signal_id, PaperTrade.status)
+                ).all()
+            }
+
         summary["reconciled"] = _reconcile(db, client, dry_run)
 
         # Fill in realized labels for past decisions whose trades have since
@@ -122,26 +146,14 @@ def run(db: Session, dry_run: bool = False) -> dict:
         if not market_open:
             logger.info("market closed; reconciling only, no orders this run")
             summary["skipped"] = [{"reason": "market closed"}]
+            # Reconcile can still fill or close positions from the prior session,
+            # so fire the alert for those transitions before bailing out.
+            if notify_on:
+                try:
+                    _notify_trades(db, pre_status)
+                except Exception as e:  # noqa: BLE001 - never let a notify break the run
+                    logger.warning("trade notification failed: %s", e)
             return summary
-
-        # Snapshot the book before we manage/scan so we can tell you exactly which
-        # positions this run opened or closed (the Telegram alert at the end).
-        # Live runs only; dry-runs and an unconfigured bot stay silent.
-        notify_on = (
-            settings.telegram_notify_trades and not dry_run and telegram_configured()
-        )
-        # Snapshot every trade's status so the alert can fire on the actual FILL
-        # (status reaches "open"/"closed"), never on mere order submission
-        # ("pending"/"closing") — a resting limit that hasn't filled is not a
-        # trade yet, and a re-armed close shouldn't read as a new open.
-        pre_status: dict[str, str] = {}
-        if notify_on:
-            pre_status = {
-                sig: status
-                for sig, status in db.execute(
-                    select(PaperTrade.signal_id, PaperTrade.status)
-                ).all()
-            }
 
         summary["closed"] = _manage_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
@@ -2751,7 +2763,13 @@ def _notify_trades(db: Session, pre_status: dict[str, str]) -> None:
 
     if not opened and not closed:
         return
-    send_telegram(_format_trade_alert(opened, closed))
+    ok = send_telegram(_format_trade_alert(opened, closed))
+    logger.info(
+        "telegram alert %s: %d opened, %d closed",
+        "sent" if ok else "FAILED",
+        len(opened),
+        len(closed),
+    )
 
 
 def _format_trade_alert(

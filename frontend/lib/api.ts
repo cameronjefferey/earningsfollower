@@ -418,9 +418,18 @@ export interface AttrCounterfactual {
   skipped: AttrCounterfactualSide | null;
 }
 
+export interface AttrOverall {
+  n: number;
+  wins: number;
+  win_rate: number | null;
+  total_pnl: number;
+  avg_pnl: number | null;
+}
+
 export interface AttributionResponse {
   generated_at: string;
   graded_trades: number;
+  overall: AttrOverall;
   min_samples: number;
   cohort_labels: Record<string, string>;
   cohorts: Record<string, AttrCohort[]>;
@@ -428,6 +437,37 @@ export interface AttributionResponse {
   calibration: AttrCalibration;
   counterfactual: AttrCounterfactual[];
   notes: string[];
+}
+
+export interface NarrativeSection {
+  title: string;
+  points: string[];
+}
+
+export interface CalibrationStrategy {
+  strategy: string;
+  n: number;
+  predicted: number;
+  realized: number;
+  multiplier: number;
+  applicable: boolean;
+}
+
+export interface CalibrationState {
+  enabled: boolean;
+  min_samples: number;
+  max_delta: number;
+  strategies: CalibrationStrategy[];
+}
+
+export interface NarrativeResponse {
+  source: "llm" | "heuristic" | "empty";
+  generated_at: string;
+  headline: string;
+  sections: NarrativeSection[];
+  hypotheses: string[];
+  caveats: string[];
+  calibration: CalibrationState;
 }
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -457,4 +497,5 @@ export const api = {
   paper: () => getJSON<PaperResponse>("/paper"),
   paperAttribution: (minSamples = 5) =>
     getJSON<AttributionResponse>(`/paper/attribution?min_samples=${minSamples}`),
+  paperNarrative: () => getJSON<NarrativeResponse>("/paper/narrative"),
 };

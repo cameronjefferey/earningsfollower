@@ -8,9 +8,11 @@ import {
   PaperTrade,
   PaperBucket,
   AttributionResponse,
+  NarrativeResponse,
 } from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
 import { Attribution } from "@/components/Attribution";
+import { Narrative } from "@/components/Narrative";
 import { fmtDate, moveClass } from "@/lib/format";
 
 const DIR_COLOR: Record<string, string> = {
@@ -807,6 +809,7 @@ function compareOpen(
 export default function PaperPage() {
   const [data, setData] = useState<PaperResponse | null>(null);
   const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
+  const [narrative, setNarrative] = useState<NarrativeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: ClosedSortKey; dir: "asc" | "desc" }>({
@@ -852,6 +855,11 @@ export default function PaperPage() {
       .paperAttribution()
       .then(setAttribution)
       .catch(() => setAttribution(null));
+    // The narrative may call an LLM, so load it last and independently.
+    api
+      .paperNarrative()
+      .then(setNarrative)
+      .catch(() => setNarrative(null));
   }, []);
 
   if (loading) return <Spinner label="Loading paper trades…" />;
@@ -1090,6 +1098,7 @@ export default function PaperPage() {
         />
       )}
 
+      <Narrative report={narrative} />
       <Attribution report={attribution} />
 
       {closed.length ? (

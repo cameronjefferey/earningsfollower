@@ -470,6 +470,58 @@ export interface NarrativeResponse {
   calibration: CalibrationState;
 }
 
+export interface WeekCumulative {
+  graded_trades: number;
+  win_rate: number | null;
+  avg_pnl: number | null;
+  total_pnl: number;
+  calibration_gap: number | null;
+  significant_features: number;
+}
+
+export interface WeekNew {
+  closed: number;
+  wins: number;
+  win_rate: number | null;
+  avg_pnl: number | null;
+  total_pnl: number;
+}
+
+export interface WeekDeltas {
+  win_rate: number | null;
+  calibration_gap: number | null;
+  avg_pnl: number | null;
+  graded_trades: number;
+  significant_features: number;
+}
+
+export interface ProgressWeek {
+  label: string;
+  week_start: string;
+  week_end: string;
+  cumulative: WeekCumulative;
+  new_this_week: WeekNew;
+  changes: string[];
+  improvement_score: number;
+  status: "improved" | "regressed" | "flat";
+  deltas: WeekDeltas | null;
+}
+
+export interface ProgressVerdict {
+  learning: boolean | null;
+  weeks_improved?: number;
+  weeks_regressed?: number;
+  calibration_gap_trend?: number | null;
+  win_rate_trend?: number | null;
+  summary: string;
+}
+
+export interface ProgressResponse {
+  generated_at: string;
+  weeks: ProgressWeek[];
+  verdict: ProgressVerdict;
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -498,4 +550,6 @@ export const api = {
   paperAttribution: (minSamples = 5) =>
     getJSON<AttributionResponse>(`/paper/attribution?min_samples=${minSamples}`),
   paperNarrative: () => getJSON<NarrativeResponse>("/paper/narrative"),
+  paperProgress: (weeks = 8) =>
+    getJSON<ProgressResponse>(`/paper/progress?weeks=${weeks}`),
 };

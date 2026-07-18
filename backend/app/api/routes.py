@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
 from app.research.attribution import attribution_report
+from app.research.progress import progress_series
 from app.services import dashboard, drift, reddit_sentiment, waves
 from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
@@ -112,6 +113,17 @@ def get_paper_attribution(
     entry features actually predict winners, with sample sizes + confidence
     intervals, calibration, and the opened-vs-skipped counterfactual."""
     return attribution_report(db, min_samples=min_samples)
+
+
+@router.get("/paper/progress", tags=["paper"])
+def get_paper_progress(
+    weeks: int = Query(8, ge=2, le=52, description="How many weeks back to reconstruct"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Week-to-week learning tracker: the attribution state reconstructed at each
+    past week-end, with deltas, a 'what changed' summary per week, and an honest
+    verdict on whether the model is actually getting better."""
+    return progress_series(db, weeks=weeks)
 
 
 @router.get("/paper/narrative", tags=["paper"])

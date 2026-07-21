@@ -2,9 +2,11 @@
 
 Daily flow:
   1. reconcile  - update pending/closing trades from Alpaca order status
-  2. manage     - close open positions whose earnings print has passed (capture
+  2. expire     - journal-settle options past expiration at intrinsic (quotes
+                  disappear after expiry, so the normal close path can't run)
+  3. manage     - close open positions whose earnings print has passed (capture
                   the post-earnings IV crush the sell-premium thesis relies on)
-  3. scan       - find tickers reporting within the entry window, run the
+  4. scan       - find tickers reporting within the entry window, run the
                   playbook, and open premium-selling trades sized to ~risk budget
 
 Everything is journaled to the `paper_trades` table with a unique signal id.
@@ -132,6 +134,13 @@ def run(db: Session, dry_run: bool = False) -> dict:
 
         summary["reconciled"] = _reconcile(db, client, dry_run)
 
+        # Settle options that already expired. Does not need the market open —
+        # there is nothing left to trade; we just journal intrinsic P&L so
+        # stale "open" rows (DAL/PENG-style) don't linger forever.
+        expired = _settle_expired_options(db, client, dry_run)
+        summary["expired"] = expired
+        summary["closed"] = expired
+
         # Fill in realized labels for past decisions whose trades have since
         # closed or aged (best-effort; never let the learning journal break a run).
         # Runs every cycle, including closed-market ones, so labels stay fresh.
@@ -146,8 +155,8 @@ def run(db: Session, dry_run: bool = False) -> dict:
         if not market_open:
             logger.info("market closed; reconciling only, no orders this run")
             summary["skipped"] = [{"reason": "market closed"}]
-            # Reconcile can still fill or close positions from the prior session,
-            # so fire the alert for those transitions before bailing out.
+            # Reconcile/expiry can still fill or close positions from the prior
+            # session, so fire the alert for those transitions before bailing out.
             if notify_on:
                 try:
                     _notify_trades(db, pre_status)
@@ -155,7 +164,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
                     logger.warning("trade notification failed: %s", e)
             return summary
 
-        summary["closed"] = _manage_exits(db, client, settings, dry_run)
+        summary["closed"] += _manage_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
         summary["closed"] += _manage_reddit_exits(db, client, settings, dry_run)
@@ -275,6 +284,115 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
 
 
 # --- exits -------------------------------------------------------------------
+
+
+def _spot_on_or_before(db: Session, ticker: str, on: date) -> float | None:
+    """Underlying close on ``on``, or the most recent bar at or before that date."""
+    bar = db.scalars(
+        select(PriceBar)
+        .where(PriceBar.ticker == ticker, PriceBar.date <= on)
+        .order_by(PriceBar.date.desc())
+    ).first()
+    if bar is None or bar.close is None:
+        return None
+    return float(bar.close)
+
+
+def _expiry_exit_value(
+    strategy: str | None, legs: list[dict], spot: float | None
+) -> float:
+    """Per-share exit mark used when an option expires.
+
+    Debit strategies (waves/drift/reddit) store close *proceeds* in
+    ``exit_debit``; credit strategies store *cost to close*. Missing spot or
+    strikes → treat as expired worthless (0), which unblocks the row rather
+    than leaving it open forever.
+    """
+    intrinsic = _spread_intrinsic(legs, spot)
+    if intrinsic is None:
+        return 0.0
+    if (strategy or "earnings") in DEBIT_STRATEGIES:
+        return max(0.0, intrinsic)
+    return max(0.0, -intrinsic)
+
+
+def _settle_expired_options(
+    db: Session, client: AlpacaClient, dry_run: bool
+) -> int:
+    """Journal-settle option trades whose expiration has already passed.
+
+    After expiry Alpaca stops returning usable option quotes, so every
+    quote-gated exit manager ``continue``s forever and the row stays ``open``.
+    There is nothing left to close at the broker — settle at intrinsic against
+    the underlying close on/before expiration and mark the trade closed.
+    """
+    today = date.today()
+    trades = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.status.in_(("open", "closing")),
+            PaperTrade.expiration.is_not(None),
+            PaperTrade.expiration < today,
+        )
+    ).all()
+    settled = 0
+    for t in trades:
+        if _is_equity(t):
+            continue
+        try:
+            legs = json.loads(t.legs or "[]")
+        except json.JSONDecodeError:
+            legs = []
+        if not legs:
+            logger.warning(
+                "expired %s (%s) has no legs; closing at 0", t.signal_id, t.ticker
+            )
+        spot = None
+        if t.expiration is not None:
+            spot = _spot_on_or_before(db, t.ticker, t.expiration)
+        if spot is None:
+            # Last resort: live underlying (worse than the expiry close, but
+            # unblocks rows for tickers we never stored bars for).
+            try:
+                spot = client.stock_price(t.ticker)
+            except AlpacaError:
+                spot = None
+        exit_value = _expiry_exit_value(t.strategy, legs, spot)
+        if dry_run:
+            logger.info(
+                "[dry-run] would settle expired %s %s at %.2f (spot=%s)",
+                t.signal_id,
+                t.ticker,
+                exit_value,
+                spot,
+            )
+            continue
+        if t.exit_order_id:
+            # Resting close can't fill on a delisted contract; drop it.
+            client.cancel_order(t.exit_order_id)
+            t.exit_order_id = None
+        t.exit_debit = exit_value
+        t.status = "closed"
+        t.closed_at = datetime.utcnow()
+        t.note = "expired (settled at intrinsic)"
+        if spot is not None:
+            t.spot_at_exit = round(spot, 2)
+            if t.spot_entry:
+                t.realized_move_pct = round(spot / t.spot_entry - 1, 4)
+            if legs:
+                t.breached_short = _breached_short(legs, spot)
+        _finalize_pnl(t)
+        settled += 1
+        logger.info(
+            "settled expired %s %s at %.2f (spot=%s, pnl=%s)",
+            t.signal_id,
+            t.ticker,
+            exit_value,
+            spot,
+            t.realized_pnl,
+        )
+    if not dry_run and settled:
+        db.commit()
+    return settled
 
 
 def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) -> int:

@@ -569,9 +569,15 @@ def _scan_entries(
     window_end = today + timedelta(days=settings.paper_entry_window_days)
     regime = regime_snapshot(settings)
 
+    # Cap is for the earnings *options* book only — equity twins have their own
+    # (higher) limit and must not crowd options out of these slots.
     open_n = len(
         db.scalars(
-            select(PaperTrade).where(PaperTrade.status.in_(OPEN_STATES))
+            select(PaperTrade).where(
+                PaperTrade.strategy == "earnings",
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
+                PaperTrade.status.in_(OPEN_STATES),
+            )
         ).all()
     )
 
@@ -594,11 +600,14 @@ def _scan_entries(
             skipped.append({"ticker": ticker, "reason": "max open positions reached"})
             continue
 
-        # Already have a trade for this ticker+event?
+        # Already have an options trade for this ticker+event? Equity twins for
+        # the same print don't count — they have their own one-per-event guard.
         existing = db.scalars(
             select(PaperTrade).where(
                 PaperTrade.ticker == ticker,
                 PaperTrade.earnings_date == ev.date,
+                PaperTrade.strategy == "earnings",
+                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
             )
         ).first()
         if existing:

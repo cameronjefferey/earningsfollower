@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { signIn, signOut, useSession } from "next-auth/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { API_BASE } from "@/lib/api";
 import { postBilling } from "@/lib/billing";
 import { Card } from "@/components/ui";
 
@@ -15,20 +16,57 @@ function statusLabel(status: string | undefined, subscribed: boolean): string {
   return status.replace(/_/g, " ");
 }
 
+type AccountProfile = {
+  subscribed: boolean;
+  subscriptionStatus: string;
+  isAdmin: boolean;
+};
+
 export default function AccountPage() {
   const { data: session, status, update } = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const syncedForToken = useRef<string | null>(null);
+
+  const refreshProfile = useCallback(async () => {
+    if (!session?.accessToken) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error(`Could not load account (${res.status})`);
+      }
+      const data = (await res.json()) as {
+        subscribed: boolean;
+        subscription_status: string;
+        is_admin: boolean;
+      };
+      setProfile({
+        subscribed: Boolean(data.subscribed),
+        subscriptionStatus: data.subscription_status || "none",
+        isAdmin: Boolean(data.is_admin),
+      });
+      // Keep the Auth.js session in sync for nav (Paper/Learning), once per load.
+      await update();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load account");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [session?.accessToken, update]);
 
   useEffect(() => {
-    if (status === "authenticated") {
-      setRefreshing(true);
-      void update()
-        .catch(() => undefined)
-        .finally(() => setRefreshing(false));
-    }
-  }, [status, update]);
+    if (status !== "authenticated" || !session?.accessToken) return;
+    if (syncedForToken.current === session.accessToken) return;
+    syncedForToken.current = session.accessToken;
+    void refreshProfile();
+  }, [status, session?.accessToken, refreshProfile]);
 
   const openPortal = useCallback(async () => {
     setError(null);
@@ -89,8 +127,10 @@ export default function AccountPage() {
     );
   }
 
-  const subscribed = Boolean(session.subscribed);
-  const subStatus = session.subscriptionStatus ?? "none";
+  const subscribed = profile?.subscribed ?? Boolean(session.subscribed);
+  const subStatus =
+    profile?.subscriptionStatus ?? session.subscriptionStatus ?? "none";
+  const isAdmin = profile?.isAdmin ?? Boolean(session.isAdmin);
 
   return (
     <div className="max-w-lg mx-auto mt-8 space-y-6">
@@ -121,7 +161,7 @@ export default function AccountPage() {
               <div className="font-medium truncate">
                 {session.user?.name || "Signed in"}
               </div>
-              {session.isAdmin ? (
+              {isAdmin ? (
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border text-[var(--color-accent)] border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10">
                   Admin access
                 </span>
@@ -185,7 +225,10 @@ export default function AccountPage() {
           )}
           <button
             type="button"
-            onClick={() => void update()}
+            onClick={() => {
+              syncedForToken.current = null;
+              void refreshProfile();
+            }}
             className="rounded-lg border border-[var(--color-edge)] px-4 py-2.5 text-sm text-[var(--color-muted)] hover:text-white hover:bg-[var(--color-panel-2)]"
           >
             Refresh status

@@ -170,6 +170,8 @@ services:
         value: https://www.earningsfollower.com
       - key: AUTH_TRUST_HOST
         value: "true"
+      - key: AUTH_API_BASE
+        value: https://api.earningsfollower.com
       - key: AUTH_GOOGLE_ID
         sync: false
       - key: AUTH_GOOGLE_SECRET

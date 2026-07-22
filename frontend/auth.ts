@@ -2,7 +2,12 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { SignJWT } from "jose";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+// Server-side jwt callbacks need an absolute API URL. Prefer AUTH_API_BASE so
+// Render isn't dependent on NEXT_PUBLIC_* inlining for Auth.js.
+const API_BASE =
+  process.env.AUTH_API_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://127.0.0.1:8000";
 
 async function mintAccessToken(claims: {
   sub?: string | null;

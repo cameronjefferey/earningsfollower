@@ -166,6 +166,10 @@ services:
         value: "false"
       - key: AUTH_SECRET
         sync: false # must match API AUTH_SECRET
+      - key: AUTH_URL
+        value: https://www.earningsfollower.com
+      - key: AUTH_TRUST_HOST
+        value: "true"
       - key: AUTH_GOOGLE_ID
         sync: false
       - key: AUTH_GOOGLE_SECRET

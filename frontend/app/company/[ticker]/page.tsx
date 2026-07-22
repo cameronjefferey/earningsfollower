@@ -13,6 +13,7 @@ import {
   PlayLeg,
   ReactionSummary,
 } from "@/lib/api";
+import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { PeerWaveList } from "@/components/PeerWaveList";
 import { PriceChart } from "@/components/PriceChart";
 import { ReactionChart } from "@/components/ReactionChart";
@@ -70,6 +71,8 @@ export default function CompanyPage() {
     .map((e) => e.date)
     .filter((d): d is string => Boolean(d));
 
+  const isPreview = Boolean(data.preview);
+
   return (
     <div>
       <Link
@@ -78,6 +81,16 @@ export default function CompanyPage() {
       >
         ← Calendar
       </Link>
+
+      {isPreview ? (
+        <PaywallBanner
+          title={`Preview: ${data.ticker}`}
+          note={
+            data.preview_note ||
+            "Reaction history, implied move, and peer context — truncated for guests. Pro unlocks the full company brief."
+          }
+        />
+      ) : null}
 
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
@@ -255,8 +268,15 @@ export default function CompanyPage() {
         <div className="text-xs text-[var(--color-muted)] mt-3">
           Market cap {marketCap(data.market_cap)}
           {data.exchange ? ` · ${data.exchange}` : ""}
+          {isPreview
+            ? " · showing a preview slice of reaction history"
+            : ""}
         </div>
       </Card>
+
+      {isPreview ? (
+        <PaywallFade label="Unlock full reaction history, peer waves, and every tracked name with Pro" />
+      ) : null}
     </div>
   );
 }

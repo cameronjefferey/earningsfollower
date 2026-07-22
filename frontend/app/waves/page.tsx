@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, ThemeTag, WaveSignal, WavesResponse } from "@/lib/api";
+import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
 import { InfoTip } from "@/components/InfoTip";
 import { glossary } from "@/lib/glossary";
@@ -74,6 +75,7 @@ export default function WavesPage() {
   }, [recentDays, upcomingDays]);
 
   const groups = data ? groupByTarget(data.signals) : [];
+  const isPreview = Boolean(data?.preview);
 
   return (
     <div>
@@ -85,6 +87,10 @@ export default function WavesPage() {
           each one — the SNOW&nbsp;→&nbsp;ORCL setup, quantified.
         </p>
       </div>
+
+      {isPreview ? (
+        <PaywallBanner note={data?.preview_note} title="Preview: peer waves" />
+      ) : null}
 
       <div className="flex flex-wrap gap-4 mb-6 text-sm">
         <Slider label="Peer reported within" value={recentDays} onChange={setRecentDays} />
@@ -101,11 +107,16 @@ export default function WavesPage() {
           hint="Widen the windows above, or refresh data so more peers and upcoming prints are tracked."
         />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {groups.map((g) => (
-            <TargetGroupCard key={g.target} group={g} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {groups.map((g) => (
+              <TargetGroupCard key={g.target} group={g} />
+            ))}
+          </div>
+          {isPreview ? (
+            <PaywallFade label="Unlock every live wave setup and deeper peer history with Pro" />
+          ) : null}
+        </>
       )}
     </div>
   );

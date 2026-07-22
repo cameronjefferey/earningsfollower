@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, RedditResponse, RedditSignal } from "@/lib/api";
+import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner } from "@/components/ui";
 
 const DIR_COLOR: Record<string, string> = {
@@ -61,6 +62,7 @@ export default function RedditPage() {
   }, []);
 
   const signals = data?.signals ?? [];
+  const isPreview = Boolean(data?.preview);
 
   return (
     <div>
@@ -78,14 +80,20 @@ export default function RedditPage() {
             small, defined-risk debit spreads tagged <span style={{ color: ACCENT }}>reddit</span>.
           </p>
         </div>
-        <button
-          onClick={() => load(true)}
-          disabled={scanning}
-          className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)] disabled:opacity-50"
-        >
-          {scanning ? "Scanning…" : "Scan now"}
-        </button>
+        {!isPreview ? (
+          <button
+            onClick={() => load(true)}
+            disabled={scanning}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)] disabled:opacity-50"
+          >
+            {scanning ? "Scanning…" : "Scan now"}
+          </button>
+        ) : null}
       </div>
+
+      {isPreview ? (
+        <PaywallBanner note={data?.preview_note} title="Preview: Reddit signals" />
+      ) : null}
 
       {loading ? (
         <Spinner />
@@ -97,11 +105,16 @@ export default function RedditPage() {
           hint='Hit "Scan now" to poll Reddit, or enable the strategy (PAPER_REDDIT_ENABLED=true) so the paper worker scans on each run. Signals need enough mentions and acceleration before they show up.'
         />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {signals.map((s) => (
-            <SignalCard key={`${s.ticker}-${s.scan_date}`} signal={s} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {signals.map((s) => (
+              <SignalCard key={`${s.ticker}-${s.scan_date}`} signal={s} />
+            ))}
+          </div>
+          {isPreview ? (
+            <PaywallFade label="Unlock the full Reddit feed and live scans with Pro" />
+          ) : null}
+        </>
       )}
     </div>
   );

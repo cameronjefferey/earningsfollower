@@ -176,6 +176,8 @@ export interface CompanyDetail {
   price_history: PricePoint[];
   reactions: { summary: ReactionSummary; events: ReactionEvent[] };
   peers: LeadLag[];
+  preview?: boolean;
+  preview_note?: string | null;
 }
 
 export interface WaveSignal {
@@ -198,6 +200,8 @@ export interface WavesResponse {
   upcoming_days: number;
   count: number;
   signals: WaveSignal[];
+  preview?: boolean;
+  preview_note?: string | null;
 }
 
 export interface DriftHistory {
@@ -254,6 +258,8 @@ export interface DriftResponse {
   lookback_days: number;
   count: number;
   setups: DriftSetup[];
+  preview?: boolean;
+  preview_note?: string | null;
 }
 
 export interface PaperTradeLeg {
@@ -285,6 +291,8 @@ export interface RedditResponse {
   source: "live" | "journal";
   count: number;
   signals: RedditSignal[];
+  preview?: boolean;
+  preview_note?: string | null;
 }
 
 export interface PaperTrade {

@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import Admin, OptionalAuth, Subscriber
+from app.api.deps import Admin, OptionalAuth, PaidAccess, Subscriber
 from app import cache as response_cache
 from app.config import Settings, get_settings
 from app.db.models import RefreshLog
@@ -23,10 +23,36 @@ router = APIRouter()
 
 WINDOWS = {"all", "today", "week", "last_week", "upcoming", "around"}
 
+# How much unpaid visitors see — enough to sell the product, not the full book.
+_PREVIEW_REACTION_EVENTS = 8
+_PREVIEW_PRICE_POINTS = 90
+_PREVIEW_PEERS = 3
+_PREVIEW_WAVES = 4
+_PREVIEW_DRIFT = 3
+_PREVIEW_REDDIT = 5
+
 
 def _is_admin(caller: OptionalAuth, settings: Settings) -> bool:
     return bool(caller and caller.is_admin(settings))
 
+
+def _preview_company(detail: dict) -> dict:
+    reactions = detail.get("reactions") or {}
+    events = list(reactions.get("events") or [])[:_PREVIEW_REACTION_EVENTS]
+    prices = list(detail.get("price_history") or [])[-_PREVIEW_PRICE_POINTS:]
+    peers = list(detail.get("peers") or [])[:_PREVIEW_PEERS]
+    return {
+        **detail,
+        "playbook": None,
+        "price_history": prices,
+        "peers": peers,
+        "reactions": {**reactions, "events": events},
+        "preview": True,
+        "preview_note": (
+            "Preview — full reaction history, peer waves, and live implied-move "
+            "context unlock with Pro."
+        ),
+    }
 
 @router.get("/themes", tags=["reference"])
 def get_themes(db: Session = Depends(get_db)) -> list[dict]:
@@ -62,7 +88,7 @@ def get_earnings(
 @router.get("/company/{ticker}", tags=["company"])
 def get_company(
     ticker: str,
-    _: Subscriber,
+    access: PaidAccess,
     caller: OptionalAuth,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -70,14 +96,16 @@ def get_company(
     detail = dashboard.company_detail(db, ticker)
     if detail is None:
         raise HTTPException(404, f"No data for {ticker.upper()}")
+    if access == "preview":
+        return _preview_company(detail)
     if not _is_admin(caller, settings):
         detail = {**detail, "playbook": None}
-    return detail
+    return {**detail, "preview": False}
 
 
 @router.get("/waves", tags=["waves"])
 def get_waves(
-    _: Subscriber,
+    access: PaidAccess,
     recent_days: int = Query(14, ge=1, le=60),
     upcoming_days: int = Query(21, ge=1, le=60),
     db: Session = Depends(get_db),
@@ -85,45 +113,81 @@ def get_waves(
     signals = waves.current_waves(
         db, recent_days=recent_days, upcoming_days=upcoming_days
     )
+    preview = access == "preview"
+    if preview:
+        signals = signals[:_PREVIEW_WAVES]
     return {
         "recent_days": recent_days,
         "upcoming_days": upcoming_days,
         "count": len(signals),
         "signals": signals,
+        "preview": preview,
+        "preview_note": (
+            "Preview — a few live peer-wave setups. Pro unlocks the full board."
+            if preview
+            else None
+        ),
     }
 
 
 @router.get("/drift", tags=["drift"])
 def get_drift(
-    _: Subscriber,
+    access: PaidAccess,
     caller: OptionalAuth,
     lookback_days: int = Query(12, ge=3, le=45),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     setups = drift.drift_setups(db, lookback_days=lookback_days)
-    if not _is_admin(caller, settings):
+    preview = access == "preview"
+    if not _is_admin(caller, settings) or preview:
         setups = [{**s, "plan": None} for s in setups]
+    if preview:
+        setups = setups[:_PREVIEW_DRIFT]
     return {
         "lookback_days": lookback_days,
         "count": len(setups),
         "setups": setups,
+        "preview": preview,
+        "preview_note": (
+            "Preview — sample post-earnings drift setups. Pro unlocks the full list."
+            if preview
+            else None
+        ),
     }
 
 
 @router.get("/reddit", tags=["reddit"])
 def get_reddit(
-    _: Subscriber,
+    access: PaidAccess,
     refresh: bool = Query(
         False, description="Run a live scan now (polls Reddit); else read the latest journaled signals"
     ),
     db: Session = Depends(get_db),
 ) -> dict:
+    preview = access == "preview"
+    # Live scans are subscriber-only (hits external APIs).
+    if refresh and preview:
+        raise HTTPException(402, "Active subscription required for live Reddit scans")
     if refresh:
         signals = reddit_sentiment.current_reddit_signals(db)
-        return {"source": "live", "count": len(signals), "signals": signals}
-    signals = reddit_sentiment.recent_reddit_signals(db)
-    return {"source": "journal", "count": len(signals), "signals": signals}
+        source = "live"
+    else:
+        signals = reddit_sentiment.recent_reddit_signals(db)
+        source = "journal"
+    if preview:
+        signals = signals[:_PREVIEW_REDDIT]
+    return {
+        "source": source,
+        "count": len(signals),
+        "signals": signals,
+        "preview": preview,
+        "preview_note": (
+            "Preview — recent Reddit attention signals. Pro unlocks the full feed + live scan."
+            if preview
+            else None
+        ),
+    }
 
 
 @router.get("/paper", tags=["paper"])

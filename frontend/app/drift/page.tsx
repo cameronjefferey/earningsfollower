@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { api, DriftResponse, DriftSetup } from "@/lib/api";
+import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
 import { InfoTip } from "@/components/InfoTip";
 import { glossary } from "@/lib/glossary";
@@ -31,6 +32,7 @@ export default function DriftPage() {
   const setups = (data?.setups ?? []).filter(
     (s) => directionFilter === "all" || s.direction === directionFilter
   );
+  const isPreview = Boolean(data?.preview);
 
   return (
     <div>
@@ -43,7 +45,11 @@ export default function DriftPage() {
         </p>
       </div>
 
-      {isAdmin ? <Playbook /> : null}
+      {isPreview ? (
+        <PaywallBanner note={data?.preview_note} title="Preview: post-earnings drift" />
+      ) : null}
+
+      {isAdmin && !isPreview ? <Playbook /> : null}
 
       <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">
         <label className="flex items-center gap-2">
@@ -85,15 +91,20 @@ export default function DriftPage() {
           hint="Setups appear after strong prints (beat + up move or miss + down move) on stocks whose history shows the drift continues. Widen the lookback, or check back after the next batch of reports."
         />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {setups.map((s) => (
-            <SetupCard
-              key={`${s.ticker}-${s.report_date}`}
-              setup={s}
-              showPlan={isAdmin}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {setups.map((s) => (
+              <SetupCard
+                key={`${s.ticker}-${s.report_date}`}
+                setup={s}
+                showPlan={isAdmin && !isPreview}
+              />
+            ))}
+          </div>
+          {isPreview ? (
+            <PaywallFade label="Unlock the full PEAD board and historical edge stats with Pro" />
+          ) : null}
+        </>
       )}
     </div>
   );

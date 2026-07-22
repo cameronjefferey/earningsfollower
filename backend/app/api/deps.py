@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -13,6 +13,7 @@ from app.db.models import User
 from app.db.session import get_db
 
 ACTIVE_STATUSES = frozenset({"active", "trialing"})
+PaidAccessLevel = Literal["full", "preview"]
 
 
 @dataclass
@@ -128,6 +129,18 @@ def require_subscriber(
     return auth
 
 
+def paid_access(
+    caller: Annotated[AuthUser | None, Depends(get_optional_user)],
+    settings: Settings = Depends(get_settings),
+) -> PaidAccessLevel:
+    """Soft paywall: subscribers get full data; everyone else gets a preview slice."""
+    if not settings.paywall_enabled:
+        return "full"
+    if caller is not None and caller.is_subscribed(settings):
+        return "full"
+    return "preview"
+
+
 def require_admin(
     request: Request,
     db: Session = Depends(get_db),
@@ -167,3 +180,4 @@ def require_admin(
 Subscriber = Annotated[AuthUser | None, Depends(require_subscriber)]
 OptionalAuth = Annotated[AuthUser | None, Depends(get_optional_user)]
 Admin = Annotated[AuthUser, Depends(require_admin)]
+PaidAccess = Annotated[PaidAccessLevel, Depends(paid_access)]

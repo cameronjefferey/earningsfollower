@@ -40,6 +40,10 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
     Resilient by design: a failure on one ticker is logged and skipped so the
     rest of the refresh still completes (important on free-tier rate limits).
     """
+    # Drop cached calendar cards so the next /earnings read sees fresh stats.
+    from app.cache import clear as clear_response_cache
+
+    clear_response_cache()
     settings = get_settings()
     universe = load_universe()
     if expand_peers is None:

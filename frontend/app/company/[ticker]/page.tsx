@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   Analyst,
@@ -28,6 +29,8 @@ import {
 } from "@/lib/format";
 
 export default function CompanyPage() {
+  const { data: session } = useSession();
+  const isAdmin = Boolean(session?.isAdmin);
   const params = useParams<{ ticker: string }>();
   const ticker = (params.ticker ?? "").toUpperCase();
   const [data, setData] = useState<CompanyDetail | null>(null);
@@ -175,7 +178,9 @@ export default function CompanyPage() {
         </Card>
       ) : null}
 
-      {data.playbook ? <PlaybookCard play={data.playbook} ticker={data.ticker} /> : null}
+      {isAdmin && data.playbook ? (
+        <PlaybookCard play={data.playbook} ticker={data.ticker} />
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <VolEdgePanel im={im} />

@@ -380,3 +380,24 @@ class RefreshLog(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(32), default="running")
     detail: Mapped[str | None] = mapped_column(String(1024))
+
+
+class User(Base):
+    """App account synced from Google login; subscription state comes from Stripe."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    image: Mapped[str | None] = mapped_column(String(512))
+    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    # none | active | trialing | past_due | canceled | unpaid | incomplete | ...
+    subscription_status: Mapped[str] = mapped_column(String(32), default="none", index=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

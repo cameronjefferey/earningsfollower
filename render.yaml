@@ -39,6 +39,25 @@ services:
       # market-data sub (auto-falls back to iex if not entitled).
       - key: ALPACA_DATA_FEED
         value: "iex"
+      # Paywall off until you configure Google + Stripe (see README).
+      - key: PAYWALL_ENABLED
+        value: "false"
+      - key: AUTH_SECRET
+        sync: false
+      - key: AUTH_BYPASS_EMAILS
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false # your Google email(s); Paper/Learning/playbooks
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: PUBLIC_APP_URL
+        value: https://earningsfollower.com
+      - key: CORS_ORIGINS
+        value: https://earningsfollower.com,https://www.earningsfollower.com
 
   # Daily data refresh (earnings, prices, implied move, analyst)
   - type: cron
@@ -142,4 +161,12 @@ services:
     startCommand: npm run start -- -p $PORT
     envVars:
       - key: NEXT_PUBLIC_API_BASE
-        value: https://earningsfollower-api.onrender.com
+        value: https://api.earningsfollower.com
+      - key: NEXT_PUBLIC_PAYWALL_ENABLED
+        value: "false"
+      - key: AUTH_SECRET
+        sync: false # must match API AUTH_SECRET
+      - key: AUTH_GOOGLE_ID
+        sync: false
+      - key: AUTH_GOOGLE_SECRET
+        sync: false

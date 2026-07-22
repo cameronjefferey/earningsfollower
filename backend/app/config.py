@@ -22,6 +22,29 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     enable_scheduler: bool = True
 
+    # --- Auth + paywall (all optional; off until PAYWALL_ENABLED=true) ---------
+    # Shared secret with the Next.js Auth.js install (AUTH_SECRET). Used to verify
+    # HS256 access tokens the frontend sends as Bearer auth.
+    auth_secret: str = ""
+    # When false (default), API routes stay open so local/dev keeps working
+    # without Google/Stripe. Flip true once auth + Stripe are configured.
+    paywall_enabled: bool = False
+    # Comma-separated emails that always count as subscribed (your own account
+    # while testing, before a real Stripe subscription).
+    auth_bypass_emails: str = ""
+    # Comma-separated emails with admin access (Paper, Learning, playbooks, drift
+    # trade plans). Empty = nobody is admin; admin routes return 403.
+    admin_emails: str = ""
+
+    # --- Stripe billing -------------------------------------------------------
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    # Price id for the monthly plan (create in Stripe Dashboard → Products).
+    stripe_price_id: str = ""
+    # Public site origin used to build Checkout success/cancel URLs when the
+    # client doesn't pass them (e.g. https://earningsfollower-web.onrender.com).
+    public_app_url: str = "http://localhost:3000"
+
     # --- Reddit (social sentiment) data --------------------------------------
     # Reads are best-effort. With a Reddit app (client id + secret) we use the
     # OAuth app-only token against oauth.reddit.com (higher, saner rate limits);
@@ -425,6 +448,22 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def auth_bypass_email_set(self) -> set[str]:
+        return {
+            e.strip().lower()
+            for e in self.auth_bypass_emails.split(",")
+            if e.strip()
+        }
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {
+            e.strip().lower()
+            for e in self.admin_emails.split(",")
+            if e.strip()
+        }
 
     @property
     def universe_path(self) -> Path:

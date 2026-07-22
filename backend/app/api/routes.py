@@ -6,7 +6,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.api.deps import Admin, OptionalAuth, Subscriber
+from app import cache as response_cache
+from app.config import Settings, get_settings
 from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
 from app.research.attribution import attribution_report
@@ -22,8 +24,13 @@ router = APIRouter()
 WINDOWS = {"all", "today", "week", "last_week", "upcoming", "around"}
 
 
+def _is_admin(caller: OptionalAuth, settings: Settings) -> bool:
+    return bool(caller and caller.is_admin(settings))
+
+
 @router.get("/themes", tags=["reference"])
 def get_themes(db: Session = Depends(get_db)) -> list[dict]:
+    # Public (freemium): calendar filters need theme list.
     return dashboard.list_themes(db)
 
 
@@ -36,25 +43,41 @@ def get_earnings(
     if window not in WINDOWS:
         raise HTTPException(400, f"window must be one of {sorted(WINDOWS)}")
     start, end = dashboard.date_range_for_window(window)
-    return {
+    # Day is part of the key so Mon–Sun windows roll correctly at midnight.
+    cache_key = f"earnings:{window}:{theme or ''}:{start.isoformat()}:{end.isoformat()}"
+    cached = response_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    payload = {
         "window": window,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "theme": theme,
         "cards": dashboard.earnings_cards(db, window, theme),
     }
+    response_cache.set(cache_key, payload)
+    return payload
 
 
 @router.get("/company/{ticker}", tags=["company"])
-def get_company(ticker: str, db: Session = Depends(get_db)) -> dict:
+def get_company(
+    ticker: str,
+    _: Subscriber,
+    caller: OptionalAuth,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
     detail = dashboard.company_detail(db, ticker)
     if detail is None:
         raise HTTPException(404, f"No data for {ticker.upper()}")
+    if not _is_admin(caller, settings):
+        detail = {**detail, "playbook": None}
     return detail
 
 
 @router.get("/waves", tags=["waves"])
 def get_waves(
+    _: Subscriber,
     recent_days: int = Query(14, ge=1, le=60),
     upcoming_days: int = Query(21, ge=1, le=60),
     db: Session = Depends(get_db),
@@ -72,10 +95,15 @@ def get_waves(
 
 @router.get("/drift", tags=["drift"])
 def get_drift(
+    _: Subscriber,
+    caller: OptionalAuth,
     lookback_days: int = Query(12, ge=3, le=45),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     setups = drift.drift_setups(db, lookback_days=lookback_days)
+    if not _is_admin(caller, settings):
+        setups = [{**s, "plan": None} for s in setups]
     return {
         "lookback_days": lookback_days,
         "count": len(setups),
@@ -85,6 +113,7 @@ def get_drift(
 
 @router.get("/reddit", tags=["reddit"])
 def get_reddit(
+    _: Subscriber,
     refresh: bool = Query(
         False, description="Run a live scan now (polls Reddit); else read the latest journaled signals"
     ),
@@ -98,12 +127,13 @@ def get_reddit(
 
 
 @router.get("/paper", tags=["paper"])
-def get_paper(db: Session = Depends(get_db)) -> dict:
+def get_paper(_: Admin, db: Session = Depends(get_db)) -> dict:
     return paper_report.scorecard(db)
 
 
 @router.get("/paper/attribution", tags=["paper"])
 def get_paper_attribution(
+    _: Admin,
     min_samples: int = Query(
         5, ge=1, le=100, description="Hide cohorts/features thinner than this"
     ),
@@ -117,6 +147,7 @@ def get_paper_attribution(
 
 @router.get("/paper/progress", tags=["paper"])
 def get_paper_progress(
+    _: Admin,
     weeks: int = Query(8, ge=2, le=52, description="How many weeks back to reconstruct"),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -127,7 +158,7 @@ def get_paper_progress(
 
 
 @router.get("/paper/narrative", tags=["paper"])
-def get_paper_narrative(db: Session = Depends(get_db)) -> dict:
+def get_paper_narrative(_: Admin, db: Session = Depends(get_db)) -> dict:
     """A plain-English post-mortem of the attribution numbers (LLM when a key is
     configured, deterministic heuristic otherwise), plus the current calibration
     state feeding back into the entry gate."""
@@ -145,6 +176,7 @@ def _run_refresh() -> None:
 
 @router.post("/refresh", tags=["meta"])
 def post_refresh(
+    _: Admin,
     background: bool = Query(True, description="Run the refresh in the background"),
     tasks: BackgroundTasks = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),

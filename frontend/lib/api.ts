@@ -245,7 +245,8 @@ export interface DriftSetup {
   held_gap: boolean | null;
   history: DriftHistory;
   live: DriftLive;
-  plan: DriftPlan;
+  /** Present for admins only; stripped for everyone else. */
+  plan: DriftPlan | null;
   why: string[];
 }
 
@@ -522,9 +523,31 @@ export interface ProgressResponse {
   verdict: ProgressVerdict;
 }
 
+async function authHeaders(): Promise<HeadersInit> {
+  // Lazy import so server-only callers don't pull in next-auth/react at build time.
+  try {
+    const { getSession } = await import("next-auth/react");
+    const session = await getSession();
+    if (session?.accessToken) {
+      return { Authorization: `Bearer ${session.accessToken}` };
+    }
+  } catch {
+    // Not in a browser session context.
+  }
+  return {};
+}
+
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  const headers = await authHeaders();
+  const res = await fetch(`${API_BASE}${path}`, { cache: "no-store", headers });
   if (!res.ok) {
+    if (res.status === 401 || res.status === 402) {
+      throw new Error(
+        res.status === 401
+          ? "Sign in required for this data"
+          : "Active subscription required"
+      );
+    }
     throw new Error(`API ${path} failed: ${res.status}`);
   }
   return res.json() as Promise<T>;

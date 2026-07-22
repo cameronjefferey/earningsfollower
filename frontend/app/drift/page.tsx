@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { api, DriftResponse, DriftSetup } from "@/lib/api";
 import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
@@ -9,6 +10,8 @@ import { glossary } from "@/lib/glossary";
 import { fmtDate, moveClass, pct, signedPct } from "@/lib/format";
 
 export default function DriftPage() {
+  const { data: session } = useSession();
+  const isAdmin = Boolean(session?.isAdmin);
   const [lookbackDays, setLookbackDays] = useState(12);
   const [directionFilter, setDirectionFilter] = useState<"all" | "long" | "short">("all");
   const [data, setData] = useState<DriftResponse | null>(null);
@@ -40,7 +43,7 @@ export default function DriftPage() {
         </p>
       </div>
 
-      <Playbook />
+      {isAdmin ? <Playbook /> : null}
 
       <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">
         <label className="flex items-center gap-2">
@@ -84,7 +87,11 @@ export default function DriftPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {setups.map((s) => (
-            <SetupCard key={`${s.ticker}-${s.report_date}`} setup={s} />
+            <SetupCard
+              key={`${s.ticker}-${s.report_date}`}
+              setup={s}
+              showPlan={isAdmin}
+            />
           ))}
         </div>
       )}
@@ -157,7 +164,14 @@ function QualityBadge({ quality }: { quality: "fresh" | "ok" | "late" }) {
   );
 }
 
-function SetupCard({ setup: s }: { setup: DriftSetup }) {
+function SetupCard({
+  setup: s,
+  showPlan,
+}: {
+  setup: DriftSetup;
+  showPlan: boolean;
+}) {
+  const plan = showPlan ? s.plan : null;
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
@@ -170,7 +184,7 @@ function SetupCard({ setup: s }: { setup: DriftSetup }) {
               {s.ticker}
             </Link>
             <DirectionBadge direction={s.direction} />
-            <QualityBadge quality={s.plan.entry_quality} />
+            {plan ? <QualityBadge quality={plan.entry_quality} /> : null}
           </div>
           {s.name ? (
             <div className="text-sm text-[var(--color-muted)] mt-0.5">{s.name}</div>
@@ -200,7 +214,11 @@ function SetupCard({ setup: s }: { setup: DriftSetup }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+      <div
+        className={`grid gap-2 mt-4 text-center ${
+          plan ? "grid-cols-3" : "grid-cols-2"
+        }`}
+      >
         <MiniStat
           label="Drift so far"
           value={signedPct(s.live.drift_so_far_pct)}
@@ -210,17 +228,21 @@ function SetupCard({ setup: s }: { setup: DriftSetup }) {
           label="Days in / left"
           value={`${s.live.trading_days_in} / ${s.live.trading_days_left}`}
         />
-        <MiniStat
-          label="Stop level"
-          value={s.live.stop_level !== null ? `$${s.live.stop_level}` : "—"}
-        />
+        {plan ? (
+          <MiniStat
+            label="Stop level"
+            value={s.live.stop_level !== null ? `$${s.live.stop_level}` : "—"}
+          />
+        ) : null}
       </div>
 
-      <div className="mt-4 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] p-3 text-sm space-y-2">
-        <PlanRow label="Entry" text={s.plan.entry} />
-        <PlanRow label="Exit" text={s.plan.exit} />
-        <PlanRow label="Stop" text={s.plan.stop} />
-      </div>
+      {plan ? (
+        <div className="mt-4 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] p-3 text-sm space-y-2">
+          <PlanRow label="Entry" text={plan.entry} />
+          <PlanRow label="Exit" text={plan.exit} />
+          <PlanRow label="Stop" text={plan.stop} />
+        </div>
+      ) : null}
 
       <details className="mt-3 text-sm">
         <summary className="cursor-pointer text-[var(--color-muted)] hover:text-white select-none">

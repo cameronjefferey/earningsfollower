@@ -75,6 +75,36 @@ npm run dev
 # App at http://localhost:3000
 ```
 
+## Paywall (optional, free to set up)
+
+Auth.js (Google) + Stripe subscriptions. **Off by default** — the app stays fully
+open until you flip `PAYWALL_ENABLED` / `NEXT_PUBLIC_PAYWALL_ENABLED`.
+
+**What you get for $0:** Google OAuth, Auth.js, Stripe test mode, and (until someone
+pays) no Stripe fees. You only pay Stripe’s cut on real charges.
+
+1. **Shared secret** — same value in backend `AUTH_SECRET` and frontend `AUTH_SECRET`:
+   `openssl rand -base64 32`
+2. **Google OAuth (free)** — [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+   → Create OAuth client (Web). Redirect URI: `http://localhost:3000/api/auth/callback/google`
+   (plus your Render URL `/api/auth/callback/google`). Set `AUTH_GOOGLE_ID` /
+   `AUTH_GOOGLE_SECRET` in `frontend/.env.local`.
+3. **Stripe (free test mode)** — [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys):
+   - Copy the **test** secret key → backend `STRIPE_SECRET_KEY`
+   - Products → add a monthly Price → `STRIPE_PRICE_ID=price_...`
+   - Developers → Webhooks → endpoint `http://localhost:8000/billing/webhook`
+     (or your API URL) for `checkout.session.completed`,
+     `customer.subscription.*`, `invoice.paid` → `STRIPE_WEBHOOK_SECRET`
+   - Locally, `stripe listen --forward-to localhost:8000/billing/webhook` is easiest
+4. **Bypass yourself while testing** — `AUTH_BYPASS_EMAILS=you@gmail.com` on the backend
+5. **Turn the gate on** (both sides):
+   - backend: `PAYWALL_ENABLED=true`, `PUBLIC_APP_URL=http://localhost:3000`
+   - frontend: `NEXT_PUBLIC_PAYWALL_ENABLED=true`
+
+**Freemium split:** Calendar (`/`, `/themes`, `/earnings`) stays public. Waves, Drift,
+Reddit, Paper, Learning, and company detail require sign-in + active (or trialing)
+subscription. Pricing UI: `/pricing`.
+
 ## Editing the universe
 
 Tracked tickers and themes live in
@@ -86,13 +116,18 @@ after changes.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/themes` | Themes and tracked ticker counts |
-| GET | `/earnings?window=today\|week\|last_week\|upcoming&theme=` | Earnings cards for a window |
-| GET | `/company/{ticker}` | Reaction history, implied move, peer waves |
-| GET | `/waves?recent_days=14&upcoming_days=21` | Live ride-the-wave setups |
-| GET | `/drift?lookback_days=12` | Live post-earnings drift setups with trade plans |
-| POST | `/refresh?background=true` | Trigger a data refresh |
+| GET | `/themes` | Themes and tracked ticker counts (public) |
+| GET | `/earnings?window=today\|week\|last_week\|upcoming&theme=` | Earnings cards for a window (public) |
+| GET | `/company/{ticker}` | Reaction history, implied move, peer waves (paid when paywall on) |
+| GET | `/waves?recent_days=14&upcoming_days=21` | Live ride-the-wave setups (paid) |
+| GET | `/drift?lookback_days=12` | Live post-earnings drift setups with trade plans (paid) |
+| POST | `/refresh?background=true` | Trigger a data refresh (paid) |
 | GET | `/refresh/status` | Last refresh result |
+| POST | `/auth/upsert` | Create/update user after Google sign-in |
+| GET | `/auth/me` | Current user + subscription status |
+| POST | `/billing/checkout-session` | Stripe Checkout URL |
+| POST | `/billing/portal-session` | Stripe Customer Portal URL |
+| POST | `/billing/webhook` | Stripe webhooks |
 
 ## How the analytics work
 

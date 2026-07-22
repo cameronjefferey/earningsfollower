@@ -41,7 +41,7 @@ services:
         value: "iex"
       # Paywall off until you configure Google + Stripe (see README).
       - key: PAYWALL_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTH_SECRET
         sync: false
       - key: AUTH_BYPASS_EMAILS
@@ -163,7 +163,7 @@ services:
       - key: NEXT_PUBLIC_API_BASE
         value: https://api.earningsfollower.com
       - key: NEXT_PUBLIC_PAYWALL_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTH_SECRET
         sync: false # must match API AUTH_SECRET
       - key: AUTH_URL

@@ -20,46 +20,91 @@ type AccountProfile = {
   subscribed: boolean;
   subscriptionStatus: string;
   isAdmin: boolean;
+  periodEnd: string | null;
 };
+
+function formatPeriodEnd(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 export default function AccountPage() {
   const { data: session, status, update } = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const syncedForToken = useRef<string | null>(null);
 
-  const refreshProfile = useCallback(async () => {
-    if (!session?.accessToken) return;
-    setRefreshing(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        throw new Error(`Could not load account (${res.status})`);
+  const refreshProfile = useCallback(
+    async (opts?: { fromStripe?: boolean }) => {
+      if (!session?.accessToken) return;
+      setRefreshing(true);
+      setError(null);
+      setNote(null);
+      try {
+        if (opts?.fromStripe) {
+          const sync = await postBilling("/billing/sync", session.accessToken);
+          setProfile({
+            subscribed: Boolean(sync.subscribed),
+            subscriptionStatus: sync.subscription_status || "none",
+            isAdmin: Boolean(session.isAdmin),
+            periodEnd: sync.current_period_end ?? null,
+          });
+          await update();
+          setNote(
+            sync.subscribed
+              ? "Synced with Stripe — Pro is active."
+              : "Synced with Stripe — no active subscription on this account."
+          );
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          throw new Error(`Could not load account (${res.status})`);
+        }
+        const data = (await res.json()) as {
+          subscribed: boolean;
+          subscription_status: string;
+          is_admin: boolean;
+          current_period_end?: string | null;
+        };
+        setProfile({
+          subscribed: Boolean(data.subscribed),
+          subscriptionStatus: data.subscription_status || "none",
+          isAdmin: Boolean(data.is_admin),
+          periodEnd: data.current_period_end ?? null,
+        });
+        // If DB still says free, pull from Stripe once — covers webhook misses.
+        if (!data.subscribed) {
+          const sync = await postBilling("/billing/sync", session.accessToken);
+          setProfile({
+            subscribed: Boolean(sync.subscribed),
+            subscriptionStatus: sync.subscription_status || "none",
+            isAdmin: Boolean(data.is_admin),
+            periodEnd: sync.current_period_end ?? null,
+          });
+        }
+        await update();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not load account");
+      } finally {
+        setRefreshing(false);
       }
-      const data = (await res.json()) as {
-        subscribed: boolean;
-        subscription_status: string;
-        is_admin: boolean;
-      };
-      setProfile({
-        subscribed: Boolean(data.subscribed),
-        subscriptionStatus: data.subscription_status || "none",
-        isAdmin: Boolean(data.is_admin),
-      });
-      // Keep the Auth.js session in sync for nav (Paper/Learning), once per load.
-      await update();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load account");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [session?.accessToken, update]);
+    },
+    [session?.accessToken, session?.isAdmin, update]
+  );
 
   useEffect(() => {
     if (status !== "authenticated" || !session?.accessToken) return;
@@ -70,6 +115,7 @@ export default function AccountPage() {
 
   const openPortal = useCallback(async () => {
     setError(null);
+    setNote(null);
     if (!session?.accessToken) {
       await signIn("google", { callbackUrl: "/account" });
       return;
@@ -131,13 +177,14 @@ export default function AccountPage() {
   const subStatus =
     profile?.subscriptionStatus ?? session.subscriptionStatus ?? "none";
   const isAdmin = profile?.isAdmin ?? Boolean(session.isAdmin);
+  const periodEnd = formatPeriodEnd(profile?.periodEnd);
 
   return (
     <div className="max-w-lg mx-auto mt-8 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1">
-          Profile and billing for your earningsfollower access.
+          Profile, Pro status, and cancel/update billing.
         </p>
       </div>
 
@@ -188,8 +235,10 @@ export default function AccountPage() {
             </div>
             <p className="text-sm text-[var(--color-muted)] mt-1">
               {subscribed
-                ? "Pro unlocks Waves, Drift, Reddit, and company research. Paper, Learning, and trade plans stay admin-only."
-                : "Calendar stays free. Upgrade to unlock research views."}
+                ? periodEnd
+                  ? `Pro is on through ${periodEnd}. Cancel anytime in Stripe billing.`
+                  : "Pro is on. Cancel anytime in Stripe billing."
+                : "Paid but still showing Free? Sync from Stripe. Otherwise upgrade on Pricing."}
             </p>
           </div>
           <span
@@ -203,6 +252,7 @@ export default function AccountPage() {
           </span>
         </div>
 
+        {note && <p className="text-sm text-[var(--color-up)]">{note}</p>}
         {error && <p className="text-sm text-[var(--color-down)]">{error}</p>}
 
         <div className="flex flex-col sm:flex-row gap-2">
@@ -213,7 +263,7 @@ export default function AccountPage() {
               onClick={() => void openPortal()}
               className="flex-1 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] font-medium py-2.5 hover:bg-[var(--color-panel)] disabled:opacity-60"
             >
-              {busy ? "Opening…" : "Manage billing"}
+              {busy ? "Opening…" : "Manage / cancel"}
             </button>
           ) : (
             <Link
@@ -225,13 +275,13 @@ export default function AccountPage() {
           )}
           <button
             type="button"
+            disabled={refreshing}
             onClick={() => {
-              syncedForToken.current = null;
-              void refreshProfile();
+              void refreshProfile({ fromStripe: true });
             }}
-            className="rounded-lg border border-[var(--color-edge)] px-4 py-2.5 text-sm text-[var(--color-muted)] hover:text-white hover:bg-[var(--color-panel-2)]"
+            className="rounded-lg border border-[var(--color-edge)] px-4 py-2.5 text-sm text-[var(--color-muted)] hover:text-white hover:bg-[var(--color-panel-2)] disabled:opacity-60"
           >
-            Refresh status
+            {refreshing ? "Syncing…" : "Sync from Stripe"}
           </button>
         </div>
       </Card>

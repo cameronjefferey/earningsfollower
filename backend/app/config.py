@@ -38,6 +38,8 @@ class Settings(BaseSettings):
 
     # --- Stripe billing -------------------------------------------------------
     stripe_secret_key: str = ""
+    # Signing secret(s) for /billing/webhook. Comma-separated is allowed so a
+    # rotated Dashboard secret and an old one can both verify during cutover.
     stripe_webhook_secret: str = ""
     # Price id for the monthly plan (create in Stripe Dashboard → Products).
     stripe_price_id: str = ""
@@ -450,6 +452,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def stripe_webhook_secret_list(self) -> list[str]:
+        return [s.strip() for s in self.stripe_webhook_secret.split(",") if s.strip()]
 
     @property
     def auth_bypass_email_set(self) -> set[str]:

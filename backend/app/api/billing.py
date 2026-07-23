@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import AuthUser, OptionalAuth
+from app.api.deps import AuthUser, OptionalAuth, subscription_is_active
 from app.config import Settings, get_settings
 from app.db.models import User
 from app.db.session import get_db
@@ -17,6 +17,8 @@ from app.db.session import get_db
 logger = logging.getLogger("earningsfollower.billing")
 
 router = APIRouter(prefix="/billing", tags=["billing"])
+
+_ACTIVE = frozenset({"active", "trialing"})
 
 
 class CheckoutBody(BaseModel):
@@ -56,6 +58,12 @@ def _ensure_stripe_customer(user: User, settings: Settings) -> str:
     _stripe(settings)
     if user.stripe_customer_id:
         return user.stripe_customer_id
+    # Prefer an existing Stripe customer for this email (avoids duplicates after
+    # a webhook miss left our row without stripe_customer_id).
+    existing = list(stripe.Customer.list(email=user.email, limit=1).get("data") or [])
+    if existing:
+        user.stripe_customer_id = existing[0]["id"]
+        return user.stripe_customer_id
     customer = stripe.Customer.create(
         email=user.email,
         name=user.name or None,
@@ -63,6 +71,16 @@ def _ensure_stripe_customer(user: User, settings: Settings) -> str:
     )
     user.stripe_customer_id = customer["id"]
     return customer["id"]
+
+
+def _resolve_customer_id(user: User) -> str | None:
+    if user.stripe_customer_id:
+        return user.stripe_customer_id
+    customers = list(stripe.Customer.list(email=user.email, limit=1).get("data") or [])
+    if not customers:
+        return None
+    user.stripe_customer_id = customers[0]["id"]
+    return user.stripe_customer_id
 
 
 def _as_dict(obj: object) -> dict:
@@ -119,6 +137,71 @@ def _apply_subscription(user: User, sub: object) -> None:
         user.current_period_end = None
 
 
+def _pick_subscription(customer_id: str) -> object | None:
+    subs = list(
+        stripe.Subscription.list(customer=customer_id, status="all", limit=10).get(
+            "data"
+        )
+        or []
+    )
+    chosen = None
+    for sub in subs:
+        if _field(sub, "status") in _ACTIVE:
+            return sub
+        if chosen is None:
+            chosen = sub
+    return chosen
+
+
+def _user_access_payload(user: User, settings: Settings, *, synced: bool) -> dict:
+    status = user.subscription_status or "none"
+    subscribed = subscription_is_active(
+        email=user.email,
+        status=status,
+        period_end=user.current_period_end,
+        settings=settings,
+    )
+    return {
+        "subscribed": subscribed,
+        "subscription_status": status,
+        "synced": synced,
+        "stripe_customer_id": user.stripe_customer_id,
+        "stripe_subscription_id": user.stripe_subscription_id,
+        "current_period_end": (
+            user.current_period_end.isoformat() if user.current_period_end else None
+        ),
+    }
+
+
+def _sync_user_from_stripe(user: User, settings: Settings) -> dict:
+    """Pull Stripe state into the user row. Caller commits."""
+    _stripe(settings)
+    customer_id = _resolve_customer_id(user)
+    if not customer_id:
+        return _user_access_payload(user, settings, synced=False)
+
+    chosen = _pick_subscription(customer_id)
+    if chosen is not None:
+        _apply_subscription(user, chosen)
+    return _user_access_payload(user, settings, synced=True)
+
+
+def _construct_event(payload: bytes, sig: str, secrets: list[str]):
+    last_exc: Exception | None = None
+    for secret in secrets:
+        try:
+            return stripe.Webhook.construct_event(payload, sig, secret)
+        except stripe.SignatureVerificationError as exc:
+            last_exc = exc
+            continue
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid payload") from exc
+    logger.warning(
+        "Stripe webhook signature failed against %d secret(s)", len(secrets)
+    )
+    raise HTTPException(status_code=400, detail="Invalid signature") from last_exc
+
+
 @router.get("/config")
 def billing_config(settings: Settings = Depends(get_settings)) -> dict:
     return {
@@ -142,6 +225,21 @@ def create_checkout_session(
 
     user = _get_or_create_user(db, caller)
     try:
+        # If they already paid, don't start a second subscription — send portal.
+        access = _sync_user_from_stripe(user, settings)
+        db.commit()
+        if access["subscribed"]:
+            app_url = settings.public_app_url.rstrip("/")
+            portal = stripe.billing_portal.Session.create(
+                customer=user.stripe_customer_id,
+                return_url=body.success_url or f"{app_url}/account",
+            )
+            return {
+                "url": portal["url"],
+                "id": portal["id"],
+                "already_subscribed": True,
+            }
+
         customer_id = _ensure_stripe_customer(user, settings)
         db.commit()
 
@@ -171,7 +269,7 @@ def create_checkout_session(
             status_code=502,
             detail=str(exc.user_message or exc) or "Stripe checkout failed",
         ) from exc
-    return {"url": session["url"], "id": session["id"]}
+    return {"url": session["url"], "id": session["id"], "already_subscribed": False}
 
 
 @router.post("/portal-session")
@@ -184,12 +282,17 @@ def create_portal_session(
     caller = _require_signed_in(caller)
     _stripe(settings)
     user = _get_or_create_user(db, caller)
-    if not user.stripe_customer_id:
-        raise HTTPException(status_code=400, detail="No Stripe customer on this account yet")
+    customer_id = _resolve_customer_id(user)
+    if not customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No Stripe customer on this account yet — subscribe first",
+        )
+    db.commit()
     app_url = settings.public_app_url.rstrip("/")
     portal = stripe.billing_portal.Session.create(
-        customer=user.stripe_customer_id,
-        return_url=body.return_url or f"{app_url}/pricing",
+        customer=customer_id,
+        return_url=body.return_url or f"{app_url}/account",
     )
     return {"url": portal["url"]}
 
@@ -206,57 +309,17 @@ def sync_subscription(
     without waiting on Stripe → webhook delivery.
     """
     caller = _require_signed_in(caller)
-    _stripe(settings)
     user = _get_or_create_user(db, caller)
-
-    customer_id = user.stripe_customer_id
-    if not customer_id:
-        # Recover customer id from Stripe by email when checkout created one
-        # but our row never got the webhook update.
-        customers = stripe.Customer.list(email=user.email, limit=1)
-        data = list(customers.get("data") or [])
-        if data:
-            customer_id = data[0]["id"]
-            user.stripe_customer_id = customer_id
-
-    if not customer_id:
-        db.commit()
-        return {
-            "subscribed": False,
-            "subscription_status": user.subscription_status or "none",
-            "synced": False,
-        }
-
-    subs = stripe.Subscription.list(customer=customer_id, status="all", limit=10)
-    chosen = None
-    for sub in list(subs.get("data") or []):
-        status = _field(sub, "status")
-        if status in {"active", "trialing"}:
-            chosen = sub
-            break
-        if chosen is None:
-            chosen = sub
-
-    if chosen is not None:
-        _apply_subscription(user, chosen)
+    try:
+        payload = _sync_user_from_stripe(user, settings)
+    except stripe.StripeError as exc:
+        logger.exception("Stripe sync failed for %s", user.email)
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc.user_message or exc) or "Could not sync with Stripe",
+        ) from exc
     db.commit()
-
-    from app.api.deps import subscription_is_active
-
-    status = user.subscription_status or "none"
-    subscribed = subscription_is_active(
-        email=user.email,
-        status=status,
-        period_end=user.current_period_end,
-        settings=settings,
-    )
-    return {
-        "subscribed": subscribed,
-        "subscription_status": status,
-        "synced": True,
-        "stripe_customer_id": user.stripe_customer_id,
-        "stripe_subscription_id": user.stripe_subscription_id,
-    }
+    return payload
 
 
 @router.post("/webhook")
@@ -265,7 +328,8 @@ async def stripe_webhook(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    if not settings.stripe_secret_key or not settings.stripe_webhook_secret:
+    secrets = settings.stripe_webhook_secret_list
+    if not settings.stripe_secret_key or not secrets:
         raise HTTPException(status_code=503, detail="Stripe webhook is not configured")
     stripe.api_key = settings.stripe_secret_key
 
@@ -274,14 +338,7 @@ async def stripe_webhook(
     if not sig:
         raise HTTPException(status_code=400, detail="Missing Stripe-Signature header")
 
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig, settings.stripe_webhook_secret
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid payload") from exc
-    except stripe.SignatureVerificationError as exc:
-        raise HTTPException(status_code=400, detail="Invalid signature") from exc
+    event = _construct_event(payload, sig, secrets)
 
     etype = event["type"]
     data = _as_dict(event["data"]["object"])
@@ -304,6 +361,7 @@ async def stripe_webhook(
                 sub = stripe.Subscription.retrieve(str(sub_id))
                 _handle_subscription_event(db, sub)
         db.commit()
+        logger.info("Stripe webhook ok: %s", etype)
     except Exception:
         db.rollback()
         logger.exception("Stripe webhook handler failed for %s", etype)
@@ -346,7 +404,7 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
     customer = data.get("customer")
     if isinstance(customer, dict):
         customer = customer.get("id")
-    if customer and not user.stripe_customer_id:
+    if customer:
         user.stripe_customer_id = customer
     sub_id = data.get("subscription")
     if isinstance(sub_id, dict):
@@ -369,7 +427,6 @@ def _handle_subscription_event(db: Session, sub: object) -> None:
     customer = data.get("customer")
     if isinstance(customer, dict):
         customer = customer.get("id")
-    if customer and not user.stripe_customer_id:
+    if customer:
         user.stripe_customer_id = customer
     _apply_subscription(user, data)
-

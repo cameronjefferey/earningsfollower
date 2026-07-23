@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { postBilling } from "@/lib/billing";
 import { Card } from "@/components/ui";
 
@@ -21,6 +21,7 @@ function PricingInner() {
   const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const confirmStarted = useRef(false);
 
   useEffect(() => {
     if (checkout === "cancel") {
@@ -28,31 +29,49 @@ function PricingInner() {
       return;
     }
     if (checkout !== "success" || !session?.accessToken) return;
+    if (confirmStarted.current) return;
+    confirmStarted.current = true;
 
     let cancelled = false;
-    setMessage("Payment received — confirming your subscription…");
+    setMessage("Payment received — unlocking Pro…");
 
     const confirm = async () => {
-      // Pull from Stripe directly first — don't rely only on webhook lag.
       try {
-        await postBilling("/billing/sync", session.accessToken);
-      } catch {
-        /* fall through to session refresh retries */
+        const sync = await postBilling("/billing/sync", session.accessToken);
+        if (cancelled) return;
+        if (sync.subscribed) {
+          await update();
+          if (cancelled) return;
+          setMessage("You're subscribed — opening the brief…");
+          router.replace(nextPath === "/" ? "/brief" : nextPath);
+          return;
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not confirm payment");
+        }
       }
 
-      for (let tries = 0; tries < 8 && !cancelled; tries += 1) {
+      for (let tries = 0; tries < 6 && !cancelled; tries += 1) {
+        await new Promise((r) => window.setTimeout(r, 1500));
+        try {
+          await postBilling("/billing/sync", session.accessToken);
+        } catch {
+          /* keep trying session refresh */
+        }
         const next = await update();
         if (cancelled) return;
         if (next?.subscribed) {
-          setMessage("You're subscribed — taking you back…");
-          router.replace(nextPath);
+          setMessage("You're subscribed — opening the brief…");
+          router.replace(nextPath === "/" ? "/brief" : nextPath);
           return;
         }
-        await new Promise((r) => window.setTimeout(r, 1500));
       }
+
       if (!cancelled) {
-        setMessage(
-          "Payment received. If Pro isn't unlocked yet, wait a few seconds and refresh — or open Account."
+        setMessage(null);
+        setError(
+          "Payment went through, but Pro isn't unlocked yet. Open Account and tap “Sync from Stripe”."
         );
       }
     };
@@ -61,7 +80,6 @@ function PricingInner() {
     return () => {
       cancelled = true;
     };
-    // Intentionally omit `update` — including it restarts this loop every session tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkout, session?.accessToken, router, nextPath]);
 
@@ -80,6 +98,10 @@ function PricingInner() {
         success_url: `${origin}/pricing?checkout=success${nextQ}`,
         cancel_url: `${origin}/pricing?checkout=cancel${nextQ}`,
       });
+      if (data.already_subscribed) {
+        await update();
+        setMessage("You're already subscribed — opening billing…");
+      }
       if (data.url) {
         window.location.href = data.url;
         return;
@@ -89,19 +111,20 @@ function PricingInner() {
       setError(e instanceof Error ? e.message : "Checkout failed");
       setBusy(null);
     }
-  }, [session, nextPath]);
+  }, [session, nextPath, update]);
 
   const openPortal = useCallback(async () => {
     setError(null);
-    const pricingReturn = `/pricing?next=${encodeURIComponent(nextPath)}`;
     if (!session?.accessToken) {
-      await signIn("google", { callbackUrl: pricingReturn });
+      await signIn("google", {
+        callbackUrl: `/pricing?next=${encodeURIComponent(nextPath)}`,
+      });
       return;
     }
     setBusy("portal");
     try {
       const data = await postBilling("/billing/portal-session", session.accessToken, {
-        return_url: `${window.location.origin}${pricingReturn}`,
+        return_url: `${window.location.origin}/account`,
       });
       if (data.url) {
         window.location.href = data.url;
@@ -177,14 +200,19 @@ function PricingInner() {
         )}
 
         {subscribed ? (
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => void openPortal()}
-            className="w-full rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] font-medium py-2.5 hover:bg-[var(--color-panel)] disabled:opacity-60"
-          >
-            {busy === "portal" ? "Opening…" : "Manage subscription"}
-          </button>
+          <div className="space-y-2">
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => void openPortal()}
+              className="w-full rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] font-medium py-2.5 hover:bg-[var(--color-panel)] disabled:opacity-60"
+            >
+              {busy === "portal" ? "Opening…" : "Manage / cancel subscription"}
+            </button>
+            <p className="text-xs text-[var(--color-muted)] text-center">
+              Cancels and card updates happen in Stripe&apos;s billing portal.
+            </p>
+          </div>
         ) : (
           <button
             type="button"

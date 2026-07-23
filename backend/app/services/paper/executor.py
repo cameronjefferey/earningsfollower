@@ -2030,7 +2030,7 @@ def _scan_drift_entries(
     try:
         from app.services.drift import drift_setups
 
-        setups = drift_setups(db)
+        setups, _has_more = drift_setups(db)
     except Exception as e:  # noqa: BLE001 - never let a signal error break the run
         logger.warning("drift signal build failed: %s", e)
         return 0, []

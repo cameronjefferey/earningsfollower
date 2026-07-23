@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 
 export function PaywallBanner({
   note,
-  title = "You're viewing a preview",
+  title = "Demo preview",
 }: {
   note?: string | null;
   title?: string;
@@ -15,16 +15,21 @@ export function PaywallBanner({
   const { data: session } = useSession();
   const pricingHref = `/pricing?next=${encodeURIComponent(pathname || "/")}`;
   const ctaHref = session ? pricingHref : `/login?next=${encodeURIComponent(pricingHref)}`;
-  const ctaLabel = session ? "Unlock with Pro" : "Sign in to unlock Pro";
+  const ctaLabel = session ? "Unlock live data" : "Sign in to unlock";
 
   return (
-    <div className="mb-6 rounded-xl border border-[var(--color-accent)]/35 bg-gradient-to-r from-[var(--color-accent)]/15 to-[var(--color-panel)] px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold tracking-tight">{title}</div>
-        <p className="text-sm text-[var(--color-muted)] mt-0.5">
-          {note ||
-            "Real data, trimmed for guests. Subscribe to open the full feed."}
-        </p>
+    <div className="mb-6 rounded-xl border border-dashed border-[var(--color-accent)]/50 bg-gradient-to-r from-[var(--color-accent)]/12 to-[var(--color-panel)] px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+      <div className="min-w-0 flex items-start gap-3">
+        <span className="shrink-0 mt-0.5 rounded-md bg-[var(--color-accent)]/20 text-[var(--color-accent)] text-[10px] font-bold uppercase tracking-wider px-2 py-1">
+          Demo
+        </span>
+        <div>
+          <div className="text-sm font-semibold tracking-tight">{title}</div>
+          <p className="text-sm text-[var(--color-muted)] mt-0.5">
+            {note ||
+              "This is what the live page looks like — key numbers are blurred sample data. Subscribe for the real board."}
+          </p>
+        </div>
       </div>
       <Link
         href={ctaHref}
@@ -37,7 +42,7 @@ export function PaywallBanner({
 }
 
 /** Soft lock strip at the bottom of a preview section. */
-export function PaywallFade({ label = "Unlock the rest with Pro" }: { label?: string }) {
+export function PaywallFade({ label = "Unlock the live board with Pro" }: { label?: string }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const pricingHref = `/pricing?next=${encodeURIComponent(pathname || "/")}`;

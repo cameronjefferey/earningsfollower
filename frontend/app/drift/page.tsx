@@ -4,11 +4,15 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { api, DriftResponse, DriftSetup } from "@/lib/api";
+import { BlurValue } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
 import { InfoTip } from "@/components/InfoTip";
 import { glossary } from "@/lib/glossary";
 import { fmtDate, moveClass, pct, signedPct } from "@/lib/format";
+
+const FIRST_BATCH = 6;
+const FULL_BATCH = 30;
 
 export default function DriftPage() {
   const { data: session } = useSession();
@@ -17,16 +21,48 @@ export default function DriftPage() {
   const [directionFilter, setDirectionFilter] = useState<"all" | "long" | "short">("all");
   const [data, setData] = useState<DriftResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
+    setData(null);
+
     api
-      .drift(lookbackDays)
-      .then(setData)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .drift(lookbackDays, FIRST_BATCH)
+      .then((first) => {
+        if (cancelled) return;
+        setData(first);
+        setLoading(false);
+
+        if (first.preview || !first.has_more) return;
+
+        setLoadingMore(true);
+        return api
+          .drift(lookbackDays, FULL_BATCH)
+          .then((full) => {
+            if (!cancelled) setData(full);
+          })
+          .catch(() => {
+            /* keep the first batch if the expand fails */
+          })
+          .finally(() => {
+            if (!cancelled) setLoadingMore(false);
+          });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(String(e));
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [lookbackDays]);
 
   const setups = (data?.setups ?? []).filter(
@@ -46,7 +82,7 @@ export default function DriftPage() {
       </div>
 
       {isPreview ? (
-        <PaywallBanner note={data?.preview_note} title="Preview: post-earnings drift" />
+        <PaywallBanner note={data?.preview_note} title="Post-earnings drift — demo board" />
       ) : null}
 
       {isAdmin && !isPreview ? <Playbook /> : null}
@@ -98,11 +134,37 @@ export default function DriftPage() {
                 key={`${s.ticker}-${s.report_date}`}
                 setup={s}
                 showPlan={isAdmin && !isPreview}
+                blur={isPreview}
               />
             ))}
           </div>
+          {loadingMore ? (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-[var(--color-muted)]">
+              <span className="h-3.5 w-3.5 rounded-full border-2 border-[var(--color-edge)] border-t-[var(--color-accent)] animate-spin" />
+              Loading more setups…
+            </div>
+          ) : null}
+          {!isPreview && data?.has_more && !loadingMore ? (
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.min((data.limit ?? FIRST_BATCH) + 15, 60);
+                  setLoadingMore(true);
+                  api
+                    .drift(lookbackDays, next)
+                    .then(setData)
+                    .catch((e) => setError(String(e)))
+                    .finally(() => setLoadingMore(false));
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)]"
+              >
+                Load more
+              </button>
+            </div>
+          ) : null}
           {isPreview ? (
-            <PaywallFade label="Unlock the full PEAD board and historical edge stats with Pro" />
+            <PaywallFade label="Unlock the live PEAD board with Pro" />
           ) : null}
         </>
       )}
@@ -178,9 +240,11 @@ function QualityBadge({ quality }: { quality: "fresh" | "ok" | "late" }) {
 function SetupCard({
   setup: s,
   showPlan,
+  blur,
 }: {
   setup: DriftSetup;
   showPlan: boolean;
+  blur: boolean;
 }) {
   const plan = showPlan ? s.plan : null;
   return (
@@ -202,8 +266,10 @@ function SetupCard({
           ) : null}
           <div className="text-sm text-[var(--color-muted)] mt-0.5">
             reported {fmtDate(s.report_date)} ·{" "}
-            <span className={moveClass(s.move_pct)}>{signedPct(s.move_pct)}</span> on the
-            print{s.beat ? " · beat" : " · miss"}
+            <BlurValue active={blur}>
+              <span className={moveClass(s.move_pct)}>{signedPct(s.move_pct)}</span> on the
+              print{s.beat ? " · beat" : " · miss"}
+            </BlurValue>
           </div>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {s.themes.map((t) => (
@@ -217,10 +283,12 @@ function SetupCard({
             <InfoTip text={glossary.drift_hist_edge} />
           </div>
           <div className={`text-2xl font-bold ${moveClass(s.history.avg_drift_5d_pct)}`}>
-            {signedPct(s.history.avg_drift_5d_pct)}
+            <BlurValue active={blur}>{signedPct(s.history.avg_drift_5d_pct)}</BlurValue>
           </div>
           <div className="text-xs text-[var(--color-muted)]">
-            {pct(s.history.win_rate_5d, 0)} win · n={s.history.sample_size}
+            <BlurValue active={blur}>
+              {pct(s.history.win_rate_5d, 0)} win · n={s.history.sample_size}
+            </BlurValue>
           </div>
         </div>
       </div>
@@ -234,15 +302,18 @@ function SetupCard({
           label="Drift so far"
           value={signedPct(s.live.drift_so_far_pct)}
           valueClass={moveClass(s.live.drift_so_far_pct)}
+          blur={blur}
         />
         <MiniStat
           label="Days in / left"
           value={`${s.live.trading_days_in} / ${s.live.trading_days_left}`}
+          blur={blur}
         />
         {plan ? (
           <MiniStat
             label="Stop level"
             value={s.live.stop_level !== null ? `$${s.live.stop_level}` : "—"}
+            blur={blur}
           />
         ) : null}
       </div>
@@ -273,17 +344,21 @@ function MiniStat({
   label,
   value,
   valueClass = "",
+  blur = false,
 }: {
   label: string;
   value: string;
   valueClass?: string;
+  blur?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] px-2 py-2">
       <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
         {label}
       </div>
-      <div className={`text-sm font-semibold ${valueClass}`}>{value}</div>
+      <div className={`text-sm font-semibold ${valueClass}`}>
+        <BlurValue active={blur}>{value}</BlurValue>
+      </div>
     </div>
   );
 }

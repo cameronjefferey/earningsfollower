@@ -18,41 +18,20 @@ from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
 from app.services.paper.calibration import calibration_state
 from app.services.paper.narrator import build_narrative
+from app.services.preview_demo import (
+    demo_drift,
+    demo_reddit,
+    demo_waves,
+    preview_company,
+)
 
 router = APIRouter()
 
 WINDOWS = {"all", "today", "week", "last_week", "upcoming", "around"}
 
-# How much unpaid visitors see — enough to sell the product, not the full book.
-_PREVIEW_REACTION_EVENTS = 8
-_PREVIEW_PRICE_POINTS = 90
-_PREVIEW_PEERS = 3
-_PREVIEW_WAVES = 4
-_PREVIEW_DRIFT = 3
-_PREVIEW_REDDIT = 5
-
 
 def _is_admin(caller: OptionalAuth, settings: Settings) -> bool:
     return bool(caller and caller.is_admin(settings))
-
-
-def _preview_company(detail: dict) -> dict:
-    reactions = detail.get("reactions") or {}
-    events = list(reactions.get("events") or [])[:_PREVIEW_REACTION_EVENTS]
-    prices = list(detail.get("price_history") or [])[-_PREVIEW_PRICE_POINTS:]
-    peers = list(detail.get("peers") or [])[:_PREVIEW_PEERS]
-    return {
-        **detail,
-        "playbook": None,
-        "price_history": prices,
-        "peers": peers,
-        "reactions": {**reactions, "events": events},
-        "preview": True,
-        "preview_note": (
-            "Preview — full reaction history, peer waves, and live implied-move "
-            "context unlock with Pro."
-        ),
-    }
 
 @router.get("/themes", tags=["reference"])
 def get_themes(db: Session = Depends(get_db)) -> list[dict]:
@@ -97,7 +76,7 @@ def get_company(
     if detail is None:
         raise HTTPException(404, f"No data for {ticker.upper()}")
     if access == "preview":
-        return _preview_company(detail)
+        return preview_company(detail)
     if not _is_admin(caller, settings):
         detail = {**detail, "playbook": None}
     return {**detail, "preview": False}
@@ -108,26 +87,41 @@ def get_waves(
     access: PaidAccess,
     recent_days: int = Query(14, ge=1, le=60),
     upcoming_days: int = Query(21, ge=1, le=60),
+    limit: int = Query(
+        40,
+        ge=1,
+        le=80,
+        description="Max signals to return. Smaller values early-stop for faster first paint.",
+    ),
     db: Session = Depends(get_db),
 ) -> dict:
-    signals = waves.current_waves(
-        db, recent_days=recent_days, upcoming_days=upcoming_days
+    # Guests get a static demo board instantly — no live compute, no live book.
+    if access == "preview":
+        payload = demo_waves(recent_days=recent_days, upcoming_days=upcoming_days)
+        return {**payload, "limit": limit, "has_more": False}
+
+    cache_key = f"waves:{recent_days}:{upcoming_days}:{limit}"
+    cached = response_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    signals, has_more = waves.current_waves(
+        db,
+        recent_days=recent_days,
+        upcoming_days=upcoming_days,
+        limit=limit,
     )
-    preview = access == "preview"
-    if preview:
-        signals = signals[:_PREVIEW_WAVES]
-    return {
+    payload = {
         "recent_days": recent_days,
         "upcoming_days": upcoming_days,
+        "limit": limit,
         "count": len(signals),
+        "has_more": has_more,
         "signals": signals,
-        "preview": preview,
-        "preview_note": (
-            "Preview — a few live peer-wave setups. Pro unlocks the full board."
-            if preview
-            else None
-        ),
+        "preview": False,
+        "preview_note": None,
     }
+    response_cache.set(cache_key, payload)
+    return payload
 
 
 @router.get("/drift", tags=["drift"])
@@ -135,26 +129,39 @@ def get_drift(
     access: PaidAccess,
     caller: OptionalAuth,
     lookback_days: int = Query(12, ge=3, le=45),
+    limit: int = Query(
+        30,
+        ge=1,
+        le=60,
+        description="Max setups to return. Smaller values early-stop for faster first paint.",
+    ),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    setups = drift.drift_setups(db, lookback_days=lookback_days)
-    preview = access == "preview"
-    if not _is_admin(caller, settings) or preview:
+    if access == "preview":
+        payload = demo_drift(lookback_days=lookback_days)
+        return {**payload, "limit": limit, "has_more": False}
+
+    is_admin = _is_admin(caller, settings)
+    cache_key = f"drift:{lookback_days}:{limit}:{'admin' if is_admin else 'user'}"
+    cached = response_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    setups, has_more = drift.drift_setups(db, lookback_days=lookback_days, limit=limit)
+    if not is_admin:
         setups = [{**s, "plan": None} for s in setups]
-    if preview:
-        setups = setups[:_PREVIEW_DRIFT]
-    return {
+    payload = {
         "lookback_days": lookback_days,
+        "limit": limit,
         "count": len(setups),
+        "has_more": has_more,
         "setups": setups,
-        "preview": preview,
-        "preview_note": (
-            "Preview — sample post-earnings drift setups. Pro unlocks the full list."
-            if preview
-            else None
-        ),
+        "preview": False,
+        "preview_note": None,
     }
+    response_cache.set(cache_key, payload)
+    return payload
 
 
 @router.get("/reddit", tags=["reddit"])
@@ -165,28 +172,37 @@ def get_reddit(
     ),
     db: Session = Depends(get_db),
 ) -> dict:
-    preview = access == "preview"
-    # Live scans are subscriber-only (hits external APIs).
-    if refresh and preview:
-        raise HTTPException(402, "Active subscription required for live Reddit scans")
+    if access == "preview":
+        if refresh:
+            raise HTTPException(402, "Active subscription required for live Reddit scans")
+        return demo_reddit()
+
     if refresh:
         signals = reddit_sentiment.current_reddit_signals(db)
         source = "live"
     else:
+        cache_key = "reddit:journal"
+        cached = response_cache.get(cache_key)
+        if cached is not None:
+            return cached
         signals = reddit_sentiment.recent_reddit_signals(db)
         source = "journal"
-    if preview:
-        signals = signals[:_PREVIEW_REDDIT]
+        payload = {
+            "source": source,
+            "count": len(signals),
+            "signals": signals,
+            "preview": False,
+            "preview_note": None,
+        }
+        response_cache.set(cache_key, payload, ttl_seconds=120)
+        return payload
+
     return {
         "source": source,
         "count": len(signals),
         "signals": signals,
-        "preview": preview,
-        "preview_note": (
-            "Preview — recent Reddit attention signals. Pro unlocks the full feed + live scan."
-            if preview
-            else None
-        ),
+        "preview": False,
+        "preview_note": None,
     }
 
 

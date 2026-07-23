@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, ThemeTag, WaveSignal, WavesResponse } from "@/lib/api";
+import { BlurValue } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
 import { InfoTip } from "@/components/InfoTip";
@@ -57,21 +58,57 @@ function groupByTarget(signals: WaveSignal[]): TargetGroup[] {
   return groups;
 }
 
+const FIRST_BATCH = 8;
+const FULL_BATCH = 40;
+
 export default function WavesPage() {
   const [recentDays, setRecentDays] = useState(14);
   const [upcomingDays, setUpcomingDays] = useState(21);
   const [data, setData] = useState<WavesResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
+    setData(null);
+
     api
-      .waves(recentDays, upcomingDays)
-      .then(setData)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .waves(recentDays, upcomingDays, FIRST_BATCH)
+      .then((first) => {
+        if (cancelled) return;
+        setData(first);
+        setLoading(false);
+
+        // Demo boards are already complete; live boards expand in the background.
+        if (first.preview || !first.has_more) return;
+
+        setLoadingMore(true);
+        return api
+          .waves(recentDays, upcomingDays, FULL_BATCH)
+          .then((full) => {
+            if (!cancelled) setData(full);
+          })
+          .catch(() => {
+            /* keep the first batch if the expand fails */
+          })
+          .finally(() => {
+            if (!cancelled) setLoadingMore(false);
+          });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(String(e));
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [recentDays, upcomingDays]);
 
   const groups = data ? groupByTarget(data.signals) : [];
@@ -89,7 +126,7 @@ export default function WavesPage() {
       </div>
 
       {isPreview ? (
-        <PaywallBanner note={data?.preview_note} title="Preview: peer waves" />
+        <PaywallBanner note={data?.preview_note} title="Peer waves — demo board" />
       ) : null}
 
       <div className="flex flex-wrap gap-4 mb-6 text-sm">
@@ -110,11 +147,36 @@ export default function WavesPage() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {groups.map((g) => (
-              <TargetGroupCard key={g.target} group={g} />
+              <TargetGroupCard key={g.target} group={g} blur={isPreview} />
             ))}
           </div>
+          {loadingMore ? (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-[var(--color-muted)]">
+              <span className="h-3.5 w-3.5 rounded-full border-2 border-[var(--color-edge)] border-t-[var(--color-accent)] animate-spin" />
+              Loading more setups…
+            </div>
+          ) : null}
+          {!isPreview && data?.has_more && !loadingMore ? (
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.min((data.limit ?? FIRST_BATCH) + 20, 80);
+                  setLoadingMore(true);
+                  api
+                    .waves(recentDays, upcomingDays, next)
+                    .then(setData)
+                    .catch((e) => setError(String(e)))
+                    .finally(() => setLoadingMore(false));
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)]"
+              >
+                Load more
+              </button>
+            </div>
+          ) : null}
           {isPreview ? (
-            <PaywallFade label="Unlock every live wave setup and deeper peer history with Pro" />
+            <PaywallFade label="Unlock the live peer-wave board with Pro" />
           ) : null}
         </>
       )}
@@ -122,7 +184,7 @@ export default function WavesPage() {
   );
 }
 
-function TargetGroupCard({ group }: { group: TargetGroup }) {
+function TargetGroupCard({ group, blur }: { group: TargetGroup; blur: boolean }) {
   const bullish = (group.avgExpected ?? 0) >= 0;
   return (
     <Card className="p-4">
@@ -154,14 +216,16 @@ function TargetGroupCard({ group }: { group: TargetGroup }) {
             <InfoTip text={glossary.expected_runup} />
           </div>
           <div className={`text-2xl font-bold ${moveClass(group.avgExpected)}`}>
-            {signedPct(group.avgExpected)}
+            <BlurValue active={blur}>{signedPct(group.avgExpected)}</BlurValue>
           </div>
           <div className="text-xs text-[var(--color-muted)]">
             across {group.peers.length} peer{group.peers.length === 1 ? "" : "s"}
             {" · "}
-            <span style={{ color: bullish ? "#28c08a" : "#f0556d" }}>
-              {bullish ? "bullish" : "bearish"}
-            </span>
+            <BlurValue active={blur}>
+              <span style={{ color: bullish ? "#28c08a" : "#f0556d" }}>
+                {bullish ? "bullish" : "bearish"}
+              </span>
+            </BlurValue>
           </div>
         </div>
       </div>
@@ -201,18 +265,24 @@ function TargetGroupCard({ group }: { group: TargetGroup }) {
                   {fmtDate(p.trigger_report_date)}
                 </td>
                 <td className={`py-2 pr-3 font-medium ${moveClass(p.trigger_move_pct)}`}>
-                  {signedPct(p.trigger_move_pct)}
-                  {p.trigger_beat === true ? (
-                    <span className="text-[var(--color-muted)] text-xs"> · beat</span>
-                  ) : p.trigger_beat === false ? (
-                    <span className="text-[var(--color-muted)] text-xs"> · miss</span>
-                  ) : null}
+                  <BlurValue active={blur}>
+                    {signedPct(p.trigger_move_pct)}
+                    {p.trigger_beat === true ? (
+                      <span className="text-[var(--color-muted)] text-xs"> · beat</span>
+                    ) : p.trigger_beat === false ? (
+                      <span className="text-[var(--color-muted)] text-xs"> · miss</span>
+                    ) : null}
+                  </BlurValue>
                 </td>
                 <td className={`py-2 pr-3 font-medium ${moveClass(p.expected_runup_pct)}`}>
-                  {signedPct(p.expected_runup_pct)}
+                  <BlurValue active={blur}>{signedPct(p.expected_runup_pct)}</BlurValue>
                 </td>
-                <td className="py-2 pr-3">{pct(p.stats.win_rate, 0)}</td>
-                <td className="py-2 pr-0">{p.stats.sample_size}</td>
+                <td className="py-2 pr-3">
+                  <BlurValue active={blur}>{pct(p.stats.win_rate, 0)}</BlurValue>
+                </td>
+                <td className="py-2 pr-0">
+                  <BlurValue active={blur}>{p.stats.sample_size}</BlurValue>
+                </td>
               </tr>
             ))}
           </tbody>

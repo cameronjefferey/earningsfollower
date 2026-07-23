@@ -97,10 +97,16 @@ class DriftSetup:
     why: list[str]
 
 
-def drift_setups(db: Session, *, lookback_days: int = 12, limit: int = 30) -> list[dict]:
-    """Screen everything that reported in the last `lookback_days` for live
-    PEAD setups, scored and sorted by attractiveness."""
+def drift_setups(
+    db: Session, *, lookback_days: int = 12, limit: int = 30
+) -> tuple[list[dict], bool]:
+    """Screen recent reporters for live PEAD setups.
+
+    Stops once ``limit + 1`` setups are found so small first-page requests stay
+    cheap. Returns ``(page, has_more)``.
+    """
     today = date.today()
+    probe = max(limit + 1, 1)
     events = db.scalars(
         select(EarningsEvent)
         .where(
@@ -114,6 +120,8 @@ def drift_setups(db: Session, *, lookback_days: int = 12, limit: int = 30) -> li
     setups: list[DriftSetup] = []
     seen: set[str] = set()
     for ev in events:
+        if len(setups) >= probe:
+            break
         if ev.ticker in seen:
             continue
         seen.add(ev.ticker)
@@ -122,7 +130,8 @@ def drift_setups(db: Session, *, lookback_days: int = 12, limit: int = 30) -> li
             setups.append(setup)
 
     setups.sort(key=lambda s: s.score, reverse=True)
-    return [asdict(s) for s in setups[:limit]]
+    has_more = len(setups) > limit
+    return [asdict(s) for s in setups[:limit]], has_more
 
 
 def _evaluate(db: Session, ev: EarningsEvent) -> DriftSetup | None:
@@ -160,7 +169,7 @@ def _evaluate(db: Session, ev: EarningsEvent) -> DriftSetup | None:
     if days_in > MAX_DAYS_IN:
         return None
 
-    history = _history(db, ticker, ev.date, direction)
+    history = _history(db, ticker, ev.date, direction, series=series)
     if history.sample_size < MIN_SAMPLE or history.avg_drift_5d_pct is None:
         return None
     # Require the stock's own past drift to actually point the same way.
@@ -254,11 +263,16 @@ def _evaluate(db: Session, ev: EarningsEvent) -> DriftSetup | None:
 
 
 def _history(
-    db: Session, ticker: str, current_event: date, direction: str
+    db: Session,
+    ticker: str,
+    current_event: date,
+    direction: str,
+    *,
+    series=None,
 ) -> DriftHistory:
     """Drift stats from PAST prints with the same shape as the current one
     (beat + up reaction for longs, miss + down reaction for shorts)."""
-    reactions = compute_reactions(db, ticker)
+    reactions = compute_reactions(db, ticker, series=series)
     if direction == "long":
         similar = [
             r

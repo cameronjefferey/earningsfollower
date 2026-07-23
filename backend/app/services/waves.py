@@ -54,21 +54,48 @@ def _report_dates(db: Session, ticker: str, *, past_only: bool) -> list[date]:
     return sorted(db.scalars(stmt.order_by(EarningsEvent.date.asc())).all())
 
 
-def lead_lag(db: Session, trigger: str, target: str) -> LeadLagStats:
+def lead_lag(
+    db: Session,
+    trigger: str,
+    target: str,
+    *,
+    series_cache: dict[str, object] | None = None,
+    reports_cache: dict[str, list[date]] | None = None,
+    reactions_cache: dict[str, dict[date, float | None]] | None = None,
+) -> LeadLagStats:
     """How the target drifts between a trigger peer's report and its own report.
 
     For each past trigger report, measure the target's price return from the
     trigger date up to the close just before the target's next report.
     """
     trigger, target = trigger.upper(), target.upper()
-    target_series = load_price_series(db, target)
-    target_reports = _report_dates(db, target, past_only=True)
-    trigger_reports = _report_dates(db, trigger, past_only=True)
 
-    # Map trigger report date -> trigger's own reaction move (for conditioning).
-    trigger_moves = {
-        r.date: r.move_pct for r in compute_reactions(db, trigger)
-    }
+    def _series(ticker: str):
+        if series_cache is not None:
+            if ticker not in series_cache:
+                series_cache[ticker] = load_price_series(db, ticker)
+            return series_cache[ticker]
+        return load_price_series(db, ticker)
+
+    def _reports(ticker: str) -> list[date]:
+        if reports_cache is not None:
+            if ticker not in reports_cache:
+                reports_cache[ticker] = _report_dates(db, ticker, past_only=True)
+            return reports_cache[ticker]
+        return _report_dates(db, ticker, past_only=True)
+
+    def _trigger_moves(ticker: str) -> dict[date, float | None]:
+        if reactions_cache is not None and ticker in reactions_cache:
+            return reactions_cache[ticker]
+        moves = {r.date: r.move_pct for r in compute_reactions(db, ticker, series=_series(ticker))}
+        if reactions_cache is not None:
+            reactions_cache[ticker] = moves
+        return moves
+
+    target_series = _series(target)
+    target_reports = _reports(target)
+    trigger_reports = _reports(trigger)
+    trigger_moves = _trigger_moves(trigger)
 
     runups: list[float] = []
     runups_trigger_up: list[float] = []
@@ -125,9 +152,19 @@ def lead_lag(db: Session, trigger: str, target: str) -> LeadLagStats:
 def peers_lead_lag(db: Session, target: str, *, limit: int = 12) -> list[dict]:
     """Rank a target's peers by how reliably the target rides their earnings."""
     target = target.upper()
+    series_cache: dict[str, object] = {}
+    reports_cache: dict[str, list[date]] = {}
+    reactions_cache: dict[str, dict[date, float | None]] = {}
     out: list[LeadLagStats] = []
     for peer in get_peers(db, target):
-        stats = lead_lag(db, peer, target)
+        stats = lead_lag(
+            db,
+            peer,
+            target,
+            series_cache=series_cache,
+            reports_cache=reports_cache,
+            reactions_cache=reactions_cache,
+        )
         if stats.sample_size >= MIN_SAMPLE and stats.avg_runup_pct is not None:
             out.append(stats)
     out.sort(key=lambda s: s.score, reverse=True)
@@ -140,15 +177,19 @@ def current_waves(
     recent_days: int = 14,
     upcoming_days: int = 21,
     limit: int = 40,
-) -> list[dict]:
+) -> tuple[list[dict], bool]:
     """Live "ride the wave" opportunities.
 
     A peer reported recently AND a themed target reports soon -> surface the
     historical lead-lag so the user can decide whether to ride the wave.
+
+    Stops once ``limit + 1`` qualifying signals are found so small first-page
+    requests stay cheap. Returns ``(page, has_more)``.
     """
     today = date.today()
     recent_start = today - timedelta(days=recent_days)
     upcoming_end = today + timedelta(days=upcoming_days)
+    probe = max(limit + 1, 1)
 
     recent = db.scalars(
         select(EarningsEvent)
@@ -162,28 +203,36 @@ def current_waves(
     ).all()
 
     if not recent or not upcoming:
-        return []
+        return [], False
 
     upcoming_by_ticker: dict[str, EarningsEvent] = {}
     for ev in upcoming:
         upcoming_by_ticker.setdefault(ev.ticker, ev)
 
-    # Cache trigger reaction moves once per trigger ticker.
-    trigger_move_cache: dict[str, dict[date, float | None]] = {}
+    series_cache: dict[str, object] = {}
+    reports_cache: dict[str, list[date]] = {}
+    reactions_cache: dict[str, dict[date, float | None]] = {}
+    name_cache: dict[str, str | None] = {}
 
     signals: list[WaveSignal] = []
     seen: set[tuple[str, str]] = set()
 
     for trig_event in recent:
+        if len(signals) >= probe:
+            break
         trig = trig_event.ticker
-        if trig not in trigger_move_cache:
-            trigger_move_cache[trig] = {
-                r.date: r.move_pct for r in compute_reactions(db, trig)
+        if trig not in reactions_cache:
+            series = series_cache.get(trig) or load_price_series(db, trig)
+            series_cache[trig] = series
+            reactions_cache[trig] = {
+                r.date: r.move_pct for r in compute_reactions(db, trig, series=series)
             }
-        trig_move = trigger_move_cache[trig].get(trig_event.date)
+        trig_move = reactions_cache[trig].get(trig_event.date)
         trig_beat = _beat(trig_event)
 
         for target in get_peers(db, trig):
+            if len(signals) >= probe:
+                break
             target_event = upcoming_by_ticker.get(target)
             if target_event is None:
                 continue
@@ -192,7 +241,14 @@ def current_waves(
                 continue
             seen.add(key)
 
-            stats = lead_lag(db, trig, target)
+            stats = lead_lag(
+                db,
+                trig,
+                target,
+                series_cache=series_cache,
+                reports_cache=reports_cache,
+                reactions_cache=reactions_cache,
+            )
             if stats.sample_size < MIN_SAMPLE or stats.avg_runup_pct is None:
                 continue
 
@@ -208,15 +264,20 @@ def current_waves(
 
             direction = "bullish" if (expected or 0) >= 0 else "bearish"
 
+            if trig not in name_cache:
+                name_cache[trig] = _name(db, trig)
+            if target not in name_cache:
+                name_cache[target] = _name(db, target)
+
             signals.append(
                 WaveSignal(
                     trigger=trig,
-                    trigger_name=_name(db, trig),
+                    trigger_name=name_cache[trig],
                     trigger_report_date=trig_event.date.isoformat(),
                     trigger_move_pct=_round(trig_move),
                     trigger_beat=trig_beat,
                     target=target,
-                    target_name=_name(db, target),
+                    target_name=name_cache[target],
                     target_report_date=target_event.date.isoformat(),
                     shared_themes=_shared(db, trig, target),
                     direction=direction,
@@ -229,7 +290,8 @@ def current_waves(
         key=lambda s: (s.stats["score"], abs(s.expected_runup_pct or 0)),
         reverse=True,
     )
-    return [asdict(s) for s in signals[:limit]]
+    has_more = len(signals) > limit
+    return [asdict(s) for s in signals[:limit]], has_more
 
 
 # --- peer-earnings sympathy ride (short, fixed hold) -------------------------

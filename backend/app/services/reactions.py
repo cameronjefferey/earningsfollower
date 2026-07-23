@@ -83,9 +83,15 @@ def _pct(numerator: float | None, denominator: float | None) -> float | None:
     return numerator / denominator - 1.0
 
 
-def compute_reactions(db: Session, ticker: str) -> list[EarningsReaction]:
+def compute_reactions(
+    db: Session,
+    ticker: str,
+    *,
+    series: PriceSeries | None = None,
+) -> list[EarningsReaction]:
     ticker = ticker.upper()
-    series = load_price_series(db, ticker)
+    if series is None:
+        series = load_price_series(db, ticker)
     events = db.scalars(
         select(EarningsEvent)
         .where(EarningsEvent.ticker == ticker, EarningsEvent.date <= date.today())

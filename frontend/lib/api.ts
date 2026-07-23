@@ -198,7 +198,9 @@ export interface WaveSignal {
 export interface WavesResponse {
   recent_days: number;
   upcoming_days: number;
+  limit?: number;
   count: number;
+  has_more?: boolean;
   signals: WaveSignal[];
   preview?: boolean;
   preview_note?: string | null;
@@ -256,7 +258,9 @@ export interface DriftSetup {
 
 export interface DriftResponse {
   lookback_days: number;
+  limit?: number;
   count: number;
+  has_more?: boolean;
   setups: DriftSetup[];
   preview?: boolean;
   preview_note?: string | null;
@@ -569,12 +573,12 @@ export const api = {
     ),
   company: (ticker: string) =>
     getJSON<CompanyDetail>(`/company/${encodeURIComponent(ticker)}`),
-  waves: (recentDays = 14, upcomingDays = 21) =>
+  waves: (recentDays = 14, upcomingDays = 21, limit = 40) =>
     getJSON<WavesResponse>(
-      `/waves?recent_days=${recentDays}&upcoming_days=${upcomingDays}`
+      `/waves?recent_days=${recentDays}&upcoming_days=${upcomingDays}&limit=${limit}`
     ),
-  drift: (lookbackDays = 12) =>
-    getJSON<DriftResponse>(`/drift?lookback_days=${lookbackDays}`),
+  drift: (lookbackDays = 12, limit = 30) =>
+    getJSON<DriftResponse>(`/drift?lookback_days=${lookbackDays}&limit=${limit}`),
   reddit: (refresh = false) =>
     getJSON<RedditResponse>(`/reddit?refresh=${refresh}`),
   paper: () => getJSON<PaperResponse>("/paper"),

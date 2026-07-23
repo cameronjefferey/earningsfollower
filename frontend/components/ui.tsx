@@ -23,12 +23,14 @@ export function Stat({
   valueClass = "",
   sub,
   info,
+  blur = false,
 }: {
   label: string;
   value: React.ReactNode;
   valueClass?: string;
   sub?: React.ReactNode;
   info?: string;
+  blur?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] px-3 py-2.5">
@@ -36,8 +38,30 @@ export function Stat({
         {label}
         {info ? <InfoTip text={info} /> : null}
       </div>
-      <div className={`text-lg font-semibold leading-tight ${valueClass}`}>{value}</div>
-      {sub ? <div className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</div> : null}
+      <div
+        className={`text-lg font-semibold leading-tight ${valueClass}`}
+        style={
+          blur
+            ? { filter: "blur(7px)", userSelect: "none", pointerEvents: "none" }
+            : undefined
+        }
+        aria-hidden={blur || undefined}
+      >
+        {value}
+      </div>
+      {sub ? (
+        <div
+          className="text-xs text-[var(--color-muted)] mt-0.5"
+          style={
+            blur
+              ? { filter: "blur(6px)", userSelect: "none", pointerEvents: "none" }
+              : undefined
+          }
+          aria-hidden={blur || undefined}
+        >
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { BlurValue } from "@/components/BlurValue";
 import { LeadLag } from "@/lib/api";
 import { moveClass, pct, signedPct } from "@/lib/format";
 
-export function PeerWaveList({ peers }: { peers: LeadLag[] }) {
+export function PeerWaveList({ peers, blur = false }: { peers: LeadLag[]; blur?: boolean }) {
   if (peers.length === 0) {
     return (
       <div className="text-sm text-[var(--color-muted)] py-6 text-center">
@@ -25,16 +26,20 @@ export function PeerWaveList({ peers }: { peers: LeadLag[] }) {
             <div>
               <span className="text-[var(--color-muted)] text-xs">Avg run-up </span>
               <span className={`font-medium ${moveClass(p.avg_runup_pct)}`}>
-                {signedPct(p.avg_runup_pct)}
+                <BlurValue active={blur}>{signedPct(p.avg_runup_pct)}</BlurValue>
               </span>
             </div>
             <div>
               <span className="text-[var(--color-muted)] text-xs">Win </span>
-              <span className="font-medium">{pct(p.win_rate, 0)}</span>
+              <span className="font-medium">
+                <BlurValue active={blur}>{pct(p.win_rate, 0)}</BlurValue>
+              </span>
             </div>
             <div>
               <span className="text-[var(--color-muted)] text-xs">n </span>
-              <span className="font-medium">{p.sample_size}</span>
+              <span className="font-medium">
+                <BlurValue active={blur}>{p.sample_size}</BlurValue>
+              </span>
             </div>
           </div>
         </div>

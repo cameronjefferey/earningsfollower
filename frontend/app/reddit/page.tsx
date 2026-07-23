@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, RedditResponse, RedditSignal } from "@/lib/api";
+import { BlurValue } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner } from "@/components/ui";
 
@@ -92,7 +93,7 @@ export default function RedditPage() {
       </div>
 
       {isPreview ? (
-        <PaywallBanner note={data?.preview_note} title="Preview: Reddit signals" />
+        <PaywallBanner note={data?.preview_note} title="Reddit sentiment — demo board" />
       ) : null}
 
       {loading ? (
@@ -108,11 +109,11 @@ export default function RedditPage() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {signals.map((s) => (
-              <SignalCard key={`${s.ticker}-${s.scan_date}`} signal={s} />
+              <SignalCard key={`${s.ticker}-${s.scan_date}`} signal={s} blur={isPreview} />
             ))}
           </div>
           {isPreview ? (
-            <PaywallFade label="Unlock the full Reddit feed and live scans with Pro" />
+            <PaywallFade label="Unlock the live Reddit feed and scans with Pro" />
           ) : null}
         </>
       )}
@@ -120,7 +121,7 @@ export default function RedditPage() {
   );
 }
 
-function SignalCard({ signal: s }: { signal: RedditSignal }) {
+function SignalCard({ signal: s, blur }: { signal: RedditSignal; blur: boolean }) {
   const dir = DIR_COLOR[s.direction] ?? "#8a97b1";
   return (
     <Card className="p-4">
@@ -134,8 +135,12 @@ function SignalCard({ signal: s }: { signal: RedditSignal }) {
               {s.ticker}
             </Link>
             <Pill text={s.direction} color={dir} />
-            <Pill text={`${s.conviction} conviction`} color={CONVICTION_COLOR[s.conviction] ?? "#8a97b1"} />
-            <Pill text={`pump ${s.pump_risk}`} color={PUMP_COLOR[s.pump_risk] ?? "#8a97b1"} />
+            <BlurValue active={blur}>
+              <Pill text={`${s.conviction} conviction`} color={CONVICTION_COLOR[s.conviction] ?? "#8a97b1"} />
+            </BlurValue>
+            <BlurValue active={blur}>
+              <Pill text={`pump ${s.pump_risk}`} color={PUMP_COLOR[s.pump_risk] ?? "#8a97b1"} />
+            </BlurValue>
             {s.is_noise ? <Pill text="noise" color="#5a6680" /> : null}
             <Pill text={s.scored_by} color="#5b8cff" />
           </div>
@@ -155,10 +160,12 @@ function SignalCard({ signal: s }: { signal: RedditSignal }) {
             Mention velocity
           </div>
           <div className="text-2xl font-bold" style={{ color: ACCENT }}>
-            {s.mention_velocity != null ? `${s.mention_velocity.toFixed(1)}x` : "—"}
+            <BlurValue active={blur}>
+              {s.mention_velocity != null ? `${s.mention_velocity.toFixed(1)}x` : "—"}
+            </BlurValue>
           </div>
           <div className="text-xs text-[var(--color-muted)]">
-            {s.mention_count} mentions
+            <BlurValue active={blur}>{s.mention_count} mentions</BlurValue>
           </div>
         </div>
       </div>
@@ -169,7 +176,9 @@ function SignalCard({ signal: s }: { signal: RedditSignal }) {
             Sentiment
           </div>
           <div className="text-sm font-semibold" style={{ color: dir }}>
-            {s.sentiment != null ? s.sentiment.toFixed(2) : "—"}
+            <BlurValue active={blur}>
+              {s.sentiment != null ? s.sentiment.toFixed(2) : "—"}
+            </BlurValue>
           </div>
         </div>
         <div className="rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] px-2 py-2">
@@ -177,18 +186,20 @@ function SignalCard({ signal: s }: { signal: RedditSignal }) {
             Score
           </div>
           <div className="text-sm font-semibold">
-            {s.score != null ? s.score.toFixed(2) : "—"}
+            <BlurValue active={blur}>
+              {s.score != null ? s.score.toFixed(2) : "—"}
+            </BlurValue>
           </div>
         </div>
       </div>
 
       {s.rationale ? (
         <p className="mt-3 text-xs leading-relaxed text-[var(--color-muted)]">
-          {s.rationale}
+          <BlurValue active={blur}>{s.rationale}</BlurValue>
         </p>
       ) : null}
 
-      {s.samples.length ? (
+      {!blur && s.samples.length ? (
         <details className="mt-3 text-sm">
           <summary className="cursor-pointer text-[var(--color-muted)] hover:text-white select-none">
             Source threads

@@ -13,6 +13,7 @@ import {
   PlayLeg,
   ReactionSummary,
 } from "@/lib/api";
+import { BlurValue, BlurZone } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { PeerWaveList } from "@/components/PeerWaveList";
 import { PriceChart } from "@/components/PriceChart";
@@ -84,10 +85,10 @@ export default function CompanyPage() {
 
       {isPreview ? (
         <PaywallBanner
-          title={`Preview: ${data.ticker}`}
+          title={`${data.ticker} — demo company brief`}
           note={
             data.preview_note ||
-            "Reaction history, implied move, and peer context — truncated for guests. Pro unlocks the full company brief."
+            "Company shell is real; key stats and charts are blurred sample data. Subscribe for the live brief."
           }
         />
       ) : null}
@@ -127,24 +128,28 @@ export default function CompanyPage() {
           sub={
             im?.verdict ? <VerdictPill verdict={im.verdict} /> : im?.expiry ?? undefined
           }
+          blur={isPreview}
         />
         <Stat
           label="Avg historical move"
           info={glossary.avg_move}
           value={pct(s.avg_abs_move_pct)}
           sub={`median ${pct(s.median_abs_move_pct)} · n=${s.sample_size}`}
+          blur={isPreview}
         />
         <Stat
           label="Up rate"
           info={glossary.up_rate}
           value={pct(s.up_rate, 0)}
           sub={`avg ${signedPct(s.avg_move_pct)} drift ${signedPct(s.avg_drift_pct)}`}
+          blur={isPreview}
         />
         <Stat
           label="Beat streak"
           info={glossary.beat_streak}
           value={s.beat_streak > 0 ? `${s.beat_streak}Q` : "—"}
           sub={s.beat_rate !== null ? `${pct(s.beat_rate, 0)} beat rate` : undefined}
+          blur={isPreview}
         />
       </div>
 
@@ -154,14 +159,18 @@ export default function CompanyPage() {
             <div className="flex items-baseline gap-3">
               <h2 className="font-semibold">Price</h2>
               {lastClose !== null ? (
-                <span className="text-2xl font-bold">${lastClose.toFixed(2)}</span>
+                <span className="text-2xl font-bold">
+                  <BlurValue active={isPreview}>${lastClose.toFixed(2)}</BlurValue>
+                </span>
               ) : null}
               {priceChange !== null ? (
                 <span className={`text-sm font-semibold ${moveClass(priceChange)}`}>
-                  {signedPct(priceChange)}{" "}
-                  <span className="text-[var(--color-muted)] font-normal">
-                    · {prices.length}d
-                  </span>
+                  <BlurValue active={isPreview}>
+                    {signedPct(priceChange)}{" "}
+                    <span className="text-[var(--color-muted)] font-normal">
+                      · {prices.length}d
+                    </span>
+                  </BlurValue>
                 </span>
               ) : null}
             </div>
@@ -170,7 +179,9 @@ export default function CompanyPage() {
               earnings print
             </span>
           </div>
-          <PriceChart prices={prices} earningsDates={earningsDates} />
+          <BlurZone active={isPreview} label="Sample chart">
+            <PriceChart prices={prices} earningsDates={earningsDates} />
+          </BlurZone>
         </Card>
       ) : null}
 
@@ -178,15 +189,17 @@ export default function CompanyPage() {
         <Card className="p-4 mb-6">
           <div className="text-sm text-[var(--color-muted)]">
             Options market is pricing a{" "}
-            <span className="text-white font-semibold">
-              {pct(im.expected_move_pct)}
-            </span>{" "}
-            move by {im.expiry ?? "expiry"}
-            {im.historical_avg_abs_move_pct
-              ? `, vs a ${pct(im.historical_avg_abs_move_pct)} historical average`
-              : ""}
-            {im.richness ? ` (${im.richness.toFixed(2)}x).` : "."}{" "}
-            {im.underlying_price ? `Spot ~$${im.underlying_price.toFixed(2)}.` : ""}
+            <BlurValue active={isPreview}>
+              <span className="text-white font-semibold">
+                {pct(im.expected_move_pct)}
+              </span>{" "}
+              move by {im.expiry ?? "expiry"}
+              {im.historical_avg_abs_move_pct
+                ? `, vs a ${pct(im.historical_avg_abs_move_pct)} historical average`
+                : ""}
+              {im.richness ? ` (${im.richness.toFixed(2)}x).` : "."}{" "}
+              {im.underlying_price ? `Spot ~$${im.underlying_price.toFixed(2)}.` : ""}
+            </BlurValue>
           </div>
         </Card>
       ) : null}
@@ -196,15 +209,17 @@ export default function CompanyPage() {
       ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <VolEdgePanel im={im} />
-        <PeadPanel s={s} />
-        <AnalystPanel analyst={data.analyst} />
+        <VolEdgePanel im={im} blur={isPreview} />
+        <PeadPanel s={s} blur={isPreview} />
+        <AnalystPanel analyst={data.analyst} blur={isPreview} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="p-4 lg:col-span-2">
           <h2 className="font-semibold mb-3">Earnings reactions (close-to-close)</h2>
-          <ReactionChart events={data.reactions.events} />
+          <BlurZone active={isPreview} label="Sample reactions">
+            <ReactionChart events={data.reactions.events} />
+          </BlurZone>
         </Card>
 
         <Card className="p-4">
@@ -213,7 +228,7 @@ export default function CompanyPage() {
             How {data.ticker} has historically drifted after each peer reports, up to its
             own print.
           </p>
-          <PeerWaveList peers={data.peers} />
+          <PeerWaveList peers={data.peers} blur={isPreview} />
         </Card>
       </div>
 
@@ -248,17 +263,21 @@ export default function CompanyPage() {
                     {timingLabel(e.timing)}
                   </td>
                   <td className="py-2 pr-4">
-                    {e.eps_estimate ?? "—"} / {e.eps_actual ?? "—"}
+                    <BlurValue active={isPreview}>
+                      {e.eps_estimate ?? "—"} / {e.eps_actual ?? "—"}
+                    </BlurValue>
                   </td>
-                  <td className="py-2 pr-4">{signedPct(e.surprise_pct)}</td>
+                  <td className="py-2 pr-4">
+                    <BlurValue active={isPreview}>{signedPct(e.surprise_pct)}</BlurValue>
+                  </td>
                   <td className={`py-2 pr-4 font-medium ${moveClass(e.move_pct)}`}>
-                    {signedPct(e.move_pct)}
+                    <BlurValue active={isPreview}>{signedPct(e.move_pct)}</BlurValue>
                   </td>
                   <td className={`py-2 pr-4 ${moveClass(e.gap_pct)}`}>
-                    {signedPct(e.gap_pct)}
+                    <BlurValue active={isPreview}>{signedPct(e.gap_pct)}</BlurValue>
                   </td>
                   <td className={`py-2 pr-4 ${moveClass(e.drift_pct)}`}>
-                    {signedPct(e.drift_pct)}
+                    <BlurValue active={isPreview}>{signedPct(e.drift_pct)}</BlurValue>
                   </td>
                 </tr>
               ))}
@@ -268,14 +287,12 @@ export default function CompanyPage() {
         <div className="text-xs text-[var(--color-muted)] mt-3">
           Market cap {marketCap(data.market_cap)}
           {data.exchange ? ` · ${data.exchange}` : ""}
-          {isPreview
-            ? " · showing a preview slice of reaction history"
-            : ""}
+          {isPreview ? " · demo numbers — subscribe for live history" : ""}
         </div>
       </Card>
 
       {isPreview ? (
-        <PaywallFade label="Unlock full reaction history, peer waves, and every tracked name with Pro" />
+        <PaywallFade label="Unlock the live company brief with Pro" />
       ) : null}
     </div>
   );
@@ -508,7 +525,7 @@ const EDGE_MAP: Record<string, { label: string; color: string; note: string }> =
   },
 };
 
-function VolEdgePanel({ im }: { im: ImpliedMove | null }) {
+function VolEdgePanel({ im, blur = false }: { im: ImpliedMove | null; blur?: boolean }) {
   const edge = im?.edge_verdict ? EDGE_MAP[im.edge_verdict] : null;
   return (
     <Card className="p-4">
@@ -526,12 +543,15 @@ function VolEdgePanel({ im }: { im: ImpliedMove | null }) {
           </div>
           <div className="mt-3 text-sm">
             Realized move reached the{" "}
-            <span className="font-semibold">{pct(im.expected_move_pct)}</span> implied
-            move{" "}
-            <span className="font-semibold">{pct(im.exceed_rate, 0)}</span> of the time.
+            <BlurValue active={blur}>
+              <span className="font-semibold">{pct(im.expected_move_pct)}</span> implied
+              move{" "}
+              <span className="font-semibold">{pct(im.exceed_rate, 0)}</span> of the time.
+            </BlurValue>
           </div>
           <div className="text-xs text-[var(--color-muted)] mt-2">
-            {edge.note} (n={im.edge_sample})
+            {edge.note}{" "}
+            <BlurValue active={blur}>(n={im.edge_sample})</BlurValue>
           </div>
         </>
       ) : (
@@ -543,7 +563,7 @@ function VolEdgePanel({ im }: { im: ImpliedMove | null }) {
   );
 }
 
-function PeadPanel({ s }: { s: ReactionSummary }) {
+function PeadPanel({ s, blur = false }: { s: ReactionSummary; blur?: boolean }) {
   const rows = [
     { label: "After a beat", value: s.avg_drift_after_beat_pct },
     { label: "After a miss", value: s.avg_drift_after_miss_pct },
@@ -560,20 +580,28 @@ function PeadPanel({ s }: { s: ReactionSummary }) {
           <div key={r.label} className="flex items-center justify-between text-sm">
             <span className="text-[var(--color-muted)]">{r.label}</span>
             <span className={`font-semibold ${moveClass(r.value)}`}>
-              {signedPct(r.value)}
+              <BlurValue active={blur}>{signedPct(r.value)}</BlurValue>
             </span>
           </div>
         ))}
         <div className="flex items-center justify-between text-sm pt-1.5 border-t border-[var(--color-edge)]">
           <span className="text-[var(--color-muted)]">Continuation rate</span>
-          <span className="font-semibold">{pct(s.continuation_rate, 0)}</span>
+          <span className="font-semibold">
+            <BlurValue active={blur}>{pct(s.continuation_rate, 0)}</BlurValue>
+          </span>
         </div>
       </div>
     </Card>
   );
 }
 
-function AnalystPanel({ analyst }: { analyst: Analyst | null }) {
+function AnalystPanel({
+  analyst,
+  blur = false,
+}: {
+  analyst: Analyst | null;
+  blur?: boolean;
+}) {
   if (!analyst) {
     return (
       <Card className="p-4">
@@ -611,10 +639,12 @@ function AnalystPanel({ analyst }: { analyst: Analyst | null }) {
 
       {analyst.price_target ? (
         <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-2xl font-bold">${analyst.price_target.toFixed(0)}</span>
+          <span className="text-2xl font-bold">
+            <BlurValue active={blur}>${analyst.price_target.toFixed(0)}</BlurValue>
+          </span>
           {analyst.upside_pct !== null ? (
             <span className={`text-sm font-semibold ${moveClass(analyst.upside_pct)}`}>
-              {signedPct(analyst.upside_pct)} vs spot
+              <BlurValue active={blur}>{signedPct(analyst.upside_pct)} vs spot</BlurValue>
             </span>
           ) : null}
         </div>
@@ -622,13 +652,19 @@ function AnalystPanel({ analyst }: { analyst: Analyst | null }) {
 
       {analyst.ratings_total > 0 ? (
         <>
-          <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-panel-2)]">
-            <div style={{ width: `${(bullish / total) * 100}%`, background: "#28c08a" }} />
-            <div style={{ width: `${(neutral / total) * 100}%`, background: "#8a97b1" }} />
-            <div style={{ width: `${(bearish / total) * 100}%`, background: "#f0556d" }} />
-          </div>
+          <BlurZone active={blur} label="Sample">
+            <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-panel-2)]">
+              <div style={{ width: `${(bullish / total) * 100}%`, background: "#28c08a" }} />
+              <div style={{ width: `${(neutral / total) * 100}%`, background: "#8a97b1" }} />
+              <div style={{ width: `${(bearish / total) * 100}%`, background: "#f0556d" }} />
+            </div>
+          </BlurZone>
           <div className="mt-2 flex items-center justify-between text-xs text-[var(--color-muted)]">
-            <span>{bullish} buy · {neutral} hold · {bearish} sell</span>
+            <BlurValue active={blur}>
+              <span>
+                {bullish} buy · {neutral} hold · {bearish} sell
+              </span>
+            </BlurValue>
             {analyst.trend ? (
               <span style={{ color: trendColor }} className="font-medium">
                 {analyst.trend}

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   Analyst,
@@ -29,9 +28,10 @@ import {
   signedPct,
   timingLabel,
 } from "@/lib/format";
+import { useAuthReady } from "@/lib/useAuthReady";
 
 export default function CompanyPage() {
-  const { data: session } = useSession();
+  const { ready, accessToken, session } = useAuthReady();
   const isAdmin = Boolean(session?.isAdmin);
   const params = useParams<{ ticker: string }>();
   const ticker = (params.ticker ?? "").toUpperCase();
@@ -40,17 +40,30 @@ export default function CompanyPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!ticker) return;
+    if (!ticker || !ready) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
     api
-      .company(ticker)
-      .then(setData)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [ticker]);
+      .company(ticker, accessToken)
+      .then((detail) => {
+        if (cancelled) return;
+        setData(detail);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(String(e));
+        setData(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker, ready, accessToken]);
 
-  if (loading) return <Spinner label={`Loading ${ticker}…`} />;
+  if (!ready || loading) return <Spinner label={`Loading ${ticker}…`} />;
   if (error || !data)
     return (
       <EmptyState
@@ -533,14 +546,16 @@ function VolEdgePanel({ im, blur = false }: { im: ImpliedMove | null; blur?: boo
         Vol edge
         <InfoTip text={glossary.vol_edge} />
       </h2>
-      {im && im.exceed_rate !== null && edge ? (
+      {im && im.exceed_rate != null && edge ? (
         <>
-          <div
-            className="mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border"
-            style={{ color: edge.color, borderColor: `${edge.color}55`, backgroundColor: `${edge.color}1a` }}
-          >
-            {edge.label}
-          </div>
+          <BlurValue active={blur}>
+            <div
+              className="mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border"
+              style={{ color: edge.color, borderColor: `${edge.color}55`, backgroundColor: `${edge.color}1a` }}
+            >
+              {edge.label}
+            </div>
+          </BlurValue>
           <div className="mt-3 text-sm">
             Realized move reached the{" "}
             <BlurValue active={blur}>
@@ -550,13 +565,16 @@ function VolEdgePanel({ im, blur = false }: { im: ImpliedMove | null; blur?: boo
             </BlurValue>
           </div>
           <div className="text-xs text-[var(--color-muted)] mt-2">
-            {edge.note}{" "}
-            <BlurValue active={blur}>(n={im.edge_sample})</BlurValue>
+            <BlurValue active={blur}>
+              {edge.note} (n={im.edge_sample})
+            </BlurValue>
           </div>
         </>
       ) : (
         <div className="text-sm text-[var(--color-muted)] mt-3">
-          Need a live implied move and a few past prints to gauge the edge.
+          {blur
+            ? "Vol-edge stats unlock with Pro."
+            : "Need a live implied move and a few past prints to gauge the edge."}
         </div>
       )}
     </Card>
@@ -666,9 +684,11 @@ function AnalystPanel({
               </span>
             </BlurValue>
             {analyst.trend ? (
-              <span style={{ color: trendColor }} className="font-medium">
-                {analyst.trend}
-              </span>
+              <BlurValue active={blur}>
+                <span style={{ color: trendColor }} className="font-medium">
+                  {analyst.trend}
+                </span>
+              </BlurValue>
             ) : null}
           </div>
         </>

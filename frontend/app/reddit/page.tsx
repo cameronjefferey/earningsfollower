@@ -6,6 +6,7 @@ import { api, RedditResponse, RedditSignal } from "@/lib/api";
 import { BlurValue } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
 import { Card, EmptyState, Spinner } from "@/components/ui";
+import { useAuthReady } from "@/lib/useAuthReady";
 
 const DIR_COLOR: Record<string, string> = {
   bullish: "#28c08a",
@@ -39,6 +40,7 @@ function Pill({ text, color }: { text: string; color: string }) {
 }
 
 export default function RedditPage() {
+  const { ready, accessToken } = useAuthReady();
   const [data, setData] = useState<RedditResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -49,7 +51,7 @@ export default function RedditPage() {
     else setLoading(true);
     setError(null);
     api
-      .reddit(refresh)
+      .reddit(refresh, accessToken)
       .then(setData)
       .catch((e) => setError(String(e)))
       .finally(() => {
@@ -59,8 +61,10 @@ export default function RedditPage() {
   }
 
   useEffect(() => {
+    if (!ready) return;
     load(false);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when auth settles / token changes
+  }, [ready, accessToken]);
 
   const signals = data?.signals ?? [];
   const isPreview = Boolean(data?.preview);
@@ -96,7 +100,7 @@ export default function RedditPage() {
         <PaywallBanner note={data?.preview_note} title="Reddit sentiment — demo board" />
       ) : null}
 
-      {loading ? (
+      {!ready || loading ? (
         <Spinner />
       ) : error ? (
         <EmptyState title="Couldn't reach the API." hint="Is the backend running?" />

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 import jwt
@@ -14,6 +15,28 @@ from app.db.session import get_db
 
 ACTIVE_STATUSES = frozenset({"active", "trialing"})
 PaidAccessLevel = Literal["full", "preview"]
+# After Stripe says the period ended, keep access briefly for webhook lag, then
+# cut off even if subscription_status was never flipped (missed webhook / cold start).
+_PERIOD_END_GRACE = timedelta(hours=36)
+
+
+def subscription_is_active(
+    *,
+    email: str,
+    status: str | None,
+    period_end: datetime | None,
+    settings: Settings,
+) -> bool:
+    """Shared paid-access rule for API gates and /auth/me payloads."""
+    if email.lower() in settings.auth_bypass_email_set:
+        return True
+    if (status or "none") not in ACTIVE_STATUSES:
+        return False
+    if period_end is not None:
+        end = period_end if period_end.tzinfo else period_end.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > end + _PERIOD_END_GRACE:
+            return False
+    return True
 
 
 @dataclass
@@ -30,11 +53,19 @@ class AuthUser:
         return self.db_user.subscription_status or "none"
 
     def is_subscribed(self, settings: Settings) -> bool:
-        if self.email.lower() in settings.auth_bypass_email_set:
-            return True
         if self.db_user is None:
-            return False
-        return self.db_user.subscription_status in ACTIVE_STATUSES
+            return subscription_is_active(
+                email=self.email,
+                status=None,
+                period_end=None,
+                settings=settings,
+            )
+        return subscription_is_active(
+            email=self.email,
+            status=self.db_user.subscription_status,
+            period_end=self.db_user.current_period_end,
+            settings=settings,
+        )
 
     def is_admin(self, settings: Settings) -> bool:
         return self.email.lower() in settings.admin_email_set

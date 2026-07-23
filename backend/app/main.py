@@ -26,6 +26,14 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database initialized.")
+    # Loud alarm if prod URL is serving with the paywall off — silent free
+    # access is worse than a crash because nothing looks broken.
+    app_url = (settings.public_app_url or "").lower()
+    if not settings.paywall_enabled and "earningsfollower.com" in app_url:
+        logger.critical(
+            "PAYWALL_ENABLED is false for %s — paid endpoints serve full data to everyone",
+            settings.public_app_url,
+        )
     if settings.enable_scheduler:
         start_scheduler()
         logger.info("Daily refresh scheduler started.")

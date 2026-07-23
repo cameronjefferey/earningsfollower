@@ -12,6 +12,7 @@ from app.db.models import EarningsEvent
 from app.services.peers import get_peers, shared_themes
 from app.services.prices import load_price_series
 from app.services.reactions import compute_reactions
+from app.services.sample_stats import annotate_history
 
 # Window during which a peer's report can plausibly influence a target's
 # pre-earnings drift (a target reports within ~1 quarter of the peer).
@@ -291,7 +292,14 @@ def current_waves(
         reverse=True,
     )
     has_more = len(signals) > limit
-    return [asdict(s) for s in signals[:limit]], has_more
+    out: list[dict] = []
+    for s in signals[:limit]:
+        row = asdict(s)
+        row.update(
+            annotate_history(row["stats"].get("sample_size"), row["stats"].get("win_rate"))
+        )
+        out.append(row)
+    return out, has_more
 
 
 # --- peer-earnings sympathy ride (short, fixed hold) -------------------------

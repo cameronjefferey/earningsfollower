@@ -382,6 +382,30 @@ class RefreshLog(Base):
     detail: Mapped[str | None] = mapped_column(String(1024))
 
 
+class BoardSnapshot(Base):
+    """Persisted Waves/Drift board payloads so paid pages serve instantly."""
+
+    __tablename__ = "board_snapshots"
+    __table_args__ = (UniqueConstraint("kind", "params_key", name="uq_board_snapshot"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)  # waves | drift
+    params_key: Mapped[str] = mapped_column(String(128), index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class DailyDigest(Base):
+    """One row per calendar day: 'what changed' bullets for the homepage."""
+
+    __tablename__ = "daily_digests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    digest_date: Mapped[date] = mapped_column(Date, unique=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class User(Base):
     """App account synced from Google login; subscription state comes from Stripe."""
 

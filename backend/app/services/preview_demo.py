@@ -9,6 +9,8 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, timedelta
 
+from app.services.sample_stats import annotate_history
+
 _THEME_AI = {"key": "ai_tech", "label": "AI / Tech"}
 _THEME_SEMI = {"key": "semis_hardware", "label": "Semis / Hardware"}
 
@@ -114,6 +116,10 @@ def demo_waves(recent_days: int = 14, upcoming_days: int = 21) -> dict:
             },
         },
     ]
+    for sig in signals:
+        sig.update(
+            annotate_history(sig["stats"].get("sample_size"), sig["stats"].get("win_rate"))
+        )
     return {
         "recent_days": recent_days,
         "upcoming_days": upcoming_days,
@@ -251,6 +257,9 @@ def demo_drift(lookback_days: int = 12) -> dict:
             ],
         },
     ]
+    for s in setups:
+        hist = s.get("history") or {}
+        s.update(annotate_history(hist.get("sample_size"), hist.get("win_rate_5d")))
     return {
         "lookback_days": lookback_days,
         "limit": len(setups),
@@ -350,39 +359,62 @@ def _fake_pct(seed: int, lo: float, hi: float) -> float:
 
 
 def preview_company(detail: dict) -> dict:
-    """Keep the company shell; replace sensitive numbers with demo-looking values."""
-    out = deepcopy(detail)
-    ticker = (out.get("ticker") or "DEMO").upper()
+    """Company shell for guests — identity stays, paid alpha is invented.
+
+    Important: never spread live research dicts (`**im`, `**analyst`, `**peer`).
+    Unpaid clients can read the JSON; blur in the UI is not a security boundary.
+    """
+    ticker = (detail.get("ticker") or "DEMO").upper()
     seed = sum(ord(c) for c in ticker)
 
-    out["playbook"] = None
-    out["preview"] = True
-    out["preview_note"] = PREVIEW_NOTE
+    # Public calendar-ish shell only.
+    out: dict = {
+        "ticker": ticker,
+        "name": detail.get("name"),
+        "sector": detail.get("sector"),
+        "industry": detail.get("industry"),
+        "exchange": detail.get("exchange"),
+        "market_cap": detail.get("market_cap"),
+        "image": detail.get("image"),
+        "themes": deepcopy(detail.get("themes") or []),
+        "next_earnings_date": detail.get("next_earnings_date"),
+        "next_earnings_timing": detail.get("next_earnings_timing"),
+        "playbook": None,
+        "preview": True,
+        "preview_note": PREVIEW_NOTE,
+    }
 
-    # Implied move — shape stays, numbers are demo.
-    im = out.get("implied_move")
+    im = detail.get("implied_move")
     if im:
         hist = _fake_pct(seed + 1, 0.04, 0.11)
         expected = _fake_pct(seed + 2, 0.035, 0.13)
+        # Expiry alone is not proprietary; edge stats and spot/strikes are.
         out["implied_move"] = {
-            **im,
             "expected_move_pct": expected,
+            "expiry": im.get("expiry"),
+            "underlying_price": round(40 + _fake_pct(seed + 3, 0, 200), 2),
+            "atm_strike": None,
+            "straddle_price": round(_fake_pct(seed + 4, 1.5, 12), 2),
             "historical_avg_abs_move_pct": hist,
             "richness": round(expected / hist, 2) if hist else None,
-            "underlying_price": round(40 + _fake_pct(seed + 3, 0, 200), 2),
-            "straddle_price": round(_fake_pct(seed + 4, 1.5, 12), 2),
             "verdict": "rich" if expected > hist else "cheap",
+            "exceed_rate": None,
+            "edge_verdict": None,
+            "edge_sample": 0,
+            "computed_at": None,
         }
+    else:
+        out["implied_move"] = None
 
-    reactions = out.get("reactions") or {}
-    events = list(reactions.get("events") or [])[:6]
+    live_events = list((detail.get("reactions") or {}).get("events") or [])[:6]
     fake_events = []
-    for i, e in enumerate(events):
+    for i, e in enumerate(live_events):
         s = seed + 10 + i * 7
         move = _fake_pct(s, -0.12, 0.14)
         fake_events.append(
             {
-                **e,
+                "date": e.get("date"),
+                "timing": e.get("timing"),
                 "eps_estimate": round(_fake_pct(s + 1, 0.2, 3.5), 2),
                 "eps_actual": round(_fake_pct(s + 2, 0.2, 3.8), 2),
                 "surprise_pct": _fake_pct(s + 3, -0.2, 0.25),
@@ -418,25 +450,27 @@ def preview_company(detail: dict) -> dict:
         "events": fake_events,
     }
 
-    prices = list(out.get("price_history") or [])[-60:]
+    prices = list(detail.get("price_history") or [])[-60:]
     if prices:
         base = 50 + _fake_pct(seed + 50, 0, 150)
         fake_prices = []
         px = base
         for i, p in enumerate(prices):
             px *= 1 + _fake_pct(seed + 60 + i, -0.025, 0.028)
-            fake_prices.append({**p, "close": round(px, 2), "open": round(px * 0.995, 2)})
+            fake_prices.append({"date": p.get("date"), "close": round(px, 2)})
         out["price_history"] = fake_prices
     else:
         out["price_history"] = []
 
-    peers = list(out.get("peers") or [])[:3]
-    fake_peers = []
-    for i, p in enumerate(peers):
+    # Never echo the live peer graph — use opaque demo tickers only.
+    peer_labels = ["PEER", "RIVAL", "ALLY"]
+    n_peers = min(3, max(2, len(detail.get("peers") or [])))
+    out["peers"] = []
+    for i in range(n_peers):
         s = seed + 200 + i * 11
-        fake_peers.append(
+        out["peers"].append(
             {
-                **p,
+                "trigger": peer_labels[i % len(peer_labels)],
                 "target": ticker,
                 "avg_runup_pct": _fake_pct(s, -0.04, 0.08),
                 "win_rate": _fake_pct(s + 1, 0.45, 0.8),
@@ -446,43 +480,33 @@ def preview_company(detail: dict) -> dict:
                 "score": _fake_pct(s + 2, 0.4, 0.9),
             }
         )
-    # Pad with demo peers if the name has none.
-    if not fake_peers:
-        fake_peers = [
-            {
-                "trigger": "PEER",
-                "target": ticker,
-                "avg_runup_pct": 0.032,
-                "win_rate": 0.64,
-                "sample_size": 5,
-                "avg_runup_when_trigger_up_pct": 0.045,
-                "avg_runup_when_trigger_down_pct": -0.01,
-                "score": 0.7,
-            },
-            {
-                "trigger": "RIVAL",
-                "target": ticker,
-                "avg_runup_pct": -0.015,
-                "win_rate": 0.5,
-                "sample_size": 4,
-                "avg_runup_when_trigger_up_pct": 0.01,
-                "avg_runup_when_trigger_down_pct": -0.03,
-                "score": 0.48,
-            },
-        ]
-    out["peers"] = fake_peers
 
-    analyst = out.get("analyst")
-    if analyst:
+    if detail.get("analyst"):
         pt = round(40 + _fake_pct(seed + 300, 0, 200), 2)
+        buy = 4 + (seed % 5)
+        hold = 2 + (seed % 3)
+        sell = seed % 2
+        total = buy + hold + sell
         out["analyst"] = {
-            **analyst,
             "price_target": pt,
             "price_target_high": round(pt * 1.25, 2),
             "price_target_low": round(pt * 0.75, 2),
             "upside_pct": _fake_pct(seed + 301, -0.1, 0.35),
-            "bullish_pct": _fake_pct(seed + 302, 0.4, 0.85),
+            "ratings": {
+                "strong_buy": max(1, buy // 2),
+                "buy": buy - max(1, buy // 2),
+                "hold": hold,
+                "sell": sell,
+                "strong_sell": 0,
+            },
+            "ratings_total": total,
+            "bullish_pct": buy / total if total else None,
+            "trend": None,
             "eps_estimate_next": round(_fake_pct(seed + 303, 0.3, 4.0), 2),
+            "revenue_estimate_next": None,
+            "updated_at": None,
         }
+    else:
+        out["analyst"] = None
 
     return out

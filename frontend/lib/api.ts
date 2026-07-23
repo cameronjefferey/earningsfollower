@@ -180,6 +180,8 @@ export interface CompanyDetail {
   preview_note?: string | null;
 }
 
+export type SampleTier = "thin" | "ok" | "solid";
+
 export interface WaveSignal {
   trigger: string;
   trigger_name: string | null;
@@ -193,6 +195,8 @@ export interface WaveSignal {
   direction: string;
   expected_runup_pct: number | null;
   stats: LeadLag;
+  sample_tier?: SampleTier;
+  win_rate_ci_low?: number | null;
 }
 
 export interface WavesResponse {
@@ -204,6 +208,7 @@ export interface WavesResponse {
   signals: WaveSignal[];
   preview?: boolean;
   preview_note?: string | null;
+  updated_at?: string | null;
 }
 
 export interface DriftHistory {
@@ -254,6 +259,8 @@ export interface DriftSetup {
   /** Present for admins only; stripped for everyone else. */
   plan: DriftPlan | null;
   why: string[];
+  sample_tier?: SampleTier;
+  win_rate_ci_low?: number | null;
 }
 
 export interface DriftResponse {
@@ -264,6 +271,7 @@ export interface DriftResponse {
   setups: DriftSetup[];
   preview?: boolean;
   preview_note?: string | null;
+  updated_at?: string | null;
 }
 
 export interface PaperTradeLeg {
@@ -535,7 +543,10 @@ export interface ProgressResponse {
   verdict: ProgressVerdict;
 }
 
-async function authHeaders(): Promise<HeadersInit> {
+async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {
+  if (accessToken) {
+    return { Authorization: `Bearer ${accessToken}` };
+  }
   // Lazy import so server-only callers don't pull in next-auth/react at build time.
   try {
     const { getSession } = await import("next-auth/react");
@@ -549,8 +560,8 @@ async function authHeaders(): Promise<HeadersInit> {
   return {};
 }
 
-async function getJSON<T>(path: string): Promise<T> {
-  const headers = await authHeaders();
+async function getJSON<T>(path: string, accessToken?: string | null): Promise<T> {
+  const headers = await authHeaders(accessToken);
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store", headers });
   if (!res.ok) {
     if (res.status === 401 || res.status === 402) {
@@ -565,22 +576,75 @@ async function getJSON<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface TrackRecordBucket {
+  key: string;
+  n: number;
+  win_rate: number | null;
+  win_rate_ci_low: number | null;
+  sample_tier: SampleTier;
+  total_pnl: number | null;
+}
+
+export interface TrackRecordResponse {
+  generated_at: string;
+  preview?: boolean;
+  preview_note?: string | null;
+  window_note?: string;
+  overall: {
+    closed_count: number;
+    wins: number;
+    win_rate: number | null;
+    win_rate_ci_low: number | null;
+    sample_tier: SampleTier;
+    total_pnl: number | null;
+    avg_pnl: number | null;
+  };
+  by_strategy: TrackRecordBucket[];
+}
+
+export interface DigestBullet {
+  kind: string;
+  text: string;
+}
+
+export interface DigestResponse {
+  date: string;
+  generated_at: string | null;
+  preview?: boolean;
+  preview_note?: string | null;
+  bullets: DigestBullet[];
+  updated_at?: string | null;
+}
+
 export const api = {
   themes: () => getJSON<Theme[]>("/themes"),
   earnings: (window: string, theme?: string) =>
     getJSON<EarningsResponse>(
       `/earnings?window=${window}${theme ? `&theme=${theme}` : ""}`
     ),
-  company: (ticker: string) =>
-    getJSON<CompanyDetail>(`/company/${encodeURIComponent(ticker)}`),
-  waves: (recentDays = 14, upcomingDays = 21, limit = 40) =>
+  company: (ticker: string, accessToken?: string | null) =>
+    getJSON<CompanyDetail>(`/company/${encodeURIComponent(ticker)}`, accessToken),
+  waves: (
+    recentDays = 14,
+    upcomingDays = 21,
+    limit = 40,
+    accessToken?: string | null
+  ) =>
     getJSON<WavesResponse>(
-      `/waves?recent_days=${recentDays}&upcoming_days=${upcomingDays}&limit=${limit}`
+      `/waves?recent_days=${recentDays}&upcoming_days=${upcomingDays}&limit=${limit}`,
+      accessToken
     ),
-  drift: (lookbackDays = 12, limit = 30) =>
-    getJSON<DriftResponse>(`/drift?lookback_days=${lookbackDays}&limit=${limit}`),
-  reddit: (refresh = false) =>
-    getJSON<RedditResponse>(`/reddit?refresh=${refresh}`),
+  drift: (lookbackDays = 12, limit = 30, accessToken?: string | null) =>
+    getJSON<DriftResponse>(
+      `/drift?lookback_days=${lookbackDays}&limit=${limit}`,
+      accessToken
+    ),
+  reddit: (refresh = false, accessToken?: string | null) =>
+    getJSON<RedditResponse>(`/reddit?refresh=${refresh}`, accessToken),
+  trackRecord: (accessToken?: string | null) =>
+    getJSON<TrackRecordResponse>("/track-record", accessToken),
+  digestToday: (accessToken?: string | null) =>
+    getJSON<DigestResponse>("/digest/today", accessToken),
   paper: () => getJSON<PaperResponse>("/paper"),
   paperAttribution: (minSamples = 5) =>
     getJSON<AttributionResponse>(`/paper/attribution?min_samples=${minSamples}`),

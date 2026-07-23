@@ -2,15 +2,22 @@
 
 import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { postBilling } from "@/lib/billing";
 import { Card } from "@/components/ui";
 
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
 function PricingInner() {
   const { data: session, status, update } = useSession();
+  const router = useRouter();
   const params = useSearchParams();
   const checkout = params.get("checkout");
+  const nextPath = safeNextPath(params.get("next"));
   const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -22,7 +29,8 @@ function PricingInner() {
       const refresh = async () => {
         const next = await update();
         if (next?.subscribed) {
-          setMessage("You're subscribed. Paid pages are unlocked.");
+          setMessage("You're subscribed — taking you back…");
+          router.replace(nextPath);
           return;
         }
         tries += 1;
@@ -40,20 +48,22 @@ function PricingInner() {
     } else if (checkout === "cancel") {
       setMessage("Checkout canceled — no charge was made.");
     }
-  }, [checkout, update]);
+  }, [checkout, update, router, nextPath]);
 
   const startCheckout = useCallback(async () => {
     setError(null);
+    const pricingReturn = `/pricing?next=${encodeURIComponent(nextPath)}`;
     if (!session) {
-      await signIn("google", { callbackUrl: "/pricing" });
+      await signIn("google", { callbackUrl: pricingReturn });
       return;
     }
     setBusy("checkout");
     try {
       const origin = window.location.origin;
+      const nextQ = `&next=${encodeURIComponent(nextPath)}`;
       const data = await postBilling("/billing/checkout-session", session.accessToken, {
-        success_url: `${origin}/pricing?checkout=success`,
-        cancel_url: `${origin}/pricing?checkout=cancel`,
+        success_url: `${origin}/pricing?checkout=success${nextQ}`,
+        cancel_url: `${origin}/pricing?checkout=cancel${nextQ}`,
       });
       if (data.url) {
         window.location.href = data.url;
@@ -64,18 +74,19 @@ function PricingInner() {
       setError(e instanceof Error ? e.message : "Checkout failed");
       setBusy(null);
     }
-  }, [session]);
+  }, [session, nextPath]);
 
   const openPortal = useCallback(async () => {
     setError(null);
+    const pricingReturn = `/pricing?next=${encodeURIComponent(nextPath)}`;
     if (!session?.accessToken) {
-      await signIn("google", { callbackUrl: "/pricing" });
+      await signIn("google", { callbackUrl: pricingReturn });
       return;
     }
     setBusy("portal");
     try {
       const data = await postBilling("/billing/portal-session", session.accessToken, {
-        return_url: `${window.location.origin}/pricing`,
+        return_url: `${window.location.origin}${pricingReturn}`,
       });
       if (data.url) {
         window.location.href = data.url;
@@ -86,7 +97,7 @@ function PricingInner() {
       setError(e instanceof Error ? e.message : "Portal failed");
       setBusy(null);
     }
-  }, [session]);
+  }, [session, nextPath]);
 
   const subscribed = Boolean(session?.subscribed);
 
@@ -95,8 +106,8 @@ function PricingInner() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pricing</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1">
-          Calendar is free. Waves, Drift, Reddit, and company research unlock
-          with a monthly subscription. Trade plans and paper tools stay private.
+          Calendar and teasers stay free. Pro unlocks live boards, the daily digest,
+          and full track-record detail. Trade plans stay private.
         </p>
       </div>
 
@@ -105,21 +116,22 @@ function PricingInner() {
           <div>
             <div className="text-lg font-semibold">Pro</div>
             <div className="text-sm text-[var(--color-muted)]">
-              Full earnings research around the calendar
+              Research boards with sample honesty + a daily change digest
             </div>
           </div>
           <div className="text-right">
             <div className="text-2xl font-semibold">Monthly</div>
             <div className="text-xs text-[var(--color-muted)]">
-              Price set in Stripe
+              Target ~$39–49 once live for a week — Stripe price unchanged for now
             </div>
           </div>
         </div>
 
         <ul className="text-sm space-y-1.5 text-[var(--color-muted)]">
-          <li>• Peer waves & PEAD drift research</li>
-          <li>• Reddit attention signals</li>
-          <li>• Company reaction history & implied-move detail</li>
+          <li>• Peer waves & PEAD drift with thin-sample labels</li>
+          <li>• Daily “what changed” digest</li>
+          <li>• Track-record aggregates (n, win rate, Wilson lows)</li>
+          <li>• Reddit signals + company reaction / implied-move detail</li>
         </ul>
 
         {status === "authenticated" && (

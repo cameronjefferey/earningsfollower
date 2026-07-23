@@ -13,7 +13,13 @@ function LoginInner() {
 
   useEffect(() => {
     if (status === "authenticated" && session) {
-      router.replace(session.subscribed ? next : "/pricing");
+      if (session.subscribed) {
+        router.replace(next);
+        return;
+      }
+      // Keep the original destination so checkout can send them back.
+      const pricing = `/pricing?next=${encodeURIComponent(next)}`;
+      router.replace(pricing);
     }
   }, [status, session, router, next]);
 

@@ -7,9 +7,11 @@ import { AuthMenu } from "@/components/AuthMenu";
 
 const links = [
   { href: "/", label: "Calendar", adminOnly: false },
+  { href: "/digest", label: "Digest", adminOnly: false },
   { href: "/waves", label: "Waves", adminOnly: false },
   { href: "/drift", label: "Drift", adminOnly: false },
   { href: "/reddit", label: "Reddit", adminOnly: false },
+  { href: "/track-record", label: "Track record", adminOnly: false },
   { href: "/paper", label: "Paper", adminOnly: true },
   { href: "/learning", label: "Learning", adminOnly: true },
 ];

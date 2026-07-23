@@ -139,6 +139,21 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
         detail_parts.append("err: " + " | ".join(errors[:3]))
     log.detail = "; ".join(detail_parts)
     db.commit()
+
+    # Persist board snapshots + daily digest so paid pages and the homepage
+    # stay fast / useful after each refresh.
+    board_stats: dict = {}
+    digest_date: str | None = None
+    try:
+        from app.services import board_snapshots, digest as digest_svc
+
+        board_stats = board_snapshots.refresh_board_snapshots(db)
+        digest_payload = digest_svc.build_digest(db)
+        digest_svc.persist_digest(db, digest_payload)
+        digest_date = digest_payload.get("date")
+    except Exception as exc:  # noqa: BLE001 - never fail the whole refresh on boards
+        logger.warning("Board snapshot / digest failed: %s", exc, exc_info=True)
+
     return {
         "processed": processed,
         "tracked": len(all_tickers),
@@ -149,6 +164,8 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
         "no_earnings": no_earnings,
         "no_implied": no_implied,
         "status": log.status,
+        "boards": board_stats,
+        "digest_date": digest_date,
     }
 
 

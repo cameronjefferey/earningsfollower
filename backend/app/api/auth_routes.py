@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import ACTIVE_STATUSES, OptionalAuth
+from app.api.deps import OptionalAuth, subscription_is_active
 from app.config import Settings, get_settings
 from app.db.models import User
 from app.db.session import get_db
@@ -33,7 +33,12 @@ def _user_payload(user: User, settings: Settings) -> dict:
     bypass = email in settings.auth_bypass_email_set
     is_admin = email in settings.admin_email_set
     status = user.subscription_status or "none"
-    subscribed = bypass or status in ACTIVE_STATUSES
+    subscribed = subscription_is_active(
+        email=email,
+        status=status,
+        period_end=user.current_period_end,
+        settings=settings,
+    )
     return {
         "id": user.id,
         "email": user.email,

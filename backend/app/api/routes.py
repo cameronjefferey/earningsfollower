@@ -13,7 +13,7 @@ from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
 from app.research.attribution import attribution_report
 from app.research.progress import progress_series
-from app.services import dashboard, drift, reddit_sentiment, waves
+from app.services import board_snapshots, dashboard, digest as digest_svc, drift, reddit_sentiment, waves
 from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
 from app.services.paper.calibration import calibration_state
@@ -24,6 +24,7 @@ from app.services.preview_demo import (
     demo_waves,
     preview_company,
 )
+from app.services import track_record as track_record_svc
 
 router = APIRouter()
 
@@ -104,6 +105,15 @@ def get_waves(
     cached = response_cache.get(cache_key)
     if cached is not None:
         return cached
+
+    # Prefer persisted snapshot for the default window (instant after refresh).
+    params_key = f"{recent_days}:{upcoming_days}"
+    snap = board_snapshots.get_snapshot(db, "waves", params_key)
+    if snap is not None:
+        payload = board_snapshots.slice_list_payload(snap, list_key="signals", limit=limit)
+        response_cache.set(cache_key, payload)
+        return payload
+
     signals, has_more = waves.current_waves(
         db,
         recent_days=recent_days,
@@ -119,6 +129,7 @@ def get_waves(
         "signals": signals,
         "preview": False,
         "preview_note": None,
+        "updated_at": board_snapshots.last_refresh_finished(db),
     }
     response_cache.set(cache_key, payload)
     return payload
@@ -148,6 +159,14 @@ def get_drift(
     if cached is not None:
         return cached
 
+    snap = board_snapshots.get_snapshot(db, "drift", str(lookback_days))
+    if snap is not None:
+        payload = board_snapshots.slice_list_payload(
+            snap, list_key="setups", limit=limit, strip_plans=not is_admin
+        )
+        response_cache.set(cache_key, payload)
+        return payload
+
     setups, has_more = drift.drift_setups(db, lookback_days=lookback_days, limit=limit)
     if not is_admin:
         setups = [{**s, "plan": None} for s in setups]
@@ -159,6 +178,7 @@ def get_drift(
         "setups": setups,
         "preview": False,
         "preview_note": None,
+        "updated_at": board_snapshots.last_refresh_finished(db),
     }
     response_cache.set(cache_key, payload)
     return payload
@@ -204,6 +224,24 @@ def get_reddit(
         "preview": False,
         "preview_note": None,
     }
+
+
+@router.get("/track-record", tags=["research"])
+def get_track_record(
+    access: PaidAccess,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Sanitized paper aggregates — freemium teaser, full detail for Pro."""
+    return track_record_svc.track_record(db, preview=(access == "preview"))
+
+
+@router.get("/digest/today", tags=["research"])
+def get_digest_today(
+    access: PaidAccess,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Homepage / digest page: what changed since the last refresh cycle."""
+    return digest_svc.get_today(db, preview=(access == "preview"))
 
 
 @router.get("/paper", tags=["paper"])

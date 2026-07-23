@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, DriftResponse, DriftSetup } from "@/lib/api";
 import { BlurValue } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
@@ -10,12 +9,15 @@ import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
 import { InfoTip } from "@/components/InfoTip";
 import { glossary } from "@/lib/glossary";
 import { fmtDate, moveClass, pct, signedPct } from "@/lib/format";
+import { SampleTierBadge } from "@/components/SampleTierBadge";
+import { UpdatedAt } from "@/components/UpdatedAt";
+import { useAuthReady } from "@/lib/useAuthReady";
 
 const FIRST_BATCH = 6;
 const FULL_BATCH = 30;
 
 export default function DriftPage() {
-  const { data: session } = useSession();
+  const { ready, accessToken, session } = useAuthReady();
   const isAdmin = Boolean(session?.isAdmin);
   const [lookbackDays, setLookbackDays] = useState(12);
   const [directionFilter, setDirectionFilter] = useState<"all" | "long" | "short">("all");
@@ -23,52 +25,60 @@ export default function DriftPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const [solidOnly, setSolidOnly] = useState(false);
+  const fetchGen = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!ready) return;
+    const gen = ++fetchGen.current;
     setLoading(true);
     setLoadingMore(false);
     setError(null);
+    setMoreError(null);
     setData(null);
 
     api
-      .drift(lookbackDays, FIRST_BATCH)
-      .then((first) => {
-        if (cancelled) return;
+      .drift(lookbackDays, FIRST_BATCH, accessToken)
+      .then(async (first) => {
+        if (gen !== fetchGen.current) return;
         setData(first);
         setLoading(false);
 
         if (first.preview || !first.has_more) return;
 
         setLoadingMore(true);
-        return api
-          .drift(lookbackDays, FULL_BATCH)
-          .then((full) => {
-            if (!cancelled) setData(full);
-          })
-          .catch(() => {
-            /* keep the first batch if the expand fails */
-          })
-          .finally(() => {
-            if (!cancelled) setLoadingMore(false);
-          });
+        try {
+          const full = await api.drift(lookbackDays, FULL_BATCH, accessToken);
+          if (gen !== fetchGen.current) return;
+          setData(full);
+        } catch {
+          /* keep the first batch if the expand fails */
+        } finally {
+          if (gen === fetchGen.current) setLoadingMore(false);
+        }
       })
       .catch((e) => {
-        if (!cancelled) {
-          setError(String(e));
-          setLoading(false);
-        }
+        if (gen !== fetchGen.current) return;
+        setError(String(e));
+        setLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      fetchGen.current += 1;
     };
-  }, [lookbackDays]);
+  }, [ready, accessToken, lookbackDays]);
 
-  const setups = (data?.setups ?? []).filter(
-    (s) => directionFilter === "all" || s.direction === directionFilter
-  );
+  const allSetups = data?.setups ?? [];
+  const setups = allSetups.filter((s) => {
+    if (directionFilter !== "all" && s.direction !== directionFilter) return false;
+    if (!solidOnly) return true;
+    const tier =
+      s.sample_tier ?? (s.history.sample_size >= 9 ? "solid" : "ok");
+    return tier === "solid";
+  });
   const isPreview = Boolean(data?.preview);
+  const filterEmpty = allSetups.length > 0 && setups.length === 0;
 
   return (
     <div>
@@ -79,6 +89,7 @@ export default function DriftPage() {
           move) tend to keep moving the same direction for ~5 trading days. These are
           the live setups where this stock&apos;s own history says the drift pays.
         </p>
+        <UpdatedAt value={data?.updated_at} />
       </div>
 
       {isPreview ? (
@@ -115,16 +126,33 @@ export default function DriftPage() {
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-2 text-[var(--color-muted)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={solidOnly}
+            onChange={(e) => setSolidOnly(e.target.checked)}
+            className="accent-[var(--color-accent)]"
+          />
+          Solid samples only
+        </label>
       </div>
 
-      {loading ? (
+      {!ready || loading ? (
         <Spinner />
       ) : error ? (
         <EmptyState title="Couldn't reach the API." hint="Is the backend running?" />
       ) : setups.length === 0 ? (
         <EmptyState
-          title="No live drift setups right now."
-          hint="Setups appear after strong prints (beat + up move or miss + down move) on stocks whose history shows the drift continues. Widen the lookback, or check back after the next batch of reports."
+          title={
+            filterEmpty
+              ? `No ${directionFilter} setups in this window.`
+              : "No live drift setups right now."
+          }
+          hint={
+            filterEmpty
+              ? "Try All, or widen the lookback."
+              : "Setups appear after strong prints (beat + up move or miss + down move) on stocks whose history shows the drift continues. Widen the lookback, or check back after the next batch of reports."
+          }
         />
       ) : (
         <>
@@ -144,18 +172,31 @@ export default function DriftPage() {
               Loading more setups…
             </div>
           ) : null}
+          {moreError ? (
+            <p className="mt-3 text-center text-sm text-[var(--color-muted)]">{moreError}</p>
+          ) : null}
           {!isPreview && data?.has_more && !loadingMore ? (
             <div className="mt-4 flex justify-center">
               <button
                 type="button"
                 onClick={() => {
                   const next = Math.min((data.limit ?? FIRST_BATCH) + 15, 60);
+                  const gen = ++fetchGen.current;
                   setLoadingMore(true);
+                  setMoreError(null);
                   api
-                    .drift(lookbackDays, next)
-                    .then(setData)
-                    .catch((e) => setError(String(e)))
-                    .finally(() => setLoadingMore(false));
+                    .drift(lookbackDays, next, accessToken)
+                    .then((full) => {
+                      if (gen !== fetchGen.current) return;
+                      setData(full);
+                    })
+                    .catch(() => {
+                      if (gen !== fetchGen.current) return;
+                      setMoreError("Couldn't load more — try again.");
+                    })
+                    .finally(() => {
+                      if (gen === fetchGen.current) setLoadingMore(false);
+                    });
                 }}
                 className="px-4 py-2 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)]"
               >
@@ -259,6 +300,7 @@ function SetupCard({
               {s.ticker}
             </Link>
             <DirectionBadge direction={s.direction} />
+            <SampleTierBadge tier={s.sample_tier} />
             {plan ? <QualityBadge quality={plan.entry_quality} /> : null}
           </div>
           {s.name ? (
@@ -287,7 +329,9 @@ function SetupCard({
           </div>
           <div className="text-xs text-[var(--color-muted)]">
             <BlurValue active={blur}>
-              {pct(s.history.win_rate_5d, 0)} win · n={s.history.sample_size}
+              {pct(s.history.win_rate_5d, 0)} win
+              {s.win_rate_ci_low != null ? ` (≥${pct(s.win_rate_ci_low, 0)})` : ""}
+              {" · "}n={s.history.sample_size}
             </BlurValue>
           </div>
         </div>

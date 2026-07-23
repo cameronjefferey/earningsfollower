@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, EarningsCard, Theme } from "@/lib/api";
+import { DigestStrip } from "@/components/DigestStrip";
 import { EarningsCardItem } from "@/components/EarningsCardItem";
 import { EmptyState, Spinner } from "@/components/ui";
 
@@ -240,6 +241,8 @@ export default function DashboardPage() {
           Who reports and what the market expects — across AI, space, quantum, and semis.
         </p>
       </div>
+
+      <DigestStrip />
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="inline-flex rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1">

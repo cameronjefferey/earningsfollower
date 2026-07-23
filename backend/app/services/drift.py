@@ -23,6 +23,7 @@ from app.db.models import Company, EarningsEvent
 from app.services.peers import shared_themes
 from app.services.prices import load_price_series
 from app.services.reactions import _resolve_anchor, compute_reactions
+from app.services.sample_stats import annotate_history
 
 # The horizon the historical edge is measured over (matches reactions.DRIFT_DAYS).
 HOLD_TRADING_DAYS = 5
@@ -131,7 +132,13 @@ def drift_setups(
 
     setups.sort(key=lambda s: s.score, reverse=True)
     has_more = len(setups) > limit
-    return [asdict(s) for s in setups[:limit]], has_more
+    out: list[dict] = []
+    for s in setups[:limit]:
+        row = asdict(s)
+        hist = row.get("history") or {}
+        row.update(annotate_history(hist.get("sample_size"), hist.get("win_rate_5d")))
+        out.append(row)
+    return out, has_more
 
 
 def _evaluate(db: Session, ev: EarningsEvent) -> DriftSetup | None:

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ThemeTag, WaveSignal, WavesResponse } from "@/lib/api";
 import { BlurValue } from "@/components/BlurValue";
 import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
@@ -9,6 +9,9 @@ import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
 import { InfoTip } from "@/components/InfoTip";
 import { glossary } from "@/lib/glossary";
 import { fmtDate, moveClass, pct, signedPct } from "@/lib/format";
+import { SampleTierBadge } from "@/components/SampleTierBadge";
+import { UpdatedAt } from "@/components/UpdatedAt";
+import { useAuthReady } from "@/lib/useAuthReady";
 
 interface TargetGroup {
   target: string;
@@ -62,24 +65,30 @@ const FIRST_BATCH = 8;
 const FULL_BATCH = 40;
 
 export default function WavesPage() {
+  const { ready, accessToken } = useAuthReady();
   const [recentDays, setRecentDays] = useState(14);
   const [upcomingDays, setUpcomingDays] = useState(21);
   const [data, setData] = useState<WavesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const [solidOnly, setSolidOnly] = useState(false);
+  const fetchGen = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!ready) return;
+    const gen = ++fetchGen.current;
     setLoading(true);
     setLoadingMore(false);
     setError(null);
+    setMoreError(null);
     setData(null);
 
     api
-      .waves(recentDays, upcomingDays, FIRST_BATCH)
-      .then((first) => {
-        if (cancelled) return;
+      .waves(recentDays, upcomingDays, FIRST_BATCH, accessToken)
+      .then(async (first) => {
+        if (gen !== fetchGen.current) return;
         setData(first);
         setLoading(false);
 
@@ -87,31 +96,38 @@ export default function WavesPage() {
         if (first.preview || !first.has_more) return;
 
         setLoadingMore(true);
-        return api
-          .waves(recentDays, upcomingDays, FULL_BATCH)
-          .then((full) => {
-            if (!cancelled) setData(full);
-          })
-          .catch(() => {
-            /* keep the first batch if the expand fails */
-          })
-          .finally(() => {
-            if (!cancelled) setLoadingMore(false);
-          });
+        try {
+          const full = await api.waves(
+            recentDays,
+            upcomingDays,
+            FULL_BATCH,
+            accessToken
+          );
+          if (gen !== fetchGen.current) return;
+          setData(full);
+        } catch {
+          /* keep the first batch if the expand fails */
+        } finally {
+          if (gen === fetchGen.current) setLoadingMore(false);
+        }
       })
       .catch((e) => {
-        if (!cancelled) {
-          setError(String(e));
-          setLoading(false);
-        }
+        if (gen !== fetchGen.current) return;
+        setError(String(e));
+        setLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      fetchGen.current += 1;
     };
-  }, [recentDays, upcomingDays]);
+  }, [ready, accessToken, recentDays, upcomingDays]);
 
-  const groups = data ? groupByTarget(data.signals) : [];
+  const filteredSignals = (data?.signals ?? []).filter((s) => {
+    if (!solidOnly) return true;
+    const tier = s.sample_tier ?? (s.stats.sample_size >= 9 ? "solid" : "ok");
+    return tier === "solid";
+  });
+  const groups = groupByTarget(filteredSignals);
   const isPreview = Boolean(data?.preview);
 
   return (
@@ -123,18 +139,28 @@ export default function WavesPage() {
           reported and how this stock has historically drifted into its own print after
           each one — the SNOW&nbsp;→&nbsp;ORCL setup, quantified.
         </p>
+        <UpdatedAt value={data?.updated_at} />
       </div>
 
       {isPreview ? (
         <PaywallBanner note={data?.preview_note} title="Peer waves — demo board" />
       ) : null}
 
-      <div className="flex flex-wrap gap-4 mb-6 text-sm">
+      <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">
         <Slider label="Peer reported within" value={recentDays} onChange={setRecentDays} />
         <Slider label="Target reports within" value={upcomingDays} onChange={setUpcomingDays} />
+        <label className="flex items-center gap-2 text-[var(--color-muted)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={solidOnly}
+            onChange={(e) => setSolidOnly(e.target.checked)}
+            className="accent-[var(--color-accent)]"
+          />
+          Solid samples only
+        </label>
       </div>
 
-      {loading ? (
+      {!ready || loading ? (
         <Spinner />
       ) : error ? (
         <EmptyState title="Couldn't reach the API." hint="Is the backend running?" />
@@ -156,18 +182,31 @@ export default function WavesPage() {
               Loading more setups…
             </div>
           ) : null}
+          {moreError ? (
+            <p className="mt-3 text-center text-sm text-[var(--color-muted)]">{moreError}</p>
+          ) : null}
           {!isPreview && data?.has_more && !loadingMore ? (
             <div className="mt-4 flex justify-center">
               <button
                 type="button"
                 onClick={() => {
                   const next = Math.min((data.limit ?? FIRST_BATCH) + 20, 80);
+                  const gen = ++fetchGen.current;
                   setLoadingMore(true);
+                  setMoreError(null);
                   api
-                    .waves(recentDays, upcomingDays, next)
-                    .then(setData)
-                    .catch((e) => setError(String(e)))
-                    .finally(() => setLoadingMore(false));
+                    .waves(recentDays, upcomingDays, next, accessToken)
+                    .then((full) => {
+                      if (gen !== fetchGen.current) return;
+                      setData(full);
+                    })
+                    .catch(() => {
+                      if (gen !== fetchGen.current) return;
+                      setMoreError("Couldn't load more — try again.");
+                    })
+                    .finally(() => {
+                      if (gen === fetchGen.current) setLoadingMore(false);
+                    });
                 }}
                 className="px-4 py-2 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)]"
               >
@@ -254,12 +293,17 @@ function TargetGroupCard({ group, blur }: { group: TargetGroup; blur: boolean })
             {group.peers.map((p) => (
               <tr key={p.trigger} className="border-t border-[var(--color-edge)]">
                 <td className="py-2 pr-3">
-                  <Link
-                    href={`/company/${p.trigger}`}
-                    className="font-semibold hover:text-[var(--color-accent)]"
-                  >
-                    {p.trigger}
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Link
+                      href={`/company/${p.trigger}`}
+                      className="font-semibold hover:text-[var(--color-accent)]"
+                    >
+                      {p.trigger}
+                    </Link>
+                    {p.sample_tier === "thin" ? (
+                      <SampleTierBadge tier={p.sample_tier} />
+                    ) : null}
+                  </div>
                 </td>
                 <td className="py-2 pr-3 text-[var(--color-muted)]">
                   {fmtDate(p.trigger_report_date)}
@@ -278,7 +322,15 @@ function TargetGroupCard({ group, blur }: { group: TargetGroup; blur: boolean })
                   <BlurValue active={blur}>{signedPct(p.expected_runup_pct)}</BlurValue>
                 </td>
                 <td className="py-2 pr-3">
-                  <BlurValue active={blur}>{pct(p.stats.win_rate, 0)}</BlurValue>
+                  <BlurValue active={blur}>
+                    {pct(p.stats.win_rate, 0)}
+                    {p.win_rate_ci_low != null ? (
+                      <span className="text-[10px] text-[var(--color-muted)]">
+                        {" "}
+                        (≥{pct(p.win_rate_ci_low, 0)})
+                      </span>
+                    ) : null}
+                  </BlurValue>
                 </td>
                 <td className="py-2 pr-0">
                   <BlurValue active={blur}>{p.stats.sample_size}</BlurValue>

@@ -90,7 +90,7 @@ export default function CompanyPage() {
   return (
     <div>
       <Link
-        href="/"
+        href="/calendar"
         className="text-sm text-[var(--color-muted)] hover:text-white inline-flex items-center gap-1 mb-4"
       >
         ← Calendar

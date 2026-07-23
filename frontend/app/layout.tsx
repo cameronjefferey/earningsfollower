@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
-import Link from "next/link";
+import { Instrument_Sans, JetBrains_Mono, Literata, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
-import { NavBar } from "@/components/NavBar";
 import { Providers } from "@/components/Providers";
 
 const sans = Instrument_Sans({
@@ -17,10 +15,43 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
+const marketingDisplay = Literata({
+  subsets: ["latin"],
+  variable: "--font-marketing-display",
+  display: "swap",
+});
+
+const marketingSans = Source_Sans_3({
+  subsets: ["latin"],
+  variable: "--font-marketing-sans",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "earningsfollower",
+  metadataBase: new URL("https://www.earningsfollower.com"),
+  title: {
+    default: "earningsfollower — earnings calendar & morning brief",
+    template: "%s · earningsfollower",
+  },
   description:
-    "Earnings calendar and morning brief — who prints, what's priced in, and what to lean on.",
+    "Free earnings calendar with implied moves, plus a Pro morning brief that names one focus setup — action, watch, and when to drop it.",
+  openGraph: {
+    type: "website",
+    siteName: "earningsfollower",
+    title: "earningsfollower — earnings calendar & morning brief",
+    description:
+      "Who prints, what's priced in, and what to lean on. Free calendar; Pro morning brief.",
+    url: "https://www.earningsfollower.com",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "earningsfollower — earnings calendar & morning brief",
+    description:
+      "Who prints, what's priced in, and what to lean on. Free calendar; Pro morning brief.",
+  },
+  alternates: {
+    canonical: "https://www.earningsfollower.com",
+  },
 };
 
 export default function RootLayout({
@@ -29,35 +60,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html
+      lang="en"
+      className={`${sans.variable} ${mono.variable} ${marketingDisplay.variable} ${marketingSans.variable}`}
+    >
       <body className="antialiased">
-        <Providers>
-          <div className="min-h-screen flex flex-col">
-            <header className="border-b border-[var(--color-edge)]/80 bg-[var(--color-ink)]/80 backdrop-blur-md sticky top-0 z-20">
-              <div className="mx-auto max-w-6xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-4">
-                <Link href="/" className="flex items-center gap-2 shrink-0">
-                  <span className="text-lg sm:text-xl font-semibold tracking-tight">
-                    earnings
-                    <span className="text-[var(--color-accent)]">follower</span>
-                  </span>
-                </Link>
-                <NavBar />
-              </div>
-            </header>
-
-            <main className="flex-1 mx-auto max-w-6xl w-full px-4 sm:px-5 py-8">
-              {children}
-            </main>
-
-            <footer className="border-t border-[var(--color-edge)]/80 py-5">
-              <div className="mx-auto max-w-6xl px-4 sm:px-5 text-xs text-[var(--color-muted)] leading-relaxed">
-                For research and educational purposes only. Not financial advice. Data via
-                Financial Modeling Prep and Yahoo Finance; may be delayed or inaccurate.
-                Options-implied moves are estimates from ATM straddles.
-              </div>
-            </footer>
-          </div>
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

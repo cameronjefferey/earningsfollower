@@ -15,7 +15,8 @@ export function PaywallBanner({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const pricingHref = `/pricing?next=${encodeURIComponent(pathname || "/")}`;
+  const next = pathname && pathname !== "/" ? pathname : "/brief";
+  const pricingHref = `/pricing?next=${encodeURIComponent(next)}`;
   const ctaHref = session ? pricingHref : `/login?next=${encodeURIComponent(pricingHref)}`;
   const label = ctaLabel ?? (session ? "Get Pro" : "Sign in to unlock");
 
@@ -47,7 +48,8 @@ export function PaywallBanner({
 export function PaywallFade({ label = "Unlock the live board with Pro" }: { label?: string }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const pricingHref = `/pricing?next=${encodeURIComponent(pathname || "/")}`;
+  const next = pathname && pathname !== "/" ? pathname : "/brief";
+  const pricingHref = `/pricing?next=${encodeURIComponent(next)}`;
   const ctaHref = session ? pricingHref : `/login?next=${encodeURIComponent(pricingHref)}`;
 
   return (

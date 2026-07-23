@@ -6,7 +6,7 @@ import { AuthMenu } from "@/components/AuthMenu";
 
 /** Product nav stays tiny on purpose — Calendar + Brief. Boards link from the brief. */
 const links = [
-  { href: "/", label: "Calendar" },
+  { href: "/calendar", label: "Calendar" },
   { href: "/brief", label: "Brief" },
 ];
 
@@ -17,7 +17,9 @@ export function NavBar() {
     <nav className="flex items-center gap-1">
       {links.map((l) => {
         const active =
-          l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
+          l.href === "/calendar"
+            ? pathname === "/calendar" || pathname.startsWith("/calendar/")
+            : pathname.startsWith(l.href);
         return (
           <Link
             key={l.href}

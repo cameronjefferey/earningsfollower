@@ -66,3 +66,66 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* --- Marketing site (light, separate from product chrome) ----------------- */
+.marketing {
+  --m-bg: #e7ebf0;
+  --m-bg-deep: #d5dbe3;
+  --m-ink: #14181f;
+  --m-muted: #4a5568;
+  --m-line: #c5ccd6;
+  --m-accent: #1b6b63;
+  --m-accent-soft: #d5ebe7;
+  --m-panel: #f7f8fa;
+  color-scheme: light;
+  background-color: var(--m-bg);
+  color: var(--m-ink);
+  font-family: var(--font-marketing-sans), ui-sans-serif, system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+.marketing .m-display {
+  font-family: var(--font-marketing-display), ui-serif, Georgia, serif;
+}
+
+@keyframes m-settle {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.m-settle {
+  animation: m-settle 0.7s ease-out both;
+}
+
+.m-settle-delay {
+  animation: m-settle 0.75s ease-out 0.12s both;
+}
+
+.m-settle-delay-2 {
+  animation: m-settle 0.8s ease-out 0.22s both;
+}
+
+.m-grain {
+  background-image:
+    radial-gradient(ellipse 120% 80% at 10% -10%, rgba(27, 107, 99, 0.14), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 95% 20%, rgba(20, 24, 31, 0.06), transparent 50%),
+    linear-gradient(180deg, #eef1f5 0%, var(--m-bg) 45%, #dde3ea 100%);
+}
+
+.m-link-underline {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0 1px;
+  transition: background-size 0.25s ease;
+}
+
+.m-link-underline:hover {
+  background-size: 100% 1px;
+}

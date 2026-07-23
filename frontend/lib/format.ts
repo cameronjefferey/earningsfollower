@@ -34,6 +34,24 @@ export function fmtDate(iso: string | null | undefined): string {
   });
 }
 
+/** Human label for a calendar window key. */
+export function windowLabel(key: string): string {
+  switch (key) {
+    case "all":
+      return "All";
+    case "today":
+      return "Today";
+    case "week":
+      return "This week";
+    case "last_week":
+      return "Last week";
+    case "upcoming":
+      return "Upcoming";
+    default:
+      return key;
+  }
+}
+
 export function timingLabel(timing: string | null | undefined): string {
   if (timing === "bmo") return "Before open";
   if (timing === "amc") return "After close";

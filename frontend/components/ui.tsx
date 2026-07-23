@@ -39,7 +39,7 @@ export function Stat({
         {info ? <InfoTip text={info} /> : null}
       </div>
       <div
-        className={`text-lg font-semibold leading-tight ${valueClass}`}
+        className={`text-lg font-semibold leading-tight tabular ${valueClass}`}
         style={
           blur
             ? { filter: "blur(7px)", userSelect: "none", pointerEvents: "none" }

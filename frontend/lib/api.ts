@@ -37,6 +37,10 @@ export interface EarningsResponse {
   end: string;
   theme: string | null;
   cards: EarningsCard[];
+  limit?: number;
+  count?: number;
+  has_more?: boolean;
+  updated_at?: string | null;
 }
 
 export interface ReactionEvent {
@@ -544,18 +548,11 @@ export interface ProgressResponse {
 }
 
 async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {
+  // Only attach a bearer when the caller already resolved one via useAuthReady.
+  // Do NOT call getSession() here — that hits /api/auth/session on every public
+  // fetch and can thrash the Next.js dev server.
   if (accessToken) {
     return { Authorization: `Bearer ${accessToken}` };
-  }
-  // Lazy import so server-only callers don't pull in next-auth/react at build time.
-  try {
-    const { getSession } = await import("next-auth/react");
-    const session = await getSession();
-    if (session?.accessToken) {
-      return { Authorization: `Bearer ${session.accessToken}` };
-    }
-  } catch {
-    // Not in a browser session context.
   }
   return {};
 }
@@ -616,11 +613,70 @@ export interface DigestResponse {
   updated_at?: string | null;
 }
 
+export interface RankedSetup {
+  id: string;
+  rank: number;
+  kind: "wave" | "drift";
+  ticker: string;
+  name: string | null;
+  direction: string;
+  headline: string;
+  action?: string;
+  score: number;
+  sample_tier?: SampleTier;
+  sample_size?: number;
+  win_rate?: number | null;
+  win_rate_ci_low?: number | null;
+  edge_pct?: number | null;
+  report_date?: string | null;
+  themes: ThemeTag[];
+  why: string[];
+  watch: string;
+  invalidation: string;
+  href: string;
+  board_href?: string;
+}
+
+export interface RankedSetupsResponse {
+  generated_at: string;
+  as_of: string;
+  updated_at?: string | null;
+  count: number;
+  setups: RankedSetup[];
+  focus?: RankedSetup | null;
+  preview?: boolean;
+  preview_note?: string | null;
+}
+
+export interface BriefTodayEarnings {
+  ticker: string;
+  name: string | null;
+  timing: string | null;
+  implied_move_pct: number | null;
+  themes: ThemeTag[];
+}
+
+export interface MorningBriefResponse {
+  generated_at: string;
+  as_of: string;
+  preview?: boolean;
+  preview_note?: string | null;
+  focus?: RankedSetup | null;
+  digest: {
+    date?: string | null;
+    bullets: DigestBullet[];
+    updated_at?: string | null;
+  };
+  ranked: RankedSetup[];
+  today_earnings: BriefTodayEarnings[];
+  updated_at?: string | null;
+}
+
 export const api = {
   themes: () => getJSON<Theme[]>("/themes"),
-  earnings: (window: string, theme?: string) =>
+  earnings: (window: string, theme?: string, limit = 80) =>
     getJSON<EarningsResponse>(
-      `/earnings?window=${window}${theme ? `&theme=${theme}` : ""}`
+      `/earnings?window=${window}${theme ? `&theme=${theme}` : ""}&limit=${limit}`
     ),
   company: (ticker: string, accessToken?: string | null) =>
     getJSON<CompanyDetail>(`/company/${encodeURIComponent(ticker)}`, accessToken),
@@ -645,6 +701,13 @@ export const api = {
     getJSON<TrackRecordResponse>("/track-record", accessToken),
   digestToday: (accessToken?: string | null) =>
     getJSON<DigestResponse>("/digest/today", accessToken),
+  rankedSetups: (limit = 12, accessToken?: string | null) =>
+    getJSON<RankedSetupsResponse>(
+      `/setups/ranked?limit=${limit}`,
+      accessToken
+    ),
+  morningBrief: (accessToken?: string | null) =>
+    getJSON<MorningBriefResponse>("/brief/today", accessToken),
   paper: () => getJSON<PaperResponse>("/paper"),
   paperAttribution: (minSamples = 5) =>
     getJSON<AttributionResponse>(`/paper/attribution?min_samples=${minSamples}`),

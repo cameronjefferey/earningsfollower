@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     telegram_notify_trades: bool = True
+    # Ping when Waves/Drift boards gain new tickers after a refresh (same chat).
+    telegram_notify_setups: bool = True
 
     # --- Calendar-driven universe --------------------------------------------
     # Beyond the curated themes, screen the whole market: each refresh pulls the

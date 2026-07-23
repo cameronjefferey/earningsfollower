@@ -6,36 +6,38 @@ import { useSession } from "next-auth/react";
 
 export function PaywallBanner({
   note,
-  title = "Demo preview",
+  title = "Preview",
+  ctaLabel,
 }: {
   note?: string | null;
   title?: string;
+  ctaLabel?: string;
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const pricingHref = `/pricing?next=${encodeURIComponent(pathname || "/")}`;
   const ctaHref = session ? pricingHref : `/login?next=${encodeURIComponent(pricingHref)}`;
-  const ctaLabel = session ? "Unlock live data" : "Sign in to unlock";
+  const label = ctaLabel ?? (session ? "Get Pro" : "Sign in to unlock");
 
   return (
-    <div className="mb-6 rounded-xl border border-dashed border-[var(--color-accent)]/50 bg-gradient-to-r from-[var(--color-accent)]/12 to-[var(--color-panel)] px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+    <div className="mb-6 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
       <div className="min-w-0 flex items-start gap-3">
         <span className="shrink-0 mt-0.5 rounded-md bg-[var(--color-accent)]/20 text-[var(--color-accent)] text-[10px] font-bold uppercase tracking-wider px-2 py-1">
-          Demo
+          Pro
         </span>
         <div>
           <div className="text-sm font-semibold tracking-tight">{title}</div>
-          <p className="text-sm text-[var(--color-muted)] mt-0.5">
+          <p className="text-sm text-[var(--color-muted)] mt-1 leading-relaxed">
             {note ||
-              "This is what the live page looks like — key numbers are blurred sample data. Subscribe for the real board."}
+              "Subscribe for the full research brief — clear action, watch, and drop-if on today's focus."}
           </p>
         </div>
       </div>
       <Link
         href={ctaHref}
-        className="shrink-0 inline-flex items-center justify-center rounded-lg bg-[var(--color-accent)] text-white text-sm font-medium px-4 py-2 hover:opacity-90"
+        className="shrink-0 inline-flex items-center justify-center rounded-lg bg-[var(--color-accent)] text-white text-sm font-medium px-4 py-2.5 hover:opacity-90"
       >
-        {ctaLabel}
+        {label}
       </Link>
     </div>
   );

@@ -106,8 +106,8 @@ function PricingInner() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pricing</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1">
-          Calendar and teasers stay free. Pro unlocks live boards, the daily digest,
-          and full track-record detail. Trade plans stay private.
+          Calendar is free — who reports and what the market has priced in. Pro is
+          for traders who want a single daily lean, not another data dump.
         </p>
       </div>
 
@@ -115,23 +115,30 @@ function PricingInner() {
         <div className="flex items-baseline justify-between gap-4">
           <div>
             <div className="text-lg font-semibold">Pro</div>
-            <div className="text-sm text-[var(--color-muted)]">
-              Research boards with sample honesty + a daily change digest
+            <div className="text-sm text-[var(--color-muted)] mt-1 max-w-xs">
+              Each session: one focus setup, what to watch, and when to drop it
             </div>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-semibold">Monthly</div>
-            <div className="text-xs text-[var(--color-muted)]">
-              Target ~$39–49 once live for a week — Stripe price unchanged for now
-            </div>
+            <div className="text-2xl font-semibold tabular">$9.99</div>
+            <div className="text-xs text-[var(--color-muted)]">per month</div>
           </div>
         </div>
 
-        <ul className="text-sm space-y-1.5 text-[var(--color-muted)]">
-          <li>• Peer waves & PEAD drift with thin-sample labels</li>
-          <li>• Daily “what changed” digest</li>
-          <li>• Track-record aggregates (n, win rate, Wilson lows)</li>
-          <li>• Reddit signals + company reaction / implied-move detail</li>
+        <ul className="text-sm space-y-2 text-[var(--color-muted)]">
+          <li>
+            <span className="text-white font-medium">Morning brief</span> — ranked
+            focus instead of scrolling Waves/Drift yourself
+          </li>
+          <li>
+            <span className="text-white font-medium">Action / watch / drop-if</span>{" "}
+            — so you know the lean and the kill switch
+          </li>
+          <li>
+            <span className="text-white font-medium">Sample honesty</span> — n, win
+            rate, thin-history labels
+          </li>
+          <li>Full company reaction detail on top of the free calendar</li>
         </ul>
 
         {status === "authenticated" && (

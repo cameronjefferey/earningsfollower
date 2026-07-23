@@ -3,8 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, EarningsCard, Theme } from "@/lib/api";
 import { DigestStrip } from "@/components/DigestStrip";
-import { EarningsCardItem } from "@/components/EarningsCardItem";
-import { EmptyState, Spinner } from "@/components/ui";
+import {
+  EarningsCardItem,
+  EarningsCardSkeleton,
+} from "@/components/EarningsCardItem";
+import { UpdatedAt } from "@/components/UpdatedAt";
+import { EmptyState } from "@/components/ui";
+import { windowLabel } from "@/lib/format";
 
 // The tabs are client-side date filters over a single fetched span, not
 // separate requests — switching is instant and search spans every group.
@@ -64,25 +69,95 @@ const THEME_TO_SLUG: Record<string, string> = {
 };
 
 const DEFAULT_WINDOW = "upcoming";
+// Progressive calendar load per tab (Waves/Drift style). Keep batches small so
+// local/dev doesn't choke rendering hundreds of cards at once.
+const FIRST_BATCH = 18;
+const FULL_BATCH = 60;
+
+const THEME_PIN_KEY = "ef.calendar.pinnedThemes";
+const DEFAULT_PINNED_THEMES = [
+  "ai_tech",
+  "space",
+  "quantum",
+  "semis_hardware",
+];
+const MAX_PINNED_THEMES = 4;
+
+function loadPinnedThemes(): string[] {
+  try {
+    const raw = localStorage.getItem(THEME_PIN_KEY);
+    if (!raw) return DEFAULT_PINNED_THEMES;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_PINNED_THEMES;
+    const keys = parsed.filter((k): k is string => typeof k === "string").slice(0, MAX_PINNED_THEMES);
+    return keys.length ? keys : DEFAULT_PINNED_THEMES;
+  } catch {
+    return DEFAULT_PINNED_THEMES;
+  }
+}
 
 export default function DashboardPage() {
   const [windowKey, setWindowKey] = useState(DEFAULT_WINDOW);
   const [theme, setTheme] = useState<string | null>(null);
   const [focusSymbol, setFocusSymbol] = useState<string | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
+  const [pinnedThemeKeys, setPinnedThemeKeys] = useState<string[]>(DEFAULT_PINNED_THEMES);
   const [cards, setCards] = useState<EarningsCard[]>([]);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadedLimit, setLoadedLimit] = useState(FIRST_BATCH);
   const [error, setError] = useState<string | null>(null);
+  const [moreError, setMoreError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   // Gate data fetching until we've read the inbound deep-link params, so we
   // fetch once with the right state instead of flashing the default view.
   const [paramsReady, setParamsReady] = useState(false);
+  const fetchGen = useRef(0);
+  // Cache cards by window so tab switches don't refetch.
+  const cacheRef = useRef<
+    Record<
+      string,
+      { cards: EarningsCard[]; limit: number; hasMore: boolean; updatedAt?: string | null }
+    >
+  >({});
 
   useEffect(() => {
+    setPinnedThemeKeys(loadPinnedThemes());
     api.themes().then(setThemes).catch(() => setThemes([]));
   }, []);
+
+  const themeByKey = useMemo(() => {
+    const map = new Map<string, Theme>();
+    for (const t of themes) map.set(t.key, t);
+    return map;
+  }, [themes]);
+
+  const pinnedThemes = useMemo(() => {
+    const fromPins = pinnedThemeKeys
+      .map((k) => themeByKey.get(k))
+      .filter((t): t is Theme => Boolean(t));
+    // Deep-link / active filter outside the pin set still deserves a chip.
+    if (theme && !pinnedThemeKeys.includes(theme)) {
+      const extra = themeByKey.get(theme);
+      if (extra) return [...fromPins, extra];
+    }
+    return fromPins;
+  }, [pinnedThemeKeys, themeByKey, theme]);
+
+  const persistPinnedThemes = (keys: string[]) => {
+    const next = keys.slice(0, MAX_PINNED_THEMES);
+    setPinnedThemeKeys(next);
+    try {
+      localStorage.setItem(THEME_PIN_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota / private mode */
+    }
+    if (theme && !next.includes(theme)) setTheme(null);
+  };
 
   // Read inbound deep-link params on mount. Anything unknown/malformed is
   // ignored and we fall through to the normal calendar — never an error.
@@ -105,20 +180,79 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Fetch the whole, unfiltered span ("all") exactly once. Window, theme,
-  // sector, cap and symbol search are all applied client-side over this set,
-  // so none of them trigger a network request — switching tabs, picking a
-  // theme, and searching are all instant with no loading spinner.
+  // Progressive fetch for the active tab only. Tab switches use a small cache;
+  // theme/sector filters stay client-side within the loaded window.
   useEffect(() => {
     if (!paramsReady) return;
+
+    const cached = cacheRef.current[windowKey];
+    if (cached) {
+      setCards(cached.cards);
+      setHasMore(cached.hasMore);
+      setLoadedLimit(cached.limit);
+      setUpdatedAt(cached.updatedAt ?? null);
+      setLoading(false);
+      setLoadingMore(false);
+      setError(null);
+      return;
+    }
+
+    const gen = ++fetchGen.current;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
+    setMoreError(null);
+    setHasMore(false);
+    setLoadedLimit(FIRST_BATCH);
+
     api
-      .earnings("all")
-      .then((r) => setCards(r.cards))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [paramsReady]);
+      .earnings(windowKey, undefined, FIRST_BATCH)
+      .then(async (first) => {
+        if (gen !== fetchGen.current) return;
+        setCards(first.cards);
+        setHasMore(Boolean(first.has_more));
+        setLoadedLimit(first.limit ?? FIRST_BATCH);
+        setUpdatedAt(first.updated_at ?? null);
+        setLoading(false);
+        cacheRef.current[windowKey] = {
+          cards: first.cards,
+          limit: first.limit ?? FIRST_BATCH,
+          hasMore: Boolean(first.has_more),
+          updatedAt: first.updated_at ?? null,
+        };
+
+        if (!first.has_more) return;
+
+        setLoadingMore(true);
+        try {
+          const full = await api.earnings(windowKey, undefined, FULL_BATCH);
+          if (gen !== fetchGen.current) return;
+          setCards(full.cards);
+          setHasMore(Boolean(full.has_more));
+          setLoadedLimit(full.limit ?? FULL_BATCH);
+          setUpdatedAt(full.updated_at ?? null);
+          cacheRef.current[windowKey] = {
+            cards: full.cards,
+            limit: full.limit ?? FULL_BATCH,
+            hasMore: Boolean(full.has_more),
+            updatedAt: full.updated_at ?? null,
+          };
+        } catch {
+          /* keep the first batch if the expand fails */
+        } finally {
+          if (gen === fetchGen.current) setLoadingMore(false);
+        }
+      })
+      .catch((e) => {
+        if (gen !== fetchGen.current) return;
+        setError(String(e));
+        setLoading(false);
+      });
+
+    return () => {
+      fetchGen.current += 1;
+    };
+  }, [paramsReady, windowKey]);
 
   // Mirror UI state back into the URL so links are shareable both directions.
   // Preserves any unrelated params (e.g. ref=happytrader) for attribution.
@@ -147,35 +281,18 @@ export default function DashboardPage() {
     setFocusSymbol(null);
   };
 
-  // Theme is a client-side filter (cards carry their theme memberships). A
-  // symbol search ignores the theme so any ticker is findable regardless of
-  // the selected theme.
+  // Cards are fetched per active tab. Theme / sector / cap stay client-side.
+  // Symbol search ignores theme so a ticker is findable within the loaded tab.
   const themeCards = useMemo(() => {
     if (!theme || focusSymbol) return cards;
     return cards.filter((c) => c.themes.some((t) => t.key === theme));
   }, [cards, theme, focusSymbol]);
 
-  // The selected tab is a client-side date filter over the loaded span. "all"
-  // (r === null) applies no date restriction. Cards carry ISO date strings, so
-  // we compare lexicographically against the ISO range bounds.
-  const windowCards = useMemo(() => {
-    const r = windowRange(windowKey);
-    if (!r) return themeCards;
-    const [start, end] = r;
-    return themeCards.filter((c) => c.date >= start && c.date <= end);
-  }, [themeCards, windowKey]);
-
-  // A symbol search spans every tab and theme: match against the full loaded
-  // span, not just the current window. Substring so it narrows as you type
-  // (e.g. "NV" → NVDA); a full ticker from a deep-link still resolves to just
-  // that name.
   const focusedCards = focusSymbol
     ? cards.filter((c) => c.ticker.toUpperCase().includes(focusSymbol))
-    : windowCards;
+    : themeCards;
   const symbolMissing = Boolean(focusSymbol) && focusedCards.length === 0;
-  // If the search matches nothing anywhere, fall back to the current tab's
-  // cards rather than showing an empty/error state.
-  const shownCards = symbolMissing ? windowCards : focusedCards;
+  const shownCards = symbolMissing ? themeCards : focusedCards;
 
   // Sector list is derived from what's actually in this window so we never
   // offer a filter that would return nothing.
@@ -233,161 +350,233 @@ export default function DashboardPage() {
     [windowKey, focusSymbol, filteredCards, sortKey]
   );
 
+  const resultsSummary = useMemo(() => {
+    const parts = [
+      `Showing ${filteredCards.length}`,
+      windowLabel(windowKey),
+    ];
+    if (theme) {
+      parts.push(themeByKey.get(theme)?.label ?? theme);
+    }
+    if (focusSymbol) parts.push(focusSymbol);
+    if (selectedSectors.length === 1) parts.push(selectedSectors[0]);
+    else if (selectedSectors.length > 1) parts.push(`${selectedSectors.length} sectors`);
+    if (selectedCaps.length === 1) {
+      parts.push(
+        CAP_BUCKETS.find((b) => b.key === selectedCaps[0])?.label ?? "cap filter"
+      );
+    } else if (selectedCaps.length > 1) {
+      parts.push(`${selectedCaps.length} size filters`);
+    }
+    return parts.join(" · ");
+  }, [
+    filteredCards.length,
+    windowKey,
+    theme,
+    themeByKey,
+    focusSymbol,
+    selectedSectors,
+    selectedCaps,
+  ]);
+
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Earnings calendar</h1>
-        <p className="text-sm text-[var(--color-muted)] mt-1">
-          Who reports and what the market expects — across AI, space, quantum, and semis.
-        </p>
+      <div className="mb-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Earnings calendar</h1>
+            <p className="text-sm text-[var(--color-muted)] mt-2 max-w-2xl leading-relaxed">
+              Who prints, what&apos;s priced in, and how they&apos;ve reacted before.
+              For what to actually lean on today, use the morning brief.
+            </p>
+          </div>
+          <UpdatedAt value={updatedAt} />
+        </div>
       </div>
 
       <DigestStrip />
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="inline-flex rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1">
-          {WINDOWS.map((w) => (
-            <button
-              key={w.key}
-              onClick={() => selectWindow(w.key)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                windowKey === w.key
-                  ? "bg-[var(--color-accent)] text-white"
-                  : "text-[var(--color-muted)] hover:text-white"
-              }`}
-            >
-              {w.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <ThemeChip active={theme === null} onClick={() => selectTheme(null)} label="All themes" />
-        {themes.map((t) => (
-          <ThemeChip
-            key={t.key}
-            active={theme === t.key}
-            onClick={() => selectTheme(t.key)}
-            label={`${t.label}`}
-          />
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-6">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-            Symbol
-          </span>
-          <div className="relative">
-            <input
-              type="text"
-              value={focusSymbol ?? ""}
-              onChange={(e) =>
-                setFocusSymbol(
-                  e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
-                )
-              }
-              placeholder="Search ticker"
-              spellCheck={false}
-              autoCapitalize="characters"
-              className={`w-36 rounded-lg border bg-[var(--color-panel)] py-1 pl-2.5 pr-6 text-xs font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] ${
-                focusSymbol ? "border-[var(--color-accent)]" : "border-[var(--color-edge)]"
-              }`}
-            />
-            {focusSymbol && (
+      <div className="mb-8 space-y-7">
+        <div>
+          <div className="text-sm font-medium text-white mb-2.5">When</div>
+          <div className="inline-flex flex-wrap rounded-xl bg-[var(--color-panel)]/70 p-1.5 gap-0.5">
+            {WINDOWS.map((w) => (
               <button
+                key={w.key}
                 type="button"
-                onClick={() => setFocusSymbol(null)}
-                aria-label="Clear symbol search"
-                className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
-              >
-                <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
-                  <path d="M2 2 8 8 M8 2 2 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-            Sort
-          </span>
-          <div className="inline-flex rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1">
-            {SORTS.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setSortKey(s.key)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  sortKey === s.key
+                onClick={() => selectWindow(w.key)}
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  windowKey === w.key
                     ? "bg-[var(--color-accent)] text-white"
                     : "text-[var(--color-muted)] hover:text-white"
                 }`}
               >
-                {s.label}
+                {w.label}
               </button>
             ))}
           </div>
         </div>
 
-        <MultiSelect
-          label="Sector"
-          selected={selectedSectors}
-          onChange={setSelectedSectors}
-          options={sectors.map((s) => ({ value: s, label: s }))}
-          allLabel="All sectors"
-        />
+        <div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
+            <div className="text-sm font-medium text-white">Themes you follow</div>
+            <ThemePinPicker
+              allThemes={themes}
+              pinnedKeys={pinnedThemeKeys}
+              onChange={persistPinnedThemes}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ThemeChip
+              active={theme === null}
+              onClick={() => selectTheme(null)}
+              label="All themes"
+            />
+            {pinnedThemes.map((t) => (
+              <ThemeChip
+                key={t.key}
+                active={theme === t.key}
+                onClick={() => selectTheme(t.key)}
+                label={t.label}
+              />
+            ))}
+          </div>
+        </div>
 
-        <MultiSelect
-          label="Market cap"
-          selected={selectedCaps}
-          onChange={setSelectedCaps}
-          options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
-          allLabel="Any size"
-        />
+        <div className="rounded-xl bg-[var(--color-panel)]/35 p-4 sm:p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+            <div className="text-sm font-medium text-white">Narrow results</div>
+            {(theme ||
+              focusSymbol ||
+              selectedSectors.length > 0 ||
+              selectedCaps.length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  selectTheme(null);
+                  setFocusSymbol(null);
+                  setSelectedSectors([]);
+                  setSelectedCaps([]);
+                }}
+                className="text-sm text-[var(--color-accent)] hover:underline"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-[var(--color-muted)]">
+                Search ticker
+              </span>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={focusSymbol ?? ""}
+                  onChange={(e) =>
+                    setFocusSymbol(
+                      e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
+                    )
+                  }
+                  placeholder="e.g. NVDA"
+                  spellCheck={false}
+                  autoCapitalize="characters"
+                  className={`w-full rounded-lg border bg-transparent py-2.5 pl-3 pr-8 text-sm font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] ${
+                    focusSymbol
+                      ? "border-[var(--color-accent)]"
+                      : "border-[var(--color-edge)]/70"
+                  }`}
+                />
+                {focusSymbol ? (
+                  <button
+                    type="button"
+                    onClick={() => setFocusSymbol(null)}
+                    aria-label="Clear symbol search"
+                    className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
+                  >
+                    <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden>
+                      <path
+                        d="M2 2 8 8 M8 2 2 8"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
+            </label>
 
-        {(selectedSectors.length > 0 || selectedCaps.length > 0) && (
-          <button
-            onClick={() => {
-              setSelectedSectors([]);
-              setSelectedCaps([]);
-            }}
-            className="text-xs font-medium text-[var(--color-accent)] hover:underline"
-          >
-            Clear filters
-          </button>
-        )}
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-[var(--color-muted)]">Sort by</div>
+              <div className="inline-flex w-full rounded-lg border border-[var(--color-edge)]/70 bg-transparent p-1">
+                {SORTS.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    onClick={() => setSortKey(s.key)}
+                    className={`flex-1 px-2 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                      sortKey === s.key
+                        ? "bg-[var(--color-accent)] text-white"
+                        : "text-[var(--color-muted)] hover:text-white"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <MultiSelect
+              label="Sector"
+              selected={selectedSectors}
+              onChange={setSelectedSectors}
+              options={sectors.map((s) => ({ value: s, label: s }))}
+              allLabel="All sectors"
+            />
+
+            <MultiSelect
+              label="Market cap"
+              selected={selectedCaps}
+              onChange={setSelectedCaps}
+              options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
+              allLabel="Any size"
+            />
+          </div>
+        </div>
       </div>
 
-      {focusSymbol ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] px-3 py-2 text-sm">
-          <span className="text-[var(--color-muted)]">
+      {!loading && !error ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--color-muted)]">
+          <p>
             {symbolMissing ? (
               <>
                 No earnings for{" "}
-                <span className="font-semibold text-white">{focusSymbol}</span> in the
-                loaded calendar range.
+                <span className="text-white font-medium">{focusSymbol}</span> in this
+                tab — try All or another window.
               </>
             ) : (
-              <>
-                Showing{" "}
-                <span className="font-semibold text-white">{focusSymbol}</span> across all
-                tabs
-              </>
+              <span>{resultsSummary}</span>
             )}
-          </span>
-          <button
-            onClick={() => setFocusSymbol(null)}
-            className="font-medium text-[var(--color-accent)] hover:underline"
-          >
-            Show all earnings
-          </button>
+          </p>
+          {focusSymbol && !symbolMissing ? (
+            <button
+              type="button"
+              onClick={() => setFocusSymbol(null)}
+              className="text-[var(--color-accent)] hover:underline"
+            >
+              Clear search
+            </button>
+          ) : null}
         </div>
       ) : null}
 
       {loading ? (
-        <Spinner />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <EarningsCardSkeleton key={i} />
+          ))}
+        </div>
       ) : error ? (
         <EmptyState
           title="Couldn't reach the API."
@@ -396,22 +585,22 @@ export default function DashboardPage() {
       ) : shownCards.length === 0 ? (
         <EmptyState
           title="No earnings in this window."
-          hint="Try a different window, or run a data refresh in the backend (python -m app.refresh)."
+          hint="Try a different window, or check back after the next data refresh."
         />
       ) : filteredCards.length === 0 ? (
         <EmptyState
           title="No earnings match these filters."
-          hint="Try clearing the sector or market-cap filter."
+          hint="Try clearing sector, market cap, or theme."
         />
       ) : weekGroups ? (
-        <div className="space-y-8">
+        <div className="space-y-10">
           {weekGroups.map((g) => (
             <div key={g.label}>
-              <div className="flex items-baseline gap-2 mb-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+              <div className="flex items-baseline gap-2.5 mb-4">
+                <h2 className="text-sm font-semibold tracking-wide text-white">
                   {g.label}
                 </h2>
-                <span className="text-xs text-[var(--color-muted)]">
+                <span className="text-xs text-[var(--color-muted)] tabular">
                   {g.cards.length}
                 </span>
               </div>
@@ -430,6 +619,54 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      {loadingMore ? (
+        <div className="mt-4 flex items-center justify-center gap-2 text-sm text-[var(--color-muted)]">
+          <span className="h-3.5 w-3.5 rounded-full border-2 border-[var(--color-edge)] border-t-[var(--color-accent)] animate-spin" />
+          Loading more names…
+        </div>
+      ) : null}
+      {moreError ? (
+        <p className="mt-3 text-center text-sm text-[var(--color-muted)]">{moreError}</p>
+      ) : null}
+      {hasMore && !loadingMore ? (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => {
+              const next = Math.min(loadedLimit + 60, 400);
+              const gen = ++fetchGen.current;
+              setLoadingMore(true);
+              setMoreError(null);
+              api
+                .earnings(windowKey, undefined, next)
+                .then((full) => {
+                  if (gen !== fetchGen.current) return;
+                  setCards(full.cards);
+                  setHasMore(Boolean(full.has_more));
+                  setLoadedLimit(full.limit ?? next);
+                  setUpdatedAt(full.updated_at ?? null);
+                  cacheRef.current[windowKey] = {
+                    cards: full.cards,
+                    limit: full.limit ?? next,
+                    hasMore: Boolean(full.has_more),
+                    updatedAt: full.updated_at ?? null,
+                  };
+                })
+                .catch(() => {
+                  if (gen !== fetchGen.current) return;
+                  setMoreError("Couldn't load more — try again.");
+                })
+                .finally(() => {
+                  if (gen === fetchGen.current) setLoadingMore(false);
+                });
+            }}
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-[var(--color-edge)] hover:bg-[var(--color-panel-2)]"
+          >
+            Load more
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -582,23 +819,21 @@ function MultiSelect({
       : `${count} selected`;
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-        {label}
-      </span>
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium text-[var(--color-muted)]">{label}</div>
       <div className="relative" ref={ref}>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors bg-[var(--color-panel)] hover:text-white focus:outline-none focus:border-[var(--color-accent)] ${
+          className={`inline-flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors bg-transparent hover:text-white focus:outline-none focus:border-[var(--color-accent)] ${
             count > 0
               ? "border-[var(--color-accent)] text-white"
-              : "border-[var(--color-edge)] text-[var(--color-muted)]"
+              : "border-[var(--color-edge)]/70 text-[var(--color-muted)]"
           }`}
         >
-          <span className="max-w-[10rem] truncate">{summary}</span>
+          <span className="truncate">{summary}</span>
           <svg
-            className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+            className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
             viewBox="0 0 12 12"
             fill="none"
             aria-hidden="true"
@@ -607,9 +842,9 @@ function MultiSelect({
           </svg>
         </button>
         {open && (
-          <div className="absolute left-0 z-20 mt-1 max-h-72 w-56 overflow-auto rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1 shadow-lg">
+          <div className="absolute left-0 z-20 mt-1.5 max-h-72 w-full min-w-[14rem] overflow-auto rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1.5 shadow-lg">
             {options.length === 0 ? (
-              <div className="px-2 py-1.5 text-xs text-[var(--color-muted)]">
+              <div className="px-2.5 py-2 text-sm text-[var(--color-muted)]">
                 Nothing to filter
               </div>
             ) : (
@@ -618,7 +853,7 @@ function MultiSelect({
                   <button
                     type="button"
                     onClick={() => onChange([])}
-                    className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-panel-2)]"
+                    className="w-full rounded-md px-2.5 py-2 text-left text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-panel-2)]"
                   >
                     Clear {label.toLowerCase()}
                   </button>
@@ -630,7 +865,7 @@ function MultiSelect({
                       key={o.value}
                       type="button"
                       onClick={() => toggle(o.value)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-[var(--color-panel-2)]"
+                      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-[var(--color-panel-2)]"
                     >
                       <span
                         className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
@@ -671,14 +906,129 @@ function ThemeChip({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+      className={`px-3.5 py-2 rounded-full text-sm font-medium border transition-colors ${
         active
           ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
-          : "border-[var(--color-edge)] text-[var(--color-muted)] hover:text-white"
+          : "border-[var(--color-edge)] text-[var(--color-muted)] hover:text-white hover:border-[var(--color-muted)]"
       }`}
     >
       {label}
     </button>
+  );
+}
+
+/** Pick up to four themes to keep on the calendar chip row. */
+function ThemePinPicker({
+  allThemes,
+  pinnedKeys,
+  onChange,
+}: {
+  allThemes: Theme[];
+  pinnedKeys: string[];
+  onChange: (keys: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const toggle = (key: string) => {
+    if (pinnedKeys.includes(key)) {
+      onChange(pinnedKeys.filter((k) => k !== key));
+      return;
+    }
+    if (pinnedKeys.length >= MAX_PINNED_THEMES) return;
+    onChange([...pinnedKeys, key]);
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-sm text-[var(--color-accent)] hover:underline"
+        title="Choose which themes appear here"
+      >
+        Edit themes
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-full mt-2 z-30 w-72 rounded-xl border border-[var(--color-edge)] bg-[var(--color-panel)] shadow-lg p-3">
+          <div className="px-1 pb-2 text-xs text-[var(--color-muted)] flex justify-between gap-3">
+            <span>Pin up to {MAX_PINNED_THEMES} themes</span>
+            <span className="tabular-nums">
+              {pinnedKeys.length}/{MAX_PINNED_THEMES}
+            </span>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {allThemes.map((t) => {
+              const checked = pinnedKeys.includes(t.key);
+              const atCap = !checked && pinnedKeys.length >= MAX_PINNED_THEMES;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  disabled={atCap}
+                  onClick={() => toggle(t.key)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-xs ${
+                    atCap
+                      ? "opacity-40 cursor-not-allowed"
+                      : "hover:bg-[var(--color-panel-2)]"
+                  }`}
+                >
+                  <span
+                    className={`flex h-3.5 w-3.5 items-center justify-center rounded border ${
+                      checked
+                        ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+                        : "border-[var(--color-edge)]"
+                    }`}
+                  >
+                    {checked ? (
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden>
+                        <path
+                          d="M2 5 4 7 8 3"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <span className={checked ? "text-white" : "text-[var(--color-muted)]"}>
+                    {t.label}
+                  </span>
+                  <span className="ml-auto text-[var(--color-muted)] tabular-nums">
+                    {t.ticker_count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange(DEFAULT_PINNED_THEMES)}
+            className="mt-1 w-full px-2 py-1.5 text-[11px] text-[var(--color-muted)] hover:text-white text-left"
+          >
+            Reset to defaults
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -13,7 +13,16 @@ from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
 from app.research.attribution import attribution_report
 from app.research.progress import progress_series
-from app.services import board_snapshots, dashboard, digest as digest_svc, drift, reddit_sentiment, waves
+from app.services import (
+    board_snapshots,
+    brief as brief_svc,
+    dashboard,
+    digest as digest_svc,
+    drift,
+    ranked_setups,
+    reddit_sentiment,
+    waves,
+)
 from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
 from app.services.paper.calibration import calibration_state
@@ -44,22 +53,69 @@ def get_themes(db: Session = Depends(get_db)) -> list[dict]:
 def get_earnings(
     window: str = Query("week", description="all|today|week|last_week|upcoming|around"),
     theme: str | None = Query(None),
+    limit: int = Query(
+        80,
+        ge=1,
+        le=400,
+        description="Return at most this many cards (date-ordered). Raise to load more.",
+    ),
     db: Session = Depends(get_db),
 ) -> dict:
     if window not in WINDOWS:
         raise HTTPException(400, f"window must be one of {sorted(WINDOWS)}")
     start, end = dashboard.date_range_for_window(window)
-    # Day is part of the key so Mon–Sun windows roll correctly at midnight.
-    cache_key = f"earnings:{window}:{theme or ''}:{start.isoformat()}:{end.isoformat()}"
+    # Day + limit in the key so Mon–Sun windows roll correctly at midnight.
+    cache_key = (
+        f"earnings:{window}:{theme or ''}:{start.isoformat()}:{end.isoformat()}:{limit}"
+    )
     cached = response_cache.get(cache_key)
     if cached is not None:
         return cached
+
+    cards: list | None = None
+    has_more = False
+    updated_at = None
+    # Prefer the persisted full-span snapshot (built on refresh / first full load).
+    snap = board_snapshots.get_snapshot(
+        db, "earnings", board_snapshots.earnings_snapshot_key()
+    )
+    if snap and isinstance(snap.get("cards"), list):
+        cards = list(snap["cards"])
+        updated_at = snap.get("updated_at")
+        if window != "all":
+            s, e = start.isoformat(), end.isoformat()
+            cards = [c for c in cards if s <= (c.get("date") or "") <= e]
+        if theme:
+            cards = [
+                c
+                for c in cards
+                if any(t.get("key") == theme for t in (c.get("themes") or []))
+            ]
+        has_more = len(cards) > limit
+        cards = cards[:limit]
+    elif window == "all" and not theme:
+        # First full-span request materializes the snapshot (slow once).
+        all_cards, _ = dashboard.earnings_cards(db, "all")
+        try:
+            row = board_snapshots.persist_earnings_snapshot(db, all_cards)
+            updated_at = row.computed_at.isoformat() if row.computed_at else None
+        except Exception:
+            updated_at = None
+        has_more = len(all_cards) > limit
+        cards = all_cards[:limit]
+    else:
+        cards, has_more = dashboard.earnings_cards(db, window, theme, limit=limit)
+
     payload = {
         "window": window,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "theme": theme,
-        "cards": dashboard.earnings_cards(db, window, theme),
+        "limit": limit,
+        "count": len(cards),
+        "has_more": has_more,
+        "cards": cards,
+        "updated_at": updated_at,
     }
     response_cache.set(cache_key, payload)
     return payload
@@ -242,6 +298,27 @@ def get_digest_today(
 ) -> dict:
     """Homepage / digest page: what changed since the last refresh cycle."""
     return digest_svc.get_today(db, preview=(access == "preview"))
+
+
+@router.get("/setups/ranked", tags=["research"])
+def get_ranked_setups(
+    access: PaidAccess,
+    limit: int = Query(12, ge=1, le=40),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Cross-board ranked research setups (waves + drift) with why/watch notes."""
+    return ranked_setups.ranked_setups(
+        db, limit=limit, preview=(access == "preview")
+    )
+
+
+@router.get("/brief/today", tags=["research"])
+def get_morning_brief(
+    access: PaidAccess,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Morning habit page: digest + ranked picks + today's earnings names."""
+    return brief_svc.morning_brief(db, preview=(access == "preview"))
 
 
 @router.get("/paper", tags=["paper"])

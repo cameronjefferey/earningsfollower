@@ -13,6 +13,8 @@ export function UpdatedAt({ value }: { value?: string | null }) {
     timeZoneName: "short",
   });
   return (
-    <p className="text-xs text-[var(--color-muted)] mt-1">Updated {label}</p>
+    <p className="text-xs text-[var(--color-muted)] tabular shrink-0">
+      Updated {label}
+    </p>
   );
 }

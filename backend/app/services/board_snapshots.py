@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import BoardSnapshot, RefreshLog
-from app.services import drift, waves
+from app.services import dashboard, drift, waves
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,26 @@ DEFAULT_WAVES = (14, 21)
 DEFAULT_DRIFT_LOOKBACK = 12
 FULL_WAVES_LIMIT = 40
 FULL_DRIFT_LIMIT = 30
+
+
+def earnings_snapshot_key() -> str:
+    start, end = dashboard.date_range_for_window("all")
+    return f"all:{start.isoformat()}:{end.isoformat()}"
+
+
+def persist_earnings_snapshot(db: Session, cards: list[dict]) -> BoardSnapshot:
+    """Store the full calendar span so /earnings can slice without recomputing."""
+    start, end = dashboard.date_range_for_window("all")
+    payload = {
+        "window": "all",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "count": len(cards),
+        "cards": cards,
+    }
+    row = _upsert(db, "earnings", earnings_snapshot_key(), payload)
+    db.commit()
+    return row
 
 
 def _upsert(db: Session, kind: str, params_key: str, payload: dict) -> BoardSnapshot:
@@ -43,6 +63,10 @@ def _upsert(db: Session, kind: str, params_key: str, payload: dict) -> BoardSnap
 def refresh_board_snapshots(db: Session) -> dict[str, Any]:
     """Recompute default Waves/Drift boards and store them."""
     recent, upcoming = DEFAULT_WAVES
+    params_key = f"{recent}:{upcoming}"
+    prev_waves = get_snapshot(db, "waves", params_key)
+    prev_drift = get_snapshot(db, "drift", str(DEFAULT_DRIFT_LOOKBACK))
+
     wave_signals, _ = waves.current_waves(
         db, recent_days=recent, upcoming_days=upcoming, limit=FULL_WAVES_LIMIT
     )
@@ -56,7 +80,7 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
         "preview": False,
         "preview_note": None,
     }
-    _upsert(db, "waves", f"{recent}:{upcoming}", wave_payload)
+    _upsert(db, "waves", params_key, wave_payload)
 
     drift_setups, _ = drift.drift_setups(
         db, lookback_days=DEFAULT_DRIFT_LOOKBACK, limit=FULL_DRIFT_LIMIT
@@ -72,15 +96,35 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
     }
     _upsert(db, "drift", str(DEFAULT_DRIFT_LOOKBACK), drift_payload)
 
+    # Calendar cards for the full tab span — cold /earnings reads slice this.
+    earn_cards, _ = dashboard.earnings_cards(db, "all")
+    persist_earnings_snapshot(db, earn_cards)
+
+    # persist_earnings_snapshot already commits; commit again for waves/drift.
     db.commit()
     logger.info(
-        "Board snapshots refreshed: waves=%d drift=%d",
+        "Board snapshots refreshed: waves=%d drift=%d earnings=%d",
         len(wave_signals),
         len(drift_setups),
+        len(earn_cards),
     )
+
+    try:
+        from app.services.setup_alerts import notify_new_setups
+
+        notify_new_setups(
+            prev_waves=prev_waves,
+            prev_drift=prev_drift,
+            new_waves=wave_payload,
+            new_drift=drift_payload,
+        )
+    except Exception as exc:  # noqa: BLE001 - alerts must never break refresh
+        logger.warning("Setup alerts failed: %s", exc)
+
     return {
         "waves": len(wave_signals),
         "drift": len(drift_setups),
+        "earnings": len(earn_cards),
     }
 
 

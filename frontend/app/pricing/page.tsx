@@ -23,32 +23,47 @@ function PricingInner() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (checkout === "success") {
-      setMessage("Payment received — refreshing your subscription status…");
-      let tries = 0;
-      const refresh = async () => {
+    if (checkout === "cancel") {
+      setMessage("Checkout canceled — no charge was made.");
+      return;
+    }
+    if (checkout !== "success" || !session?.accessToken) return;
+
+    let cancelled = false;
+    setMessage("Payment received — confirming your subscription…");
+
+    const confirm = async () => {
+      // Pull from Stripe directly first — don't rely only on webhook lag.
+      try {
+        await postBilling("/billing/sync", session.accessToken);
+      } catch {
+        /* fall through to session refresh retries */
+      }
+
+      for (let tries = 0; tries < 8 && !cancelled; tries += 1) {
         const next = await update();
+        if (cancelled) return;
         if (next?.subscribed) {
           setMessage("You're subscribed — taking you back…");
           router.replace(nextPath);
           return;
         }
-        tries += 1;
-        if (tries < 6) {
-          window.setTimeout(() => {
-            void refresh();
-          }, 1500);
-          return;
-        }
+        await new Promise((r) => window.setTimeout(r, 1500));
+      }
+      if (!cancelled) {
         setMessage(
-          "Payment received, but subscription status hasn't updated yet. Refresh the page in a few seconds."
+          "Payment received. If Pro isn't unlocked yet, wait a few seconds and refresh — or open Account."
         );
-      };
-      void refresh();
-    } else if (checkout === "cancel") {
-      setMessage("Checkout canceled — no charge was made.");
-    }
-  }, [checkout, update, router, nextPath]);
+      }
+    };
+
+    void confirm();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally omit `update` — including it restarts this loop every session tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkout, session?.accessToken, router, nextPath]);
 
   const startCheckout = useCallback(async () => {
     setError(null);

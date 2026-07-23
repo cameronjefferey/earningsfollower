@@ -141,23 +141,36 @@ def create_checkout_session(
     _stripe(settings)
 
     user = _get_or_create_user(db, caller)
-    customer_id = _ensure_stripe_customer(user, settings)
-    db.commit()
+    try:
+        customer_id = _ensure_stripe_customer(user, settings)
+        db.commit()
 
-    app_url = settings.public_app_url.rstrip("/")
-    success = body.success_url or f"{app_url}/pricing?checkout=success"
-    cancel = body.cancel_url or f"{app_url}/pricing?checkout=cancel"
+        app_url = settings.public_app_url.rstrip("/")
+        success = body.success_url or f"{app_url}/pricing?checkout=success"
+        cancel = body.cancel_url or f"{app_url}/pricing?checkout=cancel"
 
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        customer=customer_id,
-        line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
-        success_url=success,
-        cancel_url=cancel,
-        client_reference_id=str(user.id),
-        metadata={"user_id": str(user.id), "email": user.email},
-        allow_promotion_codes=True,
-    )
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            customer=customer_id,
+            line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
+            success_url=success,
+            cancel_url=cancel,
+            client_reference_id=str(user.id),
+            metadata={"user_id": str(user.id), "email": user.email},
+            allow_promotion_codes=True,
+        )
+    except stripe.InvalidRequestError as exc:
+        logger.exception("Stripe checkout invalid request")
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc.user_message or exc) or "Stripe rejected checkout",
+        ) from exc
+    except stripe.StripeError as exc:
+        logger.exception("Stripe checkout failed")
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc.user_message or exc) or "Stripe checkout failed",
+        ) from exc
     return {"url": session["url"], "id": session["id"]}
 
 
@@ -179,6 +192,71 @@ def create_portal_session(
         return_url=body.return_url or f"{app_url}/pricing",
     )
     return {"url": portal["url"]}
+
+
+@router.post("/sync")
+def sync_subscription(
+    caller: OptionalAuth,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Pull live Stripe subscription state into the user row.
+
+    Used after Checkout when webhooks lag or fail, so the client can recover
+    without waiting on Stripe → webhook delivery.
+    """
+    caller = _require_signed_in(caller)
+    _stripe(settings)
+    user = _get_or_create_user(db, caller)
+
+    customer_id = user.stripe_customer_id
+    if not customer_id:
+        # Recover customer id from Stripe by email when checkout created one
+        # but our row never got the webhook update.
+        customers = stripe.Customer.list(email=user.email, limit=1)
+        data = list(customers.get("data") or [])
+        if data:
+            customer_id = data[0]["id"]
+            user.stripe_customer_id = customer_id
+
+    if not customer_id:
+        db.commit()
+        return {
+            "subscribed": False,
+            "subscription_status": user.subscription_status or "none",
+            "synced": False,
+        }
+
+    subs = stripe.Subscription.list(customer=customer_id, status="all", limit=10)
+    chosen = None
+    for sub in list(subs.get("data") or []):
+        status = _field(sub, "status")
+        if status in {"active", "trialing"}:
+            chosen = sub
+            break
+        if chosen is None:
+            chosen = sub
+
+    if chosen is not None:
+        _apply_subscription(user, chosen)
+    db.commit()
+
+    from app.api.deps import subscription_is_active
+
+    status = user.subscription_status or "none"
+    subscribed = subscription_is_active(
+        email=user.email,
+        status=status,
+        period_end=user.current_period_end,
+        settings=settings,
+    )
+    return {
+        "subscribed": subscribed,
+        "subscription_status": status,
+        "synced": True,
+        "stripe_customer_id": user.stripe_customer_id,
+        "stripe_subscription_id": user.stripe_subscription_id,
+    }
 
 
 @router.post("/webhook")

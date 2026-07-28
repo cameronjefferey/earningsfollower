@@ -101,6 +101,70 @@ def test_exit_capture_measures_giveback_from_the_price_path():
     assert worst["mae"] == round(98 / 100 - 1, 4)  # worst dip to 98 => -0.02
 
 
+def test_exit_policy_recovers_giveback_and_conditions_capture():
+    """Entry 100, ran to 120 (MFE +20%), we exited at +10%. A trailing/time-stop
+    rule should show a positive lift vs. how we actually exited, and the honest
+    (played-out) capture should include this trade since MFE cleared the hurdle."""
+    db = _session()
+    opened_at = datetime(2026, 7, 1, 14, 30)
+    trade = PaperTrade(
+        signal_id="SIGP", strategy="drift", ticker="AAA", direction="bullish",
+        structure="Bull call spread", vol_stance="buy", conviction="high",
+        status="closed", spot_entry=100.0, spot_at_exit=110.0,
+        realized_move_pct=0.10, realized_pnl=250.0, outcome="win",
+        opened_at=opened_at, closed_at=opened_at + timedelta(days=4),
+    )
+    db.add(trade)
+    db.add(_dec(ticker="AAA", decision="opened", signal_id="SIGP",
+                spot=100.0, fav_move_5d=0.10))
+    highs = [105, 120, 112, 110]
+    lows = [98, 104, 108, 106]
+    for i, (hi, lo) in enumerate(zip(highs, lows)):
+        db.add(PriceBar(ticker="AAA", date=date(2026, 7, 1) + timedelta(days=i),
+                        open=100.0, high=float(hi), low=float(lo), close=float(hi - 2)))
+    db.commit()
+
+    rep = execution_report(db, min_samples=1)
+    ep = rep["exit_policy"]
+    assert ep["n"] == 1
+    baseline = next(p for p in ep["policies"] if p["label"] == "Actual (as traded)")
+    assert baseline["avg_captured"] == 0.10
+    assert ep["best"] is not None
+    assert ep["best"]["avg_captured"] > 0.10  # a rule kept more of the move
+    assert ep["best"]["lift_vs_actual"] > 0
+
+    played = rep["exit_capture"]["played_out"]
+    assert played["n"] == 1  # MFE 0.20 >= hurdle, so it counts as exit timing
+    assert played["median_capture_ratio"] == 0.5
+
+
+def test_played_out_capture_excludes_signal_misses():
+    """A trade whose underlying never moved favorably (MFE≈0) is a signal miss, not
+    an exit-timing problem — it must be excluded from the played-out capture read."""
+    db = _session()
+    opened_at = datetime(2026, 7, 1, 14, 30)
+    trade = PaperTrade(
+        signal_id="SIGM", strategy="drift", ticker="ZZZ", direction="bullish",
+        structure="Bull call spread", vol_stance="buy", conviction="low",
+        status="closed", spot_entry=100.0, spot_at_exit=96.0,
+        realized_move_pct=-0.04, realized_pnl=-120.0, outcome="loss",
+        opened_at=opened_at, closed_at=opened_at + timedelta(days=2),
+    )
+    db.add(trade)
+    db.add(_dec(ticker="ZZZ", decision="opened", signal_id="SIGM",
+                spot=100.0, fav_move_5d=-0.04))
+    # Only ever fell: never a favorable excursion above the entry.
+    for i, (hi, lo) in enumerate([(100, 97), (99, 95), (97, 94)]):
+        db.add(PriceBar(ticker="ZZZ", date=date(2026, 7, 1) + timedelta(days=i),
+                        open=100.0, high=float(hi), low=float(lo), close=float(lo + 1)))
+    db.commit()
+
+    rep = execution_report(db, min_samples=1)
+    ec = rep["exit_capture"]
+    assert ec["summary"]["n"] == 1  # present in the blended read
+    assert ec["played_out"]["n"] == 0  # but excluded from the honest exit-timing read
+
+
 def test_exit_capture_handles_bearish_direction():
     """Bearish trade: entry 100, dropped to 80 (MFE +20% favorable), exited at 90
     (+10% realized favorable) — capture ~0.5."""

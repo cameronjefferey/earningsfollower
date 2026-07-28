@@ -596,10 +596,20 @@ export interface ExecCaptureRow {
 export interface ExecCaptureSummary {
   n: number;
   median_capture_ratio: number | null;
+  avg_capture_ratio: number | null;
   avg_mfe: number | null;
   avg_mae: number | null;
   left_on_table_rate: number | null;
   avg_hold_days: number | null;
+}
+
+export interface ExitPolicy {
+  label: string;
+  avg_captured: number;
+  median_captured: number;
+  win_rate: number;
+  params: Record<string, number>;
+  lift_vs_actual: number | null;
 }
 
 export interface ExecSignalWeek {
@@ -628,8 +638,15 @@ export interface ExecutionResponse {
   entry_timing: ExecEntryTiming;
   exit_capture: {
     summary: ExecCaptureSummary;
+    played_out: ExecCaptureSummary;
+    mfe_hurdle: number;
     worst_giveback: ExecCaptureRow[];
     graded: number;
+  };
+  exit_policy: {
+    n: number;
+    policies: ExitPolicy[];
+    best: ExitPolicy | null;
   };
   signal_weeks: ExecSignalWeek[];
   notes: string[];

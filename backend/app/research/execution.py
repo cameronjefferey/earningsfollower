@@ -273,14 +273,21 @@ def _entry_timing(pairs: list[tuple[TradeDecision, PaperTrade]]) -> dict:
 # --- exit timing / capture ---------------------------------------------------
 
 
-def _excursions(
-    db: Session, trade: PaperTrade
-) -> tuple[float, float] | None:
-    """(MFE, MAE) of the underlying while the position was held, direction-adjusted.
+# A trade's thesis only "played out" if the underlying actually moved our way at
+# all — capture on trades that never went favorable measures signal quality, not
+# exit timing. Only trades whose MFE cleared this hurdle count toward the honest
+# capture read (isolating the exit decision).
+_MFE_HURDLE = 0.01
 
-    Uses daily high/low bars from the fill date through the close date. MFE is the
-    best favorable excursion available; MAE the worst adverse. Returns None when
-    we can't anchor an entry price or no bars cover the hold."""
+
+def _fav_path(db: Session, trade: PaperTrade) -> dict | None:
+    """The position's direction-adjusted daily path while held: for each day the
+    best (favorable), worst (adverse), and closing excursion from entry. Plus MFE,
+    MAE, and the realized favorable move at the actual exit. None when unpriceable.
+
+    Uses ``adj_close``-consistent bars (falls back to raw close) so splits during a
+    hold don't fabricate a move. Favorable is sign-flipped for shorts so positive
+    always means 'toward the thesis'."""
     entry = trade.spot_entry
     if not entry or entry <= 0 or not trade.opened_at:
         return None
@@ -296,30 +303,40 @@ def _excursions(
     ).all()
     if not bars:
         return None
-    favs: list[float] = []
-    advs: list[float] = []
     long = trade.direction == "bullish"
+    days: list[tuple[float, float, float]] = []
     for b in bars:
-        hi = b.high if b.high is not None else b.close
-        lo = b.low if b.low is not None else b.close
-        if hi is None or lo is None:
+        cl = b.adj_close if b.adj_close is not None else b.close
+        hi = b.high if b.high is not None else cl
+        lo = b.low if b.low is not None else cl
+        if hi is None or lo is None or cl is None:
             continue
         if long:
-            favs.append(hi / entry - 1)
-            advs.append(lo / entry - 1)
-        else:  # bearish: price down is favorable
-            favs.append(1 - lo / entry)
-            advs.append(1 - hi / entry)
-    if not favs:
+            best, worst, end_ = hi / entry - 1, lo / entry - 1, cl / entry - 1
+        else:  # short: price down is favorable
+            best, worst, end_ = 1 - lo / entry, 1 - hi / entry, 1 - cl / entry
+        days.append((round(best, 4), round(worst, 4), round(end_, 4)))
+    if not days:
         return None
-    return (round(max(favs), 4), round(min(advs), 4))
+    realized = _fav(trade.realized_move_pct, trade.direction)
+    return {
+        "days": days,
+        "mfe": round(max(d[0] for d in days), 4),
+        "mae": round(min(d[1] for d in days), 4),
+        "realized": None if realized is None else round(realized, 4),
+    }
 
 
 def _exit_capture(
     db: Session, pairs: list[tuple[TradeDecision, PaperTrade]], min_samples: int
 ) -> dict:
     """For closed directional trades: of the favorable move that was actually
-    available while we held (MFE), how much did we still have at exit?"""
+    available while we held (MFE), how much did we still have at exit?
+
+    Reported two ways: over ALL directional exits (contaminated by trades that
+    never worked), and — the honest read of exit *timing* — conditioned on trades
+    whose MFE cleared the hurdle, so the signal actually played out and the only
+    question left is whether we harvested it."""
     per: list[dict] = []
     for row, trade in pairs:
         strat = (trade.strategy or row.strategy or "").lower()
@@ -327,13 +344,10 @@ def _exit_capture(
             continue
         if trade.status != "closed" or trade.realized_move_pct is None:
             continue
-        exc = _excursions(db, trade)
-        if exc is None:
+        path = _fav_path(db, trade)
+        if path is None or path["realized"] is None:
             continue
-        mfe, mae = exc
-        realized_fav = _fav(trade.realized_move_pct, trade.direction)
-        if realized_fav is None:
-            continue
+        mfe, mae, realized_fav = path["mfe"], path["mae"], path["realized"]
         capture = round(realized_fav / mfe, 3) if mfe > 1e-6 else None
         hold_days = (
             (trade.closed_at.date() - trade.opened_at.date()).days
@@ -350,31 +364,152 @@ def _exit_capture(
             "gave_back": round(max(mfe - realized_fav, 0.0), 4),
             "capture_ratio": capture,
             "hold_days": hold_days,
+            "played_out": mfe >= _MFE_HURDLE,
         })
 
-    n = len(per)
-    caps = [p["capture_ratio"] for p in per if p["capture_ratio"] is not None]
-    mfes = np.array([p["mfe"] for p in per], dtype=float) if per else None
-    maes = np.array([p["mae"] for p in per], dtype=float) if per else None
-    holds = [p["hold_days"] for p in per if p["hold_days"] is not None]
+    def _summ(rows: list[dict]) -> dict:
+        caps = [p["capture_ratio"] for p in rows if p["capture_ratio"] is not None]
+        mfes = np.array([p["mfe"] for p in rows], dtype=float) if rows else None
+        maes = np.array([p["mae"] for p in rows], dtype=float) if rows else None
+        holds = [p["hold_days"] for p in rows if p["hold_days"] is not None]
+        return {
+            "n": len(rows),
+            "median_capture_ratio": (round(float(np.median(caps)), 3) if caps else None),
+            "avg_capture_ratio": (round(float(np.mean(caps)), 3) if caps else None),
+            "avg_mfe": (round(float(np.mean(mfes)), 4) if mfes is not None else None),
+            "avg_mae": (round(float(np.mean(maes)), 4) if maes is not None else None),
+            "left_on_table_rate": (
+                round(float(np.mean(np.array(caps) < 0.5)), 3) if caps else None
+            ),
+            "avg_hold_days": (round(float(np.mean(holds)), 1) if holds else None),
+        }
 
-    summary = {
-        "n": n,
-        "median_capture_ratio": (round(float(np.median(caps)), 3) if caps else None),
-        "avg_mfe": (round(float(np.mean(mfes)), 4) if mfes is not None else None),
-        "avg_mae": (round(float(np.mean(maes)), 4) if maes is not None else None),
-        # Share of trades where we kept less than half of the peak move.
-        "left_on_table_rate": (
-            round(float(np.mean(np.array(caps) < 0.5)), 3) if caps else None
-        ),
-        "avg_hold_days": (round(float(np.mean(holds)), 1) if holds else None),
-    }
-    # Worst offenders: biggest give-backs, for a concrete "we should have exited
-    # sooner here" list. Only surfaced when we have enough samples to be fair.
+    played = [p for p in per if p["played_out"]]
     worst: list[dict] = []
+    if len(played) >= min_samples:
+        worst = sorted(played, key=lambda p: p["gave_back"], reverse=True)[:5]
+    return {
+        "summary": _summ(per),  # all directional exits (signal + exit blended)
+        "played_out": _summ(played),  # honest exit-timing read (MFE cleared hurdle)
+        "mfe_hurdle": _MFE_HURDLE,
+        "worst_giveback": worst,
+        "graded": len(per),
+    }
+
+
+# --- exit-policy backtest ----------------------------------------------------
+#
+# Counterfactual: replay each closed directional trade's real daily path under
+# candidate exit rules and measure what each would have captured vs. how we
+# actually exited. This isolates the ONE thing we fully control — when to get out
+# — and quantifies the P&L left on the table. Honest caveats: (1) it's the
+# underlying's path, an exact read for the equity books but a proxy for option
+# spreads (capped, path-dependent payoff); (2) rule params are chosen on this same
+# sample, so treat the "best" as an in-sample upper bound to confirm walk-forward,
+# not a promise. Intraday order is resolved conservatively: stops/adverse checked
+# before take-profits on the same day, and TP/stop fills are AT the level (resting
+# limit/stop), never at the extreme tick.
+
+
+def _sim_exit(
+    days: list[tuple[float, float, float]],
+    realized: float,
+    *,
+    take_profit: float | None = None,
+    stop_loss: float | None = None,
+    trail: float | None = None,
+    time_stop: int | None = None,
+) -> float:
+    """Favorable move a rule would have captured on this path. Falls back to the
+    actual realized move on days the rule never fires."""
+    peak = float("-inf")
+    for idx, (best, worst, end_) in enumerate(days):
+        if stop_loss is not None and worst <= -stop_loss:
+            return -stop_loss
+        if trail is not None and peak > float("-inf") and (peak - worst) >= trail:
+            return round(peak - trail, 4)
+        if take_profit is not None and best >= take_profit:
+            return take_profit
+        if time_stop is not None and (idx + 1) >= time_stop:
+            return end_
+        peak = max(peak, best)
+    return realized
+
+
+# Small, deliberately coarse policy grid (limits overfitting). Each is (label,
+# kwargs); "Actual" is the baseline we actually traded.
+_POLICIES: list[tuple[str, dict]] = [
+    ("Actual (as traded)", {}),
+    ("Time-stop 2d", {"time_stop": 2}),
+    ("Time-stop 3d", {"time_stop": 3}),
+    ("Take-profit 3%", {"take_profit": 0.03}),
+    ("Take-profit 5%", {"take_profit": 0.05}),
+    ("TP 3% / stop 3%", {"take_profit": 0.03, "stop_loss": 0.03}),
+    ("Trailing 2%", {"trail": 0.02}),
+    ("TP 5% / trail 3%", {"take_profit": 0.05, "trail": 0.03}),
+]
+
+
+def _exit_policy(
+    db: Session, pairs: list[tuple[TradeDecision, PaperTrade]], min_samples: int
+) -> dict:
+    """Backtest candidate exit rules against the real paths of closed directional
+    trades, ranked by average favorable move captured, with the lift over how we
+    actually exited."""
+    paths: list[dict] = []
+    for row, trade in pairs:
+        strat = (trade.strategy or row.strategy or "").lower()
+        if strat not in _DIRECTIONAL:
+            continue
+        if trade.status != "closed" or trade.realized_move_pct is None:
+            continue
+        p = _fav_path(db, trade)
+        if p is None or p["realized"] is None:
+            continue
+        paths.append(p)
+
+    n = len(paths)
+    if n == 0:
+        return {"n": 0, "policies": [], "best": None}
+
+    results: list[dict] = []
+    baseline_avg = None
+    for label, kw in _POLICIES:
+        if not kw:  # baseline = actual realized
+            caps = np.array([p["realized"] for p in paths], dtype=float)
+        else:
+            caps = np.array(
+                [_sim_exit(p["days"], p["realized"], **kw) for p in paths],
+                dtype=float,
+            )
+        avg = round(float(np.mean(caps)), 4)
+        if not kw:
+            baseline_avg = avg
+        results.append({
+            "label": label,
+            "avg_captured": avg,
+            "median_captured": round(float(np.median(caps)), 4),
+            "win_rate": round(float(np.mean(caps > 0)), 3),
+            "params": kw,
+        })
+
+    for r in results:
+        r["lift_vs_actual"] = (
+            round(r["avg_captured"] - baseline_avg, 4)
+            if baseline_avg is not None
+            else None
+        )
+
+    ranked = sorted(results, key=lambda r: r["avg_captured"], reverse=True)
+    # Best = top non-baseline policy, only when we have enough trades to be fair
+    # and it actually beats how we traded.
+    best = None
     if n >= min_samples:
-        worst = sorted(per, key=lambda p: p["gave_back"], reverse=True)[:5]
-    return {"summary": summary, "worst_giveback": worst, "graded": n}
+        for r in ranked:
+            if r["params"] and (r["lift_vs_actual"] or 0) > 0:
+                best = r
+                break
+    return {"n": n, "policies": ranked, "best": best}
 
 
 # --- weekly signal vintage ---------------------------------------------------
@@ -491,6 +626,7 @@ def execution_report(
         "signal_quality": signal_quality,
         "entry_timing": _entry_timing(pairs),
         "exit_capture": _exit_capture(db, pairs, min_samples),
+        "exit_policy": _exit_policy(db, pairs, min_samples),
         "signal_weeks": _signal_weeks(decisions, excess, weeks),
         "notes": notes,
     }

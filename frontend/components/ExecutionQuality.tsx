@@ -2,6 +2,7 @@
 
 import {
   ExecutionResponse,
+  ExitPolicy,
   MarketBaseline,
   SignalCohort,
   SignalGroup,
@@ -182,6 +183,104 @@ function OpenedVsSkipped({
   );
 }
 
+function ExitPolicyWhatIf({
+  policy,
+}: {
+  policy: ExecutionResponse["exit_policy"];
+}) {
+  if (!policy || policy.n === 0) return null;
+  const actual = policy.policies.find((p) => p.label === "Actual (as traded)");
+  const best = policy.best;
+  return (
+    <div className="mt-5">
+      <div className="flex items-center text-[11px] uppercase tracking-wide text-[var(--color-muted)] mb-2">
+        What-if: exit rules (backtest on real paths, n={policy.n})
+        <InfoTip text="Each closed directional trade's actual daily price path replayed under a candidate exit rule, measuring the favorable move it would have captured vs. how we actually exited. Isolates the one thing we fully control. Caveats: it's the underlying's path (exact for equity, a proxy for option spreads), and rule params are picked on this same sample — treat 'best' as an in-sample upper bound to confirm walk-forward, not a promise." />
+      </div>
+
+      {best && actual ? (
+        <div
+          className="mb-2 rounded-lg border px-3 py-2 text-sm"
+          style={{ borderColor: `${PROFIT}55`, backgroundColor: `${PROFIT}10` }}
+        >
+          A <span className="font-semibold">{best.label}</span> exit would have kept{" "}
+          <span className="font-semibold" style={{ color: PROFIT }}>
+            {signed(best.avg_captured)}
+          </span>{" "}
+          of the move vs.{" "}
+          <span className="font-semibold" style={{ color: moveColor(actual.avg_captured) }}>
+            {signed(actual.avg_captured)}
+          </span>{" "}
+          as traded —{" "}
+          <span className="font-semibold" style={{ color: PROFIT }}>
+            {signed(best.lift_vs_actual)}
+          </span>{" "}
+          per trade.
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[var(--color-muted)] text-xs uppercase tracking-wide">
+              <th className="py-1 pr-3">Exit rule</th>
+              <th className="py-1 pr-3">Avg kept</th>
+              <th className="py-1 pr-3">Win rate</th>
+              <th className="py-1">Lift vs. actual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {policy.policies.map((p) => {
+              const isActual = p.label === "Actual (as traded)";
+              const isBest = best && p.label === best.label;
+              return (
+                <tr
+                  key={p.label}
+                  className="border-t border-[var(--color-edge)]"
+                  style={
+                    isBest
+                      ? { backgroundColor: `${PROFIT}12` }
+                      : isActual
+                      ? { backgroundColor: "var(--color-panel-2)" }
+                      : undefined
+                  }
+                >
+                  <td className="py-2 pr-3 font-medium">
+                    {p.label}
+                    {isBest ? (
+                      <span className="ml-2 text-[9px] uppercase text-[var(--color-accent)]">
+                        best
+                      </span>
+                    ) : null}
+                  </td>
+                  <td
+                    className="py-2 pr-3 tabular-nums"
+                    style={{ color: moveColor(p.avg_captured) }}
+                  >
+                    {signed(p.avg_captured)}
+                  </td>
+                  <td className="py-2 pr-3 tabular-nums text-[var(--color-muted)]">
+                    {pct(p.win_rate)}
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {isActual || p.lift_vs_actual === null ? (
+                      <span className="text-[var(--color-muted)]">—</span>
+                    ) : (
+                      <span style={{ color: p.lift_vs_actual > 0 ? PROFIT : LOSS }}>
+                        {signed(p.lift_vs_actual)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function SignalVintage({ weeks }: { weeks: ExecutionResponse["signal_weeks"] }) {
   const withData = weeks.filter((w) => w.n > 0);
   if (withData.length < 2) return null;
@@ -237,8 +336,14 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
 
   const sq = report.signal_quality;
   const et = report.entry_timing;
-  const ec = report.exit_capture.summary;
+  const ecAll = report.exit_capture.summary;
+  // The honest exit-timing read: only trades whose thesis actually played out
+  // (MFE cleared the hurdle). Fall back to the blended read if that's too thin.
+  const played = report.exit_capture.played_out;
+  const ec = played.n > 0 ? played : ecAll;
   const worst = report.exit_capture.worst_giveback;
+  const hurdlePct = pct(report.exit_capture.mfe_hurdle);
+  const ep = report.exit_policy;
 
   return (
     <div className="mb-8">
@@ -298,9 +403,9 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
             sub={
               ec.n === 0
                 ? "no directional exits yet"
-                : `kept of peak · left >½ on table ${pct(ec.left_on_table_rate)}`
+                : `of peak kept · ${ec.n} trades that worked · left >½ ${pct(ec.left_on_table_rate)}`
             }
-            info="For directional trades (waves/drift/reddit): of the maximum favorable move the underlying reached while we held it (MFE), how much did we still have at exit? 1.0 = exited at the peak; 0.5 = gave back half. Below ~0.5 means exits are late. Median across closed trades."
+            info={`For directional trades where the thesis actually played out (MFE ≥ ${hurdlePct}), of the peak favorable move the underlying reached (MFE), how much we still had at exit. 1.0 = exited at the peak; 0.5 = gave back half. Conditioned on MFE so it measures exit timing, not signal quality. Median across those trades.`}
           />
         </div>
 
@@ -379,6 +484,8 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
             </div>
           </div>
         ) : null}
+
+        <ExitPolicyWhatIf policy={ep} />
 
         <SignalVintage weeks={report.signal_weeks} />
 

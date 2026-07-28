@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   api,
   AttributionResponse,
+  ExecutionResponse,
   NarrativeResponse,
   ProgressResponse,
 } from "@/lib/api";
@@ -13,11 +14,13 @@ import { useAuthReady } from "@/lib/useAuthReady";
 import { WeeklyProgress } from "@/components/WeeklyProgress";
 import { Narrative } from "@/components/Narrative";
 import { Attribution } from "@/components/Attribution";
+import { ExecutionQuality } from "@/components/ExecutionQuality";
 
 export default function LearningPage() {
   const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
   const [narrative, setNarrative] = useState<NarrativeResponse | null>(null);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
+  const [execution, setExecution] = useState<ExecutionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -32,6 +35,7 @@ export default function LearningPage() {
       api.paperProgress(8, accessToken).then(setProgress),
       api.paperNarrative(accessToken).then(setNarrative),
       api.paperAttribution(5, accessToken).then(setAttribution),
+      api.paperExecution(5, 8, accessToken).then(setExecution),
     ]).then((results) => {
       if (results.every((r) => r.status === "rejected")) setError(true);
       setLoading(false);
@@ -51,7 +55,8 @@ export default function LearningPage() {
   );
   const hasNarrative = Boolean(narrative && narrative.source !== "empty");
   const hasAttribution = Boolean(attribution && attribution.graded_trades > 0);
-  const hasAnyData = hasProgress || hasNarrative || hasAttribution;
+  const hasExecution = Boolean(execution && execution.graded_signals > 0);
+  const hasAnyData = hasProgress || hasNarrative || hasAttribution || hasExecution;
 
   return (
     <div>
@@ -61,10 +66,14 @@ export default function LearningPage() {
           How the paper trader is learning from its own record. Every decision it
           makes — the trades it takes <span className="text-white">and</span> the
           setups it skips — is journaled, then graded against what the stock actually
-          did. Below: whether it&apos;s getting better week to week, a plain-English
-          read of the tape, and which signals actually predict winners (with sample
-          sizes and confidence intervals, so small samples can&apos;t masquerade as
-          edge). The live positions and scorecard live on the{" "}
+          did. The real question isn&apos;t just P&amp;L: it&apos;s whether the{" "}
+          <span className="text-white">signal</span> was right, whether we{" "}
+          <span className="text-white">entered</span> on time, and whether we{" "}
+          <span className="text-white">exited</span> on time — so a loss can be
+          diagnosed, not just counted. Below: that signal-vs-execution split,
+          whether it&apos;s improving week to week, a plain-English read of the tape,
+          and which signals predict winners (with sample sizes and confidence
+          intervals). The live positions and scorecard live on the{" "}
           <Link href="/paper" className="text-[var(--color-accent)] hover:underline">
             Paper
           </Link>{" "}
@@ -74,6 +83,7 @@ export default function LearningPage() {
 
       {hasAnyData ? (
         <>
+          <ExecutionQuality report={execution} />
           <WeeklyProgress report={progress} />
           <Narrative report={narrative} />
           <Attribution report={attribution} />

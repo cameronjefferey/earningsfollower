@@ -547,6 +547,79 @@ export interface ProgressResponse {
   verdict: ProgressVerdict;
 }
 
+export interface SignalGroup {
+  n: number;
+  hit_rate: number;
+  hit_rate_ci: [number, number];
+  avg_fav_move_5d: number;
+  avg_fav_move_5d_ci: [number, number] | null;
+  avg_fav_move_1d: number | null;
+}
+
+export interface SignalCohort extends SignalGroup {
+  key: string;
+}
+
+export interface ExecEntryTiming {
+  n: number;
+  median_lag_days: number | null;
+  avg_pre_entry_fav_move: number | null;
+  chased_rate: number | null;
+  chased_threshold: number;
+}
+
+export interface ExecCaptureRow {
+  signal_id: string | null;
+  ticker: string;
+  strategy: string;
+  mfe: number;
+  mae: number;
+  realized_fav_move: number;
+  gave_back: number;
+  capture_ratio: number | null;
+  hold_days: number | null;
+}
+
+export interface ExecCaptureSummary {
+  n: number;
+  median_capture_ratio: number | null;
+  avg_mfe: number | null;
+  avg_mae: number | null;
+  left_on_table_rate: number | null;
+  avg_hold_days: number | null;
+}
+
+export interface ExecSignalWeek {
+  label: string;
+  week_start: string;
+  n: number;
+  hit_rate: number | null;
+  avg_fav_move_5d: number | null;
+}
+
+export interface ExecutionResponse {
+  generated_at: string;
+  graded_signals: number;
+  min_samples: number;
+  signal_quality: {
+    overall: SignalGroup | null;
+    by_strategy: SignalCohort[];
+    by_conviction: SignalCohort[];
+    opened_vs_skipped: {
+      opened: SignalGroup | null;
+      skipped: SignalGroup | null;
+    };
+  };
+  entry_timing: ExecEntryTiming;
+  exit_capture: {
+    summary: ExecCaptureSummary;
+    worst_giveback: ExecCaptureRow[];
+    graded: number;
+  };
+  signal_weeks: ExecSignalWeek[];
+  notes: string[];
+}
+
 async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {
   // Only attach a bearer when the caller already resolved one via useAuthReady.
   // Do NOT call getSession() here — that hits /api/auth/session on every public
@@ -755,6 +828,11 @@ export const api = {
     ),
   paperNarrative: (accessToken?: string | null) =>
     getJSON<NarrativeResponse>("/paper/narrative", accessToken),
+  paperExecution: (minSamples = 5, weeks = 8, accessToken?: string | null) =>
+    getJSON<ExecutionResponse>(
+      `/paper/execution?min_samples=${minSamples}&weeks=${weeks}`,
+      accessToken
+    ),
   paperProgress: (weeks = 8, accessToken?: string | null) =>
     getJSON<ProgressResponse>(`/paper/progress?weeks=${weeks}`, accessToken),
 };

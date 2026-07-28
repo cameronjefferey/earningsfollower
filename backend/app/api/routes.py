@@ -12,6 +12,7 @@ from app.config import Settings, get_settings
 from app.db.models import RefreshLog
 from app.db.session import get_db, session_scope
 from app.research.attribution import attribution_report
+from app.research.execution import execution_report
 from app.research.progress import progress_series
 from app.services import (
     board_snapshots,
@@ -350,6 +351,21 @@ def get_paper_progress(
     past week-end, with deltas, a 'what changed' summary per week, and an honest
     verdict on whether the model is actually getting better."""
     return progress_series(db, weeks=weeks)
+
+
+@router.get("/paper/execution", tags=["paper"])
+def get_paper_execution(
+    _: Admin,
+    min_samples: int = Query(
+        5, ge=1, le=100, description="Hide capture cohorts thinner than this"
+    ),
+    weeks: int = Query(8, ge=2, le=52, description="Weeks of signal-vintage history"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Execution-quality decomposition: signal lean (opened + skipped) vs. entry
+    timing (lag / chasing) vs. exit timing (MFE/MAE capture ratio). Isolates
+    whether a loss was a bad signal, a late entry, or a mistimed exit."""
+    return execution_report(db, min_samples=min_samples, weeks=weeks)
 
 
 @router.get("/paper/narrative", tags=["paper"])

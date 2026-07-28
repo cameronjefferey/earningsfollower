@@ -144,8 +144,8 @@ function PricingInner() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pricing</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1">
-          Calendar is free — who reports and what the market has priced in. Pro is
-          for traders who want a single daily lean, not another data dump.
+          Calendar is free — who reports and what the market has priced in. Pro is the
+          morning brief: one ranked lean with a real plan, not another data dump.
         </p>
       </div>
 
@@ -154,7 +154,7 @@ function PricingInner() {
           <div>
             <div className="text-lg font-semibold">Pro</div>
             <div className="text-sm text-[var(--color-muted)] mt-1 max-w-xs">
-              Each session: one focus setup, what to watch, and when to drop it
+              Each session: the focus, its conviction, and a plan with levels
             </div>
           </div>
           <div className="text-right">
@@ -165,16 +165,20 @@ function PricingInner() {
 
         <ul className="text-sm space-y-2 text-[var(--color-muted)]">
           <li>
-            <span className="text-white font-medium">Morning brief</span> — ranked
-            focus instead of scrolling Waves/Drift yourself
+            <span className="text-white font-medium">Ranked focus + conviction</span> —
+            one lean scored 0–100, not a 40-name board
           </li>
           <li>
-            <span className="text-white font-medium">Action / watch / drop-if</span>{" "}
-            — so you know the lean and the kill switch
+            <span className="text-white font-medium">A plan</span> — target, window,
+            invalidation, and sizing, tied to the sample
           </li>
           <li>
-            <span className="text-white font-medium">Sample honesty</span> — n, win
-            rate, thin-history labels
+            <span className="text-white font-medium">Honest board read</span> — breadth,
+            sample strength, and when it&apos;s a narrow day
+          </li>
+          <li>
+            <span className="text-white font-medium">The whole wave</span> — the driver
+            and its correlated peers, flagged so you don&apos;t double up
           </li>
           <li>Full company reaction detail on top of the free calendar</li>
         </ul>

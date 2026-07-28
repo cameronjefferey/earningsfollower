@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BriefPeek } from "@/components/marketing/BriefPeek";
+import { MarketingDataProvider } from "@/components/marketing/MarketingData";
+import { Reveal } from "@/components/marketing/Reveal";
+import { WeekHeat } from "@/components/marketing/WeekHeat";
 
 export const metadata: Metadata = {
-  title: "earningsfollower — earnings calendar & morning brief",
+  title: "earningsfollower — priced-in calendar & post-report brief",
   description:
-    "Free earnings calendar with implied moves. Pro morning brief picks one focus setup: what to lean on, what to watch, and when to drop it.",
+    "Earnings research built around what’s already priced in options, peer waves and post-report drift, and one morning focus with a drop-if.",
   alternates: { canonical: "https://www.earningsfollower.com/" },
 };
 
@@ -17,14 +21,14 @@ export default function MarketingHomePage() {
     operatingSystem: "Web",
     url: "https://www.earningsfollower.com",
     description:
-      "Free earnings calendar with implied moves, plus a Pro morning brief with one focus setup — action, watch, and drop-if.",
+      "Priced-in earnings calendar, peer-wave and post-report drift research, and a morning brief with one focus setup — action, watch, drop-if.",
     offers: [
       {
         "@type": "Offer",
         price: "0",
         priceCurrency: "USD",
         name: "Calendar",
-        description: "Free earnings calendar",
+        description: "Free earnings calendar with implied moves",
       },
       {
         "@type": "Offer",
@@ -37,195 +41,215 @@ export default function MarketingHomePage() {
   };
 
   return (
-    <>
+    <MarketingDataProvider>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareLd) }}
       />
-      <section className="relative overflow-hidden">
-        <div className="mx-auto max-w-5xl px-5 sm:px-6 pt-14 sm:pt-20 pb-10 sm:pb-14">
-          <p className="m-display m-settle text-4xl sm:text-6xl md:text-7xl tracking-tight text-[var(--m-ink)] leading-[1.05]">
-            earningsfollower
+
+      <section className="relative overflow-hidden border-b border-[var(--m-line)]">
+        <div className="absolute inset-0 m-hero-stage" aria-hidden="true">
+          <div className="m-hero-stage-grid">
+            <WeekHeat dense />
+          </div>
+          <div className="m-hero-stage-veil" />
+        </div>
+
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-5 pt-20 sm:pt-28 pb-24 sm:pb-32 min-h-[68vh]">
+          <p className="m-hero-brand m-brand text-[clamp(2.9rem,9vw,5.5rem)] leading-[0.88]">
+            earnings<span>follower</span>
           </p>
-          <h1 className="m-display m-settle-delay mt-6 max-w-xl text-2xl sm:text-3xl text-[var(--m-ink)] leading-snug font-medium">
-            Who prints this week. What the market already priced in. One thing to lean on before the open.
+          <h1 className="m-hero-line mt-8 max-w-2xl text-xl sm:text-2xl text-white/90 leading-snug font-medium">
+            A map of what&apos;s priced in — then what usually happens after a name
+            reports, and after a peer reports.
           </h1>
-          <p className="m-settle-delay-2 mt-5 max-w-md text-base sm:text-lg text-[var(--m-muted)] leading-relaxed">
-            Calendar is free. The morning brief is Pro — a ranked focus with an action, a
-            watch, and a drop-if. Not another board of fifty names.
+          <p className="m-hero-line m-hero-line-2 mt-4 max-w-lg text-[var(--m-muted)]">
+            Calendar for the field. One morning lean when you want compression, not a
+            catalog.
           </p>
-          <div className="m-settle-delay-2 mt-8 flex flex-wrap items-center gap-3">
-            <Link
-              href="/calendar"
-              className="inline-flex rounded-md bg-[var(--m-ink)] text-[var(--m-panel)] px-4 py-2.5 text-sm font-semibold hover:bg-[var(--m-accent)] transition-colors"
-            >
-              Open the free calendar
+          <div className="m-hero-line m-hero-line-3 mt-9 flex flex-wrap items-center gap-3">
+            <Link href="/calendar" className="m-btn-primary">
+              Open the priced-in map
             </Link>
-            <Link
-              href="/brief"
-              className="inline-flex rounded-md border border-[var(--m-line)] bg-[var(--m-panel)] px-4 py-2.5 text-sm font-medium text-[var(--m-ink)] hover:border-[var(--m-accent)] transition-colors"
-            >
-              See the morning brief
+            <Link href="/brief" className="m-btn-ghost">
+              Today&apos;s focus
             </Link>
           </div>
+          <p className="m-hero-line m-hero-line-3 mt-10 text-[11px] uppercase tracking-[0.18em] text-[var(--m-muted)]">
+            This week&apos;s field · options-implied moves · live
+          </p>
         </div>
+      </section>
 
-        {/* Asymmetric product frame — bleeds right, not a centered card stack */}
-        <div className="m-settle-delay-2 pl-5 sm:pl-6 md:pl-[max(1.25rem,calc((100%-64rem)/2+1.25rem))] pb-16">
-          <div className="rounded-tl-xl border border-[var(--m-line)] border-r-0 bg-[#0a0e17] text-[#e8edf7] shadow-[0_24px_60px_-28px_rgba(20,24,31,0.55)] overflow-hidden max-w-3xl">
-            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#243049] text-[11px] text-[#8a97b1]">
-              <span className="text-[#5b8cff]">Calendar</span>
-              <span>·</span>
-              <span>implied move · timing · themes</span>
-            </div>
-            <div className="p-4 sm:p-5 space-y-3 font-mono text-sm">
-              <div className="flex justify-between gap-4 border-b border-[#243049] pb-3">
-                <div>
-                  <div className="text-base font-semibold tracking-tight">NVDA</div>
-                  <div className="text-[#8a97b1] text-xs mt-0.5">Wed · AMC</div>
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-14 sm:py-16">
+          <Reveal>
+            <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-xl">
+              Three things we actually do
+            </h2>
+          </Reveal>
+          <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                n: "01",
+                t: "Priced-in",
+                d: "Who reports, and what options already baked into the move. Scan the week without pretending we know the EPS.",
+              },
+              {
+                n: "02",
+                t: "After it reports",
+                d: "Peer waves into the next name. Drift after a strong report. History with n attached — thin samples get called thin.",
+              },
+              {
+                n: "03",
+                t: "One lean",
+                d: "Morning brief: one focus for the session. Action, watch, drop-if. Kill switch written down before you care.",
+              },
+            ].map((s, i) => (
+              <Reveal key={s.t} delayMs={i * 50}>
+                <div className="m-step h-full">
+                  <div className="m-step-n tabular">{s.n}</div>
+                  <h3 className="mt-4 text-lg font-semibold text-white">{s.t}</h3>
+                  <p className="mt-2 text-sm text-[var(--m-muted)] leading-relaxed">
+                    {s.d}
+                  </p>
                 </div>
-                <div className="text-right">
-                  <div className="text-[#5b8cff] tabular">~7%</div>
-                  <div className="text-[#8a97b1] text-xs">implied</div>
-                </div>
-              </div>
-              <div className="flex justify-between gap-4 border-b border-[#243049] pb-3 opacity-80">
-                <div>
-                  <div className="text-base font-semibold tracking-tight">CRM</div>
-                  <div className="text-[#8a97b1] text-xs mt-0.5">Thu · AMC</div>
-                </div>
-                <div className="text-right">
-                  <div className="tabular">~5%</div>
-                  <div className="text-[#8a97b1] text-xs">implied</div>
-                </div>
-              </div>
-              <div className="flex justify-between gap-4 opacity-60">
-                <div>
-                  <div className="text-base font-semibold tracking-tight">AMD</div>
-                  <div className="text-[#8a97b1] text-xs mt-0.5">Fri · BMO</div>
-                </div>
-                <div className="text-right">
-                  <div className="tabular">~6%</div>
-                  <div className="text-[#8a97b1] text-xs">implied</div>
-                </div>
-              </div>
-            </div>
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="border-t border-[var(--m-line)] bg-[var(--m-panel)]/70">
-        <div className="mx-auto max-w-5xl px-5 sm:px-6 py-16 sm:py-20">
-          <h2 className="m-display text-2xl sm:text-3xl text-[var(--m-ink)] max-w-lg">
-            Two things. That&apos;s the product.
-          </h2>
-          <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16">
-            <div>
-              <h3 className="text-lg font-semibold text-[var(--m-ink)]">Calendar — free</h3>
-              <p className="mt-3 text-[var(--m-muted)] leading-relaxed">
-                Upcoming prints with timing, market cap, themes, and the options-implied
-                move. Filter the week. Click into a name. No account required to look.
-              </p>
-              <Link
-                href="/calendar"
-                className="inline-block mt-4 text-[var(--m-accent)] font-medium m-link-underline"
-              >
-                Go to calendar
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-16 sm:py-20">
+          <Reveal>
+            <div className="flex flex-wrap items-end justify-between gap-4 mb-3">
+              <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">
+                What&apos;s already priced in
+              </h2>
+              <Link href="/calendar" className="text-sm text-[var(--m-accent)] hover:underline">
+                Full calendar →
               </Link>
             </div>
-            <div className="md:pt-8">
-              <h3 className="text-lg font-semibold text-[var(--m-ink)]">
-                Morning brief — Pro, $9.99/mo
-              </h3>
-              <p className="mt-3 text-[var(--m-muted)] leading-relaxed">
-                One ranked focus for the session: what to do, what to watch, and the
-                drop-if that kills the lean. Sample sizes and win rates stay visible so
-                thin history doesn&apos;t get dressed up.
-              </p>
-              <Link
-                href="/pricing"
-                className="inline-block mt-4 text-[var(--m-accent)] font-medium m-link-underline"
-              >
-                Pricing
-              </Link>
+            <p className="max-w-xl text-[var(--m-muted)] leading-relaxed mb-8">
+              Top names this week by options-implied move — with date, history, and theme
+              on each card.
+            </p>
+          </Reveal>
+          <Reveal delayMs={40}>
+            <div className="m-board-frame">
+              <WeekHeat />
             </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-16 sm:py-20 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12">
+          <div className="lg:col-span-5 space-y-8">
+            <Reveal>
+              <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">
+                Follow-through after it reports
+              </h2>
+              <p className="mt-4 text-[var(--m-muted)] leading-relaxed">
+                The brief ranks peer waves (a related name already reported) and
+                post-earnings drift (the report already landed). Sample size stays on the
+                card. If history is junk, we say so.
+              </p>
+            </Reveal>
+            <Reveal delayMs={40}>
+              <ul className="space-y-4 text-sm text-[var(--m-muted)]">
+                <li className="border-l-2 border-[var(--m-accent)] pl-3">
+                  <span className="text-white font-medium">Wave</span> — ride transmission
+                  into the next peer report
+                </li>
+                <li className="border-l-2 border-[var(--m-warm)] pl-3">
+                  <span className="text-white font-medium">Drift</span> — after a strong
+                  report, history on whether the move kept going
+                </li>
+                <li className="border-l-2 border-[var(--m-line)] pl-3">
+                  <span className="text-white font-medium">Drop-if</span> — explicit kill
+                  switch so you&apos;re not inventing one mid-session
+                </li>
+              </ul>
+            </Reveal>
+            <Reveal delayMs={80}>
+              <Link href="/how-it-works" className="text-sm text-[var(--m-accent)] hover:underline">
+                How waves &amp; drift work →
+              </Link>
+            </Reveal>
+          </div>
+          <div className="lg:col-span-7">
+            <Reveal delayMs={60}>
+              <BriefPeek />
+            </Reveal>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-5xl px-5 sm:px-6 py-16 sm:py-20">
-        <h2 className="m-display text-2xl sm:text-3xl text-[var(--m-ink)]">
-          How you actually use it
-        </h2>
-        <div className="mt-8 max-w-2xl space-y-8 text-[var(--m-muted)] leading-relaxed">
-          <p>
-            <span className="text-[var(--m-ink)] font-medium">Start on the calendar.</span>{" "}
-            See who reports and what&apos;s already in the price. That part stays free
-            because it should — you need a map before a lean.
-          </p>
-          <p>
-            <span className="text-[var(--m-ink)] font-medium">Open the brief when you want a pick.</span>{" "}
-            Pro ranks a focus from the same research stack (peer waves, post-earnings
-            drift). You get a short board underneath, not a second product to learn.
-          </p>
-          <p>
-            <span className="text-[var(--m-ink)] font-medium">Respect the kill switch.</span>{" "}
-            Every setup carries a drop-if. If that prints, you&apos;re done — no hero
-            holding through a broken thesis.
-          </p>
-        </div>
-        <Link
-          href="/how-it-works"
-          className="inline-block mt-8 text-[var(--m-accent)] font-medium m-link-underline"
-        >
-          Longer walkthrough
-        </Link>
-      </section>
-
-      <section className="border-t border-[var(--m-line)]">
-        <div className="mx-auto max-w-5xl px-5 sm:px-6 py-16 sm:py-20 md:flex md:items-start md:gap-16">
-          <h2 className="m-display text-2xl sm:text-3xl text-[var(--m-ink)] shrink-0 md:w-56">
-            Who this is for
-          </h2>
-          <p className="mt-4 md:mt-1 text-[var(--m-muted)] leading-relaxed max-w-xl text-base sm:text-lg">
-            People who already trade around earnings and are tired of scrolling five
-            tabs to answer one question. If you want a firehose of alerts or a black-box
-            “AI edge,” this isn&apos;t that. If you want a calendar that&apos;s honest
-            about what&apos;s priced in — and, when you pay, one focus with a kill switch —
-            it is.
-          </p>
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-14 sm:py-16 grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+          <div className="md:col-span-7">
+            <Reveal>
+              <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-lg">
+                Built for people who already trade earnings
+              </h2>
+              <p className="mt-4 text-[var(--m-muted)] leading-relaxed max-w-md">
+                If you live in Finviz + Twitter + a spreadsheet all quarter, this cuts that
+                down. If you want a buy list or a secret EPS, keep walking.
+              </p>
+            </Reveal>
+          </div>
+          <div className="md:col-span-5">
+            <Reveal delayMs={80}>
+              <div className="m-stat-row">
+                <div>
+                  <div className="m-stat-label">Map</div>
+                  <div className="m-stat-value">Priced-in</div>
+                </div>
+                <div className="m-stat-div" />
+                <div>
+                  <div className="m-stat-label">Habit</div>
+                  <div className="m-stat-value">One focus</div>
+                </div>
+              </div>
+            </Reveal>
+          </div>
         </div>
       </section>
 
-      <section className="border-t border-[var(--m-line)] bg-[var(--m-ink)] text-[var(--m-panel)]">
-        <div className="mx-auto max-w-5xl px-5 sm:px-6 py-14 sm:py-16">
-          <h2 className="m-display text-2xl sm:text-3xl">Pricing</h2>
-          <ul className="mt-6 space-y-3 text-base text-[#c5ccd6] max-w-lg">
-            <li>
-              <span className="text-white font-medium">Free</span> — full earnings
-              calendar, implied moves, company pages you can browse.
-            </li>
-            <li>
-              <span className="text-white font-medium">Pro · $9.99/mo</span> — morning
-              brief with focus setup, watch, and drop-if.
-            </li>
-          </ul>
-          <Link
-            href="/pricing"
-            className="inline-flex mt-8 rounded-md bg-[var(--m-panel)] text-[var(--m-ink)] px-4 py-2.5 text-sm font-semibold hover:bg-[var(--m-accent-soft)] transition-colors"
-          >
-            Subscribe or manage billing
-          </Link>
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 opacity-30 pointer-events-none" aria-hidden="true">
+          <WeekHeat dense />
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-r from-[var(--m-bg)] via-[var(--m-bg)]/95 to-[var(--m-bg)]/70" />
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-5 py-16 sm:py-20">
+          <Reveal>
+            <h2 className="text-3xl sm:text-4xl font-semibold text-white tracking-tight">
+              Start with the map
+            </h2>
+            <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
+              See what&apos;s priced for this week. When you want a single lean once the
+              reports start landing, open the brief.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/calendar" className="m-btn-primary">
+                Live calendar
+              </Link>
+              <Link href="/brief" className="m-btn-ghost">
+                Morning brief
+              </Link>
+            </div>
+          </Reveal>
         </div>
       </section>
 
-      <section className="mx-auto max-w-5xl px-5 sm:px-6 py-12">
-        <p className="text-sm text-[var(--m-muted)] max-w-2xl leading-relaxed">
-          For research and education only. Not financial advice. Markets move; data from
-          Financial Modeling Prep and Yahoo Finance can be delayed or wrong. Options-implied
-          moves are ATM-straddle estimates.
+      <section className="mx-auto max-w-6xl px-4 sm:px-5 py-10">
+        <p className="text-xs text-[var(--m-muted)] max-w-xl leading-relaxed">
+          Research only — not advice. Data from Financial Modeling Prep and Yahoo Finance
+          can be late or wrong. Implied moves are ATM-straddle estimates.
         </p>
       </section>
-    </>
+    </MarketingDataProvider>
   );
 }

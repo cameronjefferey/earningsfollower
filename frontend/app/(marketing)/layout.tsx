@@ -6,27 +6,24 @@ export default function MarketingLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="marketing m-grain">
-      <header className="border-b border-[var(--m-line)]/80">
-        <div className="mx-auto max-w-5xl px-5 sm:px-6 py-4 flex items-center justify-between gap-4">
-          <Link
-            href="/"
-            className="m-display text-xl sm:text-2xl tracking-tight text-[var(--m-ink)]"
-          >
-            earningsfollower
+    <div className="marketing">
+      <header className="m-nav">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-4">
+          <Link href="/" className="m-brand">
+            earnings<span>follower</span>
           </Link>
-          <nav className="flex items-center gap-4 sm:gap-5 text-sm text-[var(--m-muted)]">
-            <Link href="/how-it-works" className="m-link-underline hover:text-[var(--m-ink)]">
+          <nav className="flex items-center gap-1 sm:gap-2 text-sm">
+            <Link href="/how-it-works" className="m-nav-link">
               How it works
             </Link>
-            <Link href="/faq" className="m-link-underline hover:text-[var(--m-ink)]">
+            <Link href="/faq" className="m-nav-link">
               FAQ
             </Link>
-            <Link
-              href="/calendar"
-              className="rounded-md bg-[var(--m-ink)] text-[var(--m-panel)] px-3 py-1.5 font-medium hover:bg-[var(--m-accent)] transition-colors"
-            >
-              Open calendar
+            <Link href="/pricing" className="m-nav-link">
+              Pricing
+            </Link>
+            <Link href="/calendar" className="m-nav-cta">
+              Launch calendar
             </Link>
           </nav>
         </div>
@@ -34,26 +31,28 @@ export default function MarketingLayout({
 
       <main>{children}</main>
 
-      <footer className="mt-20 border-t border-[var(--m-line)]">
-        <div className="mx-auto max-w-5xl px-5 sm:px-6 py-10 flex flex-col sm:flex-row gap-6 sm:justify-between text-sm text-[var(--m-muted)]">
+      <footer className="border-t border-[var(--m-line)] mt-8">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-10 flex flex-col sm:flex-row gap-6 sm:justify-between text-sm text-[var(--m-muted)]">
           <div className="max-w-md space-y-2">
-            <p className="m-display text-[var(--m-ink)] text-lg">earningsfollower</p>
+            <p className="m-brand text-base">
+              earnings<span>follower</span>
+            </p>
             <p>
-              Research tool for earnings season — not a signal service, not financial
-              advice. Numbers can be late or wrong.
+              Priced-in map, post-report follow-through, one morning lean. Not a signal
+              service. Not advice. Numbers can be late or wrong.
             </p>
           </div>
-          <div className="flex flex-col gap-2 sm:items-end">
-            <Link href="/calendar" className="m-link-underline hover:text-[var(--m-ink)]">
+          <div className="flex flex-wrap gap-x-5 gap-y-2 sm:flex-col sm:items-end">
+            <Link href="/calendar" className="hover:text-white transition-colors">
               Calendar
             </Link>
-            <Link href="/brief" className="m-link-underline hover:text-[var(--m-ink)]">
+            <Link href="/brief" className="hover:text-white transition-colors">
               Morning brief
             </Link>
-            <Link href="/pricing" className="m-link-underline hover:text-[var(--m-ink)]">
+            <Link href="/pricing" className="hover:text-white transition-colors">
               Pricing
             </Link>
-            <Link href="/faq" className="m-link-underline hover:text-[var(--m-ink)]">
+            <Link href="/faq" className="hover:text-white transition-colors">
               FAQ
             </Link>
           </div>

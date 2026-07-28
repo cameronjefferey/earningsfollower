@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, PaperResponse, PaperTrade, PaperBucket } from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
 import { fmtDate, moveClass } from "@/lib/format";
+import { useAuthReady } from "@/lib/useAuthReady";
 
 const DIR_COLOR: Record<string, string> = {
   bearish: "#f0556d",
@@ -831,16 +832,19 @@ export default function PaperPage() {
     );
   }
 
+  const { ready, accessToken } = useAuthReady();
+
   useEffect(() => {
+    if (!ready) return;
     setLoading(true);
     api
-      .paper()
+      .paper(accessToken)
       .then(setData)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [ready, accessToken]);
 
-  if (loading) return <Spinner label="Loading paper trades…" />;
+  if (!ready || loading) return <Spinner label="Loading paper trades…" />;
   if (error || !data) return <EmptyState title="Couldn't load the paper scorecard." />;
 
   const { stats, account, open, closed } = data;

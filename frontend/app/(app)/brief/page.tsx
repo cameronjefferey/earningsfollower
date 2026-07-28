@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { api, MorningBriefResponse, RankedSetup } from "@/lib/api";
-import { PaywallBanner, PaywallFade } from "@/components/PaywallBanner";
+import { PaywallBanner } from "@/components/PaywallBanner";
 import { RankedSetupCard } from "@/components/RankedSetupCard";
+import { FocusHero, BoardQualityBar } from "@/components/brief/FocusHero";
 import { UpdatedAt } from "@/components/UpdatedAt";
-import { BlurValue } from "@/components/BlurValue";
 import { Card, EmptyState, Spinner, ThemePill } from "@/components/ui";
-import { pct, signedPct, timingLabel } from "@/lib/format";
+import { pct, timingLabel } from "@/lib/format";
 import { useAuthReady } from "@/lib/useAuthReady";
 
 export default function BriefPage() {
@@ -44,6 +44,7 @@ export default function BriefPage() {
   const focus: RankedSetup | null = data?.focus ?? data?.ranked?.[0] ?? null;
   const rest = (data?.ranked ?? []).filter((s) => s.id !== focus?.id);
   const today = data?.today_earnings ?? [];
+  const quality = data?.board_quality;
 
   const pricingHref = `/pricing?next=${encodeURIComponent("/brief")}`;
   const ctaHref = session
@@ -55,54 +56,19 @@ export default function BriefPage() {
       <div className="mb-8 max-w-2xl">
         <h1 className="text-3xl font-semibold tracking-tight">Morning brief</h1>
         <p className="text-base text-[var(--color-muted)] mt-3 leading-relaxed">
-          The calendar shows who reports. The brief answers the only question that
-          matters before the open:{" "}
-          <span className="text-white">what should I actually lean on today?</span>
+          One ranked lean for the session — the thesis, a plan with levels, and the
+          honest read on how strong today&apos;s board actually is.
         </p>
         <UpdatedAt value={data?.updated_at || data?.generated_at} />
       </div>
 
       {isPreview ? (
-        <div className="mb-8 space-y-4">
+        <div className="mb-8">
           <PaywallBanner
             title="See today's ranked lean — unlock the full brief"
-            note="Pro gives you one focus setup each session with a clear action, what to watch, and when to drop it — plus the short board underneath. Calendar stays free."
-            ctaLabel={session ? "Get Pro — $9.99/mo" : "Sign in to subscribe"}
+            note="Pro gives you the focus setup with a conviction score, a plan (target, window, invalidation, sizing), and the rest of the wave. Calendar stays free."
+            ctaLabel={session ? "Get Pro" : "Sign in to subscribe"}
           />
-          <Card className="p-5 sm:p-6">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-accent)] mb-3">
-              What you get every morning
-            </div>
-            <ol className="space-y-3 text-sm text-[var(--color-muted)]">
-              <li className="flex gap-3">
-                <span className="text-white font-semibold tabular shrink-0">1.</span>
-                <span>
-                  <span className="text-white font-medium">One focus setup</span> —
-                  ticker, direction, and a plain-English action (not a 40-name board).
-                </span>
-              </li>
-              <li className="flex gap-3">
-                <span className="text-white font-semibold tabular shrink-0">2.</span>
-                <span>
-                  <span className="text-white font-medium">Watch / drop-if</span> —
-                  what keeps the lean alive, and what kills it.
-                </span>
-              </li>
-              <li className="flex gap-3">
-                <span className="text-white font-semibold tabular shrink-0">3.</span>
-                <span>
-                  <span className="text-white font-medium">Honesty on the sample</span> —
-                  n, win rate, and thin-history labels so you know when not to size up.
-                </span>
-              </li>
-            </ol>
-            <Link
-              href={ctaHref}
-              className="mt-5 inline-flex items-center justify-center rounded-lg bg-[var(--color-accent)] text-white text-sm font-medium px-4 py-2.5 hover:opacity-90"
-            >
-              {session ? "Unlock morning brief" : "Sign in to unlock"}
-            </Link>
-          </Card>
         </div>
       ) : null}
 
@@ -113,20 +79,16 @@ export default function BriefPage() {
       ) : (
         <div className="space-y-8">
           <section>
-            <h2 className="text-sm font-semibold text-white mb-1">
-              {isPreview ? "Today's focus (preview)" : "Today's focus"}
-            </h2>
-            <p className="text-sm text-[var(--color-muted)] mb-3 max-w-xl">
-              {isPreview
-                ? "A taste of the ranked lean. Subscribe to see the full action, watch, and drop-if notes."
-                : "Start here. Everything else is secondary."}
-            </p>
+            <div className="flex items-baseline justify-between gap-3 mb-3">
+              <h2 className="text-sm font-semibold text-white">
+                {isPreview ? "Today's focus (preview)" : "Today's focus"}
+              </h2>
+              <span className="text-xs text-[var(--color-muted)]">
+                Start here. Everything else is secondary.
+              </span>
+            </div>
             {focus ? (
-              isPreview ? (
-                <PreviewFocusCard setup={focus} />
-              ) : (
-                <RankedSetupCard setup={focus} variant="hero" />
-              )
+              <FocusHero setup={focus} preview={isPreview} />
             ) : (
               <EmptyState
                 title="No focus setup yet."
@@ -135,41 +97,42 @@ export default function BriefPage() {
             )}
           </section>
 
-          {rest.length && !isPreview ? (
+          {!isPreview && quality ? (
             <section>
-              <h2 className="text-sm font-semibold text-white mb-2">
-                Also on the board
-              </h2>
-              <Card className="p-4">
-                {rest.map((s) => (
-                  <RankedSetupCard key={s.id} setup={s} variant="compact" />
-                ))}
-              </Card>
+              <BoardQualityBar q={quality} />
             </section>
           ) : null}
 
-          {isPreview && rest.length ? (
+          {rest.length ? (
             <section>
               <h2 className="text-sm font-semibold text-white mb-2">
-                Also ranked today
+                {isPreview ? "Also ranked today" : "Other independent drivers"}
               </h2>
-              <Card className="p-4">
-                <ul className="space-y-2">
+              {isPreview ? (
+                <Card className="p-4">
+                  <ul className="space-y-2">
+                    {rest.map((s) => (
+                      <li
+                        key={s.id}
+                        className="text-sm flex flex-wrap items-baseline gap-x-2 text-[var(--color-muted)]"
+                      >
+                        <span className="text-white font-medium">#{s.rank}</span>
+                        <span className="text-white font-semibold">{s.ticker}</span>
+                        <span>{s.headline}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-[var(--color-muted)] mt-3">
+                    Full plan and levels unlock with Pro.
+                  </p>
+                </Card>
+              ) : (
+                <Card className="p-4">
                   {rest.map((s) => (
-                    <li
-                      key={s.id}
-                      className="text-sm flex flex-wrap items-baseline gap-x-2 text-[var(--color-muted)]"
-                    >
-                      <span className="text-white font-medium">#{s.rank}</span>
-                      <span className="text-white font-semibold">{s.ticker}</span>
-                      <span>{s.headline}</span>
-                    </li>
+                    <RankedSetupCard key={s.id} setup={s} variant="compact" />
                   ))}
-                </ul>
-                <p className="text-xs text-[var(--color-muted)] mt-3">
-                  Full watch notes unlock with Pro.
-                </p>
-              </Card>
+                </Card>
+              )}
             </section>
           ) : null}
 
@@ -195,7 +158,7 @@ export default function BriefPage() {
             </div>
 
             <div>
-              <h2 className="text-sm font-semibold text-white mb-2">Printing today</h2>
+              <h2 className="text-sm font-semibold text-white mb-2">Reports today</h2>
               <p className="text-xs text-[var(--color-muted)] mb-2">
                 Free context from the calendar — who reports today.
               </p>
@@ -239,62 +202,43 @@ export default function BriefPage() {
           </section>
 
           {isPreview ? (
-            <PaywallFade label="Pro unlocks the full focus card — action, watch, and drop-if — every session." />
+            <Card className="p-5 sm:p-6 border-[var(--color-accent)]/30">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-accent)] mb-3">
+                What Pro unlocks every morning
+              </div>
+              <ol className="space-y-3 text-sm text-[var(--color-muted)]">
+                <li className="flex gap-3">
+                  <span className="text-white font-semibold tabular shrink-0">1.</span>
+                  <span>
+                    <span className="text-white font-medium">A ranked focus</span> with a
+                    conviction score — one lean, not a 40-name board.
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="text-white font-semibold tabular shrink-0">2.</span>
+                  <span>
+                    <span className="text-white font-medium">A plan</span> — target,
+                    window, invalidation, and sizing, tied to the sample.
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="text-white font-semibold tabular shrink-0">3.</span>
+                  <span>
+                    <span className="text-white font-medium">An honest board read</span> —
+                    breadth, sample strength, and when it&apos;s a narrow day.
+                  </span>
+                </li>
+              </ol>
+              <Link
+                href={ctaHref}
+                className="mt-5 inline-flex items-center justify-center rounded-lg bg-[var(--color-accent)] text-white text-sm font-medium px-4 py-2.5 hover:opacity-90"
+              >
+                {session ? "Unlock morning brief" : "Sign in to unlock"}
+              </Link>
+            </Card>
           ) : null}
         </div>
       )}
     </div>
-  );
-}
-
-/** Readable teaser for unpaid users — sell the idea, lock the playbook. */
-function PreviewFocusCard({ setup }: { setup: RankedSetup }) {
-  const kindLabel = setup.kind === "wave" ? "Peer wave" : "Post-earnings drift";
-  return (
-    <Card className="p-5 sm:p-6 border-[var(--color-accent)]/35">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-accent)] mb-2">
-        Example of today&apos;s focus · {kindLabel}
-      </div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-2xl font-semibold tracking-tight">{setup.ticker}</div>
-          {setup.name ? (
-            <div className="text-sm text-[var(--color-muted)] mt-0.5">{setup.name}</div>
-          ) : null}
-          <p className="text-base mt-2">{setup.headline}</p>
-        </div>
-        {setup.edge_pct != null ? (
-          <div className="text-right">
-            <div className="text-xs text-[var(--color-muted)]">Hist. edge</div>
-            <div className="text-xl font-semibold tabular">
-              {signedPct(setup.edge_pct, 1)}
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <p className="text-sm text-[var(--color-muted)] mt-4 leading-relaxed">
-        {setup.kind === "wave"
-          ? "A peer already reported. Historically this name has drifted into its own print afterward — that's the lean we'd want you to evaluate."
-          : "This name already printed. Historically similar prints kept drifting for a few sessions — that's the lean we'd want you to evaluate."}
-      </p>
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg bg-[var(--color-panel-2)]/60 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)] mb-1">
-            Action (Pro)
-          </div>
-          <BlurValue active>
-            <p>{setup.action || "Bias and timing for the session."}</p>
-          </BlurValue>
-        </div>
-        <div className="rounded-lg bg-[var(--color-panel-2)]/60 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)] mb-1">
-            Drop if (Pro)
-          </div>
-          <BlurValue active>
-            <p>{setup.invalidation}</p>
-          </BlurValue>
-        </div>
-      </div>
-    </Card>
   );
 }

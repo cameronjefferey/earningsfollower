@@ -5,7 +5,7 @@
 ## Product
 
 - Free: earnings calendar — who reports, timing (BMO/AMC), themes, market cap, options-implied move estimates.
-- Pro ($9.99/month): Morning brief — one ranked focus setup with action, watch, and drop-if; short secondary board; what changed; printing today.
+- Pro ($9.99/month): Morning brief — one ranked focus setup with action, watch, and drop-if; short secondary board; what changed; who’s reporting today.
 - Not financial advice. Not an autotrader. Not a generic “AI stock picker.”
 
 ## Key URLs

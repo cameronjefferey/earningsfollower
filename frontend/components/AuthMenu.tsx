@@ -60,6 +60,20 @@ export function AuthMenu() {
 
   return (
     <div className="flex items-center gap-1 ml-1 pl-1 border-l border-[var(--color-edge)]">
+      {session.isAdmin ? (
+        <>
+          <NavLink
+            href="/paper"
+            label="Paper"
+            active={pathname.startsWith("/paper")}
+          />
+          <NavLink
+            href="/learning"
+            label="Learning"
+            active={pathname.startsWith("/learning")}
+          />
+        </>
+      ) : null}
       <NavLink
         href="/pricing"
         label={session.subscribed ? "Pricing" : "Upgrade"}

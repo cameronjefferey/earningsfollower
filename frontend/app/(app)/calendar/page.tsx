@@ -386,7 +386,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">Earnings calendar</h1>
             <p className="text-sm text-[var(--color-muted)] mt-2 max-w-2xl leading-relaxed">
-              Who prints, what&apos;s priced in, and how they&apos;ve reacted before.
+              Who reports, what&apos;s priced in, and how they&apos;ve reacted before.
               For what to actually lean on today, use the morning brief.
             </p>
           </div>

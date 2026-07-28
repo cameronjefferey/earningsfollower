@@ -11,35 +11,35 @@ export const metadata: Metadata = {
 const faqs: { q: string; a: string }[] = [
   {
     q: "What is earningsfollower?",
-    a: "A research site for earnings season. The free calendar shows who reports and what options markets have roughly priced in. Pro adds a morning brief with one focus setup — action, watch, and drop-if.",
+    a: "Research for earnings season built around what’s already priced in options, peer waves and post-report drift, and one morning focus with action / watch / drop-if.",
   },
   {
-    q: "What is free vs paid?",
-    a: "The earnings calendar and browsing company context stay free. The morning brief (ranked focus setup with action / watch / drop-if) is Pro at $9.99 per month.",
+    q: "What’s free vs paid?",
+    a: "Calendar and company pages stay free. The morning brief (ranked focus + short board) is Pro — details on Pricing.",
   },
   {
-    q: "What is the morning brief?",
-    a: "A short daily page: today’s focus lean, a small board of other ranked setups, what changed since the last refresh, and who is printing today. Built so you are not scrolling Waves and Drift boards yourself.",
+    q: "What’s on the morning brief?",
+    a: "One focus lean for the session (usually a peer wave or post-report drift), a short ranked board, what changed since the last refresh, and who’s reporting today.",
   },
   {
-    q: "Do you give trade signals or financial advice?",
-    a: "No. This is research and education only — not advice, not a recommendation to buy or sell anything. You own your decisions.",
+    q: "Is this financial advice or trade signals?",
+    a: "No. Research and education only. You decide what to do.",
   },
   {
     q: "Where does the data come from?",
-    a: "Primarily Financial Modeling Prep and Yahoo Finance. Options-implied moves are estimates from ATM straddles and can be wrong or delayed.",
+    a: "Mostly Financial Modeling Prep and Yahoo Finance. Implied moves are ATM-straddle estimates and can be wrong or delayed.",
   },
   {
-    q: "What are peer waves and post-earnings drift?",
-    a: "Peer waves: a related company already reported and history suggests how names in the same theme have moved into their own prints. Drift: after a print, some stocks historically keep moving for a few sessions — we surface those patterns with sample honesty.",
+    q: "Peer waves and post-earnings drift?",
+    a: "Peer waves: a related company already reported; we look at how names in that theme have moved into their own reports. Drift: after a report, some stocks historically keep moving for a few sessions — we show that with sample size attached.",
   },
   {
-    q: "How do I cancel Pro?",
-    a: "Sign in, open Account (or Pricing), and use Manage / cancel — that opens Stripe’s billing portal.",
+    q: "How do I cancel?",
+    a: "Account or Pricing → Manage / cancel. That opens Stripe’s billing portal.",
   },
   {
-    q: "Is there an API or mobile app?",
-    a: "Not as a public product yet. The website is the product.",
+    q: "API or mobile app?",
+    a: "Not publicly. The site is the product.",
   },
 ];
 
@@ -64,12 +64,11 @@ export default function FaqPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
-      <h1 className="m-display text-3xl sm:text-4xl text-[var(--m-ink)] tracking-tight">
+      <h1 className="m-display m-hero-brand text-3xl sm:text-4xl text-[var(--m-ink)] tracking-tight">
         FAQ
       </h1>
-      <p className="mt-4 text-[var(--m-muted)] leading-relaxed">
-        Straight answers. If something here is wrong after a product change, email from
-        Account or just yell into the void and we&apos;ll fix the page.
+      <p className="m-hero-line mt-4 text-[var(--m-muted)] leading-relaxed">
+        Short answers. If something drifts out of date, tell us from Account.
       </p>
 
       <dl className="mt-12 space-y-10">
@@ -82,7 +81,6 @@ export default function FaqPage() {
       </dl>
 
       <p className="mt-14 text-sm text-[var(--m-muted)]">
-        Still curious?{" "}
         <Link href="/how-it-works" className="text-[var(--m-accent)] m-link-underline">
           How it works
         </Link>

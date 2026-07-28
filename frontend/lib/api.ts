@@ -613,6 +613,24 @@ export interface DigestResponse {
   updated_at?: string | null;
 }
 
+export interface SetupPlan {
+  thesis: string;
+  trigger_status: string;
+  target: string;
+  window: string;
+  invalidation: string;
+  sizing: string;
+}
+
+export interface ClusterPeer {
+  ticker: string;
+  name: string | null;
+  edge_pct?: number | null;
+  win_rate?: number | null;
+  sample_size?: number | null;
+  href?: string;
+}
+
 export interface RankedSetup {
   id: string;
   rank: number;
@@ -623,6 +641,14 @@ export interface RankedSetup {
   headline: string;
   action?: string;
   score: number;
+  conviction?: number;
+  conviction_label?: string;
+  trigger?: string | null;
+  trigger_move_pct?: number | null;
+  trigger_beat?: boolean | null;
+  cluster_size?: number;
+  cluster_peers?: ClusterPeer[];
+  plan?: SetupPlan;
   sample_tier?: SampleTier;
   sample_size?: number;
   win_rate?: number | null;
@@ -635,6 +661,17 @@ export interface RankedSetup {
   invalidation: string;
   href: string;
   board_href?: string;
+}
+
+export interface BoardQuality {
+  count: number;
+  solid: number;
+  ok: number;
+  thin: number;
+  distinct_drivers: number;
+  median_win_floor?: number | null;
+  best_edge_pct?: number | null;
+  top_conviction?: number | null;
 }
 
 export interface RankedSetupsResponse {
@@ -662,6 +699,7 @@ export interface MorningBriefResponse {
   preview?: boolean;
   preview_note?: string | null;
   focus?: RankedSetup | null;
+  board_quality?: BoardQuality;
   digest: {
     date?: string | null;
     bullets: DigestBullet[];
@@ -708,10 +746,15 @@ export const api = {
     ),
   morningBrief: (accessToken?: string | null) =>
     getJSON<MorningBriefResponse>("/brief/today", accessToken),
-  paper: () => getJSON<PaperResponse>("/paper"),
-  paperAttribution: (minSamples = 5) =>
-    getJSON<AttributionResponse>(`/paper/attribution?min_samples=${minSamples}`),
-  paperNarrative: () => getJSON<NarrativeResponse>("/paper/narrative"),
-  paperProgress: (weeks = 8) =>
-    getJSON<ProgressResponse>(`/paper/progress?weeks=${weeks}`),
+  paper: (accessToken?: string | null) =>
+    getJSON<PaperResponse>("/paper", accessToken),
+  paperAttribution: (minSamples = 5, accessToken?: string | null) =>
+    getJSON<AttributionResponse>(
+      `/paper/attribution?min_samples=${minSamples}`,
+      accessToken
+    ),
+  paperNarrative: (accessToken?: string | null) =>
+    getJSON<NarrativeResponse>("/paper/narrative", accessToken),
+  paperProgress: (weeks = 8, accessToken?: string | null) =>
+    getJSON<ProgressResponse>(`/paper/progress?weeks=${weeks}`, accessToken),
 };

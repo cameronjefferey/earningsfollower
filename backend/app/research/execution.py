@@ -31,7 +31,9 @@ Pure numpy; reuses the CI primitives from ``attribution``.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+import bisect
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 
 import numpy as np
 from sqlalchemy import select
@@ -41,6 +43,10 @@ from app.db.models import PaperTrade, PriceBar, TradeDecision
 from app.research.attribution import mean_ci, wilson_interval
 
 DEFAULT_MIN_SAMPLES = 5
+
+# A day needs at least this many names with a prior close to count as a market
+# read (below it, the equal-weight return is one or two names, i.e. noise).
+_MIN_BREADTH = 5
 
 # Strategies whose objective is to *ride* a directional move — the ones where an
 # underlying capture ratio is a meaningful read of exit timing. Sell-vol earnings
@@ -60,11 +66,100 @@ def _fav(move: float | None, direction: str | None) -> float | None:
     return None
 
 
+# --- market baseline (beta strip) --------------------------------------------
+#
+# The naive objection to "the signal's +5d move is positive" is that equities
+# drift up and a bullish-tilted book inherits that beta for free. So we net out
+# a market baseline: an equal-weight index of EVERY covered name (the universe we
+# actually pick from), rebuilt from the same daily bars. Excess = the signal's
+# direction-adjusted move minus the index's move over the identical window —
+# what's left after the market/earnings-season tailwind is removed. Using our own
+# universe (rather than SPY) also strips the earnings-season selection effect and
+# needs no extra data, so it works on the existing record immediately.
+
+
+def _market_index(
+    db: Session, start: date, end: date
+) -> tuple[list[date], np.ndarray]:
+    """Equal-weight daily-return index of the covered universe over [start, end],
+    returned as (sorted trading dates, index levels). Each day's return is the
+    mean single-day return across names that have a prior close; days with fewer
+    than ``_MIN_BREADTH`` contributors still advance but are inherently noisier."""
+    rows = db.execute(
+        select(PriceBar.ticker, PriceBar.date, PriceBar.close)
+        .where(
+            PriceBar.date >= start,
+            PriceBar.date <= end,
+            PriceBar.close.is_not(None),
+        )
+        .order_by(PriceBar.ticker.asc(), PriceBar.date.asc())
+    ).all()
+
+    ret_by_date: dict[date, list[float]] = defaultdict(list)
+    last_ticker = None
+    last_close = None
+    for tk, d, c in rows:
+        if tk != last_ticker:
+            last_ticker, last_close = tk, c
+            continue
+        if last_close and last_close > 0 and c and c > 0:
+            ret_by_date[d].append(c / last_close - 1)
+        last_close = c
+
+    dates = sorted(ret_by_date)
+    levels: list[float] = []
+    lvl = 1.0
+    for d in dates:
+        vals = ret_by_date[d]
+        lvl *= 1 + (float(np.mean(vals)) if vals else 0.0)
+        levels.append(lvl)
+    return dates, np.array(levels, dtype=float)
+
+
+def _mkt_move(dates: list[date], levels: np.ndarray, ref: date, n: int) -> float | None:
+    """Index return over the n trading days strictly after ``ref``, anchored on the
+    last level at/just before ``ref`` — mirroring how a signal's fav_move is taken
+    from its entry to the n-th bar after."""
+    if not dates:
+        return None
+    base_i = bisect.bisect_right(dates, ref) - 1
+    fwd_i = bisect.bisect_right(dates, ref) + (n - 1)
+    if base_i < 0 or fwd_i >= len(dates):
+        return None
+    base = levels[base_i]
+    if base <= 0:
+        return None
+    return float(levels[fwd_i] / base - 1)
+
+
+def _excess_map(db: Session, decisions: list[TradeDecision]) -> dict[int, float]:
+    """Per-decision excess +5d move (signal fav move minus the direction-adjusted
+    market move over the same window). Only for rows with a resolved fav_move_5d
+    and a computable benchmark."""
+    graded = [r for r in decisions if r.fav_move_5d is not None and r.decision_date]
+    if not graded:
+        return {}
+    start = min(r.decision_date for r in graded) - timedelta(days=10)
+    end = datetime.utcnow().date()
+    dates, levels = _market_index(db, start, end)
+    out: dict[int, float] = {}
+    for r in graded:
+        mkt = _mkt_move(dates, levels, r.decision_date, 5)
+        bench = _fav(mkt, r.direction)
+        if bench is None:
+            continue
+        out[r.id] = round(r.fav_move_5d - bench, 4)
+    return out
+
+
 # --- signal quality ----------------------------------------------------------
 
 
-def _signal_group(rows: list[TradeDecision], min_samples: int) -> dict | None:
-    """Hit rate + avg forward move for a set of decisions (execution-agnostic)."""
+def _signal_group(
+    rows: list[TradeDecision], excess: dict[int, float], min_samples: int
+) -> dict | None:
+    """Hit rate + avg forward move for a set of decisions (execution-agnostic),
+    both raw and net of the market baseline (excess)."""
     fav5 = [r.fav_move_5d for r in rows if r.fav_move_5d is not None]
     if len(fav5) < min_samples:
         return None
@@ -72,6 +167,11 @@ def _signal_group(rows: list[TradeDecision], min_samples: int) -> dict | None:
     arr5 = np.array(fav5, dtype=float)
     wins = int(np.sum(arr5 > 0))
     n = len(fav5)
+
+    exc = [excess[r.id] for r in rows if r.id in excess]
+    exc_arr = np.array(exc, dtype=float) if exc else None
+    beat = int(np.sum(exc_arr > 0)) if exc_arr is not None else 0
+
     return {
         "n": n,
         "hit_rate": round(wins / n, 3),
@@ -79,10 +179,24 @@ def _signal_group(rows: list[TradeDecision], min_samples: int) -> dict | None:
         "avg_fav_move_5d": round(float(np.mean(arr5)), 4),
         "avg_fav_move_5d_ci": mean_ci(arr5),
         "avg_fav_move_1d": round(float(np.mean(fav1)), 4) if fav1 else None,
+        # Market-baseline-adjusted: what's left after netting out the universe.
+        "n_excess": len(exc) if exc_arr is not None else 0,
+        "avg_excess_move_5d": (
+            round(float(np.mean(exc_arr)), 4) if exc_arr is not None else None
+        ),
+        "avg_excess_move_5d_ci": mean_ci(exc_arr) if exc_arr is not None else None,
+        "beat_rate": (
+            round(beat / len(exc), 3) if exc_arr is not None else None
+        ),
+        "beat_rate_ci": (
+            list(wilson_interval(beat, len(exc))) if exc_arr is not None else None
+        ),
     }
 
 
-def _signal_quality(rows: list[TradeDecision], min_samples: int) -> dict:
+def _signal_quality(
+    rows: list[TradeDecision], excess: dict[int, float], min_samples: int
+) -> dict:
     graded = [r for r in rows if r.fav_move_5d is not None]
 
     def by(attr: str) -> list[dict]:
@@ -94,22 +208,30 @@ def _signal_quality(rows: list[TradeDecision], min_samples: int) -> dict:
             buckets.setdefault(str(key), []).append(r)
         out = []
         for key, items in buckets.items():
-            g = _signal_group(items, min_samples)
+            g = _signal_group(items, excess, min_samples)
             if g:
                 out.append({"key": key, **g})
-        out.sort(key=lambda d: d["avg_fav_move_5d"], reverse=True)
+        # Rank by the beta-stripped edge when available, else raw.
+        out.sort(
+            key=lambda d: (
+                d["avg_excess_move_5d"]
+                if d["avg_excess_move_5d"] is not None
+                else d["avg_fav_move_5d"]
+            ),
+            reverse=True,
+        )
         return out
 
     opened = [r for r in graded if r.decision == "opened"]
     skipped = [r for r in graded if r.decision == "skipped"]
 
     return {
-        "overall": _signal_group(graded, min_samples=1),
+        "overall": _signal_group(graded, excess, min_samples=1),
         "by_strategy": by("strategy"),
         "by_conviction": by("conviction"),
         "opened_vs_skipped": {
-            "opened": _signal_group(opened, min_samples=1),
-            "skipped": _signal_group(skipped, min_samples=1),
+            "opened": _signal_group(opened, excess, min_samples=1),
+            "skipped": _signal_group(skipped, excess, min_samples=1),
         },
     }
 
@@ -258,9 +380,13 @@ def _exit_capture(
 # --- weekly signal vintage ---------------------------------------------------
 
 
-def _signal_weeks(rows: list[TradeDecision], weeks: int) -> list[dict]:
-    """Signal hit-rate + avg +5d move by the week the decision fired (vintage),
-    so a strategy that takes weeks to close isn't hidden by close-date bucketing."""
+def _signal_weeks(
+    rows: list[TradeDecision], excess: dict[int, float], weeks: int
+) -> list[dict]:
+    """Signal hit-rate + avg +5d move (raw and excess-of-market) by the week the
+    decision fired (vintage), so a strategy that takes weeks to close isn't hidden
+    by close-date bucketing. Non-overlapping weeks — each is an independent cohort,
+    not a cumulative snapshot."""
     now = datetime.utcnow().date()
     monday = now - timedelta(days=now.weekday())
     out: list[dict] = []
@@ -280,15 +406,20 @@ def _signal_weeks(rows: list[TradeDecision], weeks: int) -> list[dict]:
                 "n": 0,
                 "hit_rate": None,
                 "avg_fav_move_5d": None,
+                "avg_excess_move_5d": None,
             })
             continue
         arr = np.array([r.fav_move_5d for r in items], dtype=float)
+        exc = [excess[r.id] for r in items if r.id in excess]
         out.append({
             "label": start.strftime("%b %d"),
             "week_start": start.isoformat(),
             "n": n,
             "hit_rate": round(float(np.mean(arr > 0)), 3),
             "avg_fav_move_5d": round(float(np.mean(arr)), 4),
+            "avg_excess_move_5d": (
+                round(float(np.mean(exc)), 4) if exc else None
+            ),
         })
     return out
 
@@ -315,12 +446,35 @@ def execution_report(
     ]
 
     graded_signals = sum(1 for r in decisions if r.fav_move_5d is not None)
+    excess = _excess_map(db, decisions)
+
+    signal_quality = _signal_quality(decisions, excess, min_samples)
+
+    # Top-line honest read: after netting out the market, is there edge at all?
+    overall = signal_quality["overall"]
+    baseline = None
+    if overall and overall.get("avg_excess_move_5d") is not None:
+        ci = overall.get("avg_excess_move_5d_ci")
+        # "Edge" only if the excess CI is entirely above zero — otherwise it's
+        # indistinguishable from just owning the market.
+        beats = bool(ci and ci[0] > 0)
+        baseline = {
+            "n": overall.get("n_excess", 0),
+            "avg_excess_move_5d": overall["avg_excess_move_5d"],
+            "avg_excess_move_5d_ci": ci,
+            "beat_rate": overall.get("beat_rate"),
+            "significant": beats,
+        }
 
     notes = [
         "Signal quality is the underlying's direction-adjusted move after the "
         "decision — it grades the lean itself, independent of whether or how we "
         "traded it (skips included). Entry/exit timing then explain how much of "
         "that available move our execution actually kept.",
+        "Excess move nets out an equal-weight index of every covered name over the "
+        "identical window, so a positive raw move that just tracks the market shows "
+        "as zero excess. Edge = excess whose 95% CI clears zero; anything else is "
+        "beta, not alpha.",
     ]
     if graded_signals < 20:
         notes.insert(
@@ -333,10 +487,11 @@ def execution_report(
         "generated_at": datetime.utcnow().isoformat(),
         "graded_signals": graded_signals,
         "min_samples": min_samples,
-        "signal_quality": _signal_quality(decisions, min_samples),
+        "market_baseline": baseline,
+        "signal_quality": signal_quality,
         "entry_timing": _entry_timing(pairs),
         "exit_capture": _exit_capture(db, pairs, min_samples),
-        "signal_weeks": _signal_weeks(decisions, weeks),
+        "signal_weeks": _signal_weeks(decisions, excess, weeks),
         "notes": notes,
     }
 

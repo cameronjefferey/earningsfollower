@@ -2,6 +2,7 @@
 
 import {
   ExecutionResponse,
+  MarketBaseline,
   SignalCohort,
   SignalGroup,
 } from "@/lib/api";
@@ -81,10 +82,58 @@ function SignalRow({ c }: { c: SignalCohort }) {
       <td className="py-2 pr-3 tabular-nums" style={{ color: moveColor(c.avg_fav_move_5d) }}>
         {signed(c.avg_fav_move_5d)}
       </td>
+      <td
+        className="py-2 pr-3 tabular-nums font-semibold"
+        style={{ color: moveColor(c.avg_excess_move_5d) }}
+      >
+        {c.avg_excess_move_5d === null ? "—" : signed(c.avg_excess_move_5d)}
+      </td>
       <td className="py-2 tabular-nums text-[var(--color-muted)]">
         {signed(c.avg_fav_move_1d)}
       </td>
     </tr>
+  );
+}
+
+function BaselineBanner({ base }: { base: MarketBaseline | null }) {
+  if (!base) return null;
+  const ci = base.avg_excess_move_5d_ci;
+  const verdict = base.significant
+    ? "Edge — beats the market"
+    : base.avg_excess_move_5d > 0
+    ? "Tracks the market (not yet distinguishable from beta)"
+    : "Below the market baseline";
+  const color = base.significant
+    ? PROFIT
+    : base.avg_excess_move_5d > 0
+    ? WARN
+    : LOSS;
+  return (
+    <div
+      className="mb-3 rounded-lg border px-4 py-3"
+      style={{ borderColor: `${color}55`, backgroundColor: `${color}10` }}
+    >
+      <div className="flex items-center text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+        Excess vs. market (alpha, not beta)
+        <InfoTip text="The signals' average +5d move minus an equal-weight index of every covered name over the identical window. This nets out the market/earnings-season tailwind, so only a positive excess whose 95% CI clears zero counts as real edge. Built from our own universe — no index feed required." />
+      </div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-2xl font-semibold tabular-nums" style={{ color }}>
+          {signed(base.avg_excess_move_5d, 2)}
+        </span>
+        {ci ? (
+          <span className="text-xs text-[var(--color-muted)] tabular-nums">
+            95% CI [{signed(ci[0], 2)}, {signed(ci[1], 2)}]
+          </span>
+        ) : null}
+        <span className="text-xs font-medium" style={{ color }}>
+          {verdict}
+        </span>
+        <span className="text-[11px] text-[var(--color-muted)]">
+          · beat rate {pct(base.beat_rate)} · n={base.n}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -164,7 +213,11 @@ function SignalVintage({ weeks }: { weeks: ExecutionResponse["signal_weeks"] }) 
                   title={
                     v === null
                       ? `${w.label}: no signals`
-                      : `${w.label}: ${signed(v)} avg +5d (n=${w.n}, hit ${pct(w.hit_rate)})`
+                      : `${w.label}: ${signed(v)} avg +5d · excess ${
+                          w.avg_excess_move_5d === null
+                            ? "—"
+                            : signed(w.avg_excess_move_5d)
+                        } (n=${w.n}, hit ${pct(w.hit_rate)})`
                   }
                 />
               </div>
@@ -198,14 +251,16 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
       </div>
 
       <Card className="p-4">
+        <BaselineBanner base={report.market_baseline} />
+
         {/* The three axes as headline metrics. */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Metric
             label="Signal lean (+5d)"
             value={signed(sq.overall?.avg_fav_move_5d)}
             valueColor={moveColor(sq.overall?.avg_fav_move_5d)}
-            sub={`${pct(sq.overall?.hit_rate)} hit · ${sq.overall?.n ?? 0} decisions`}
-            info="Across ALL decisions (opened and skipped): the underlying's direction-adjusted move 5 trading days after the call. Measures the signal itself, independent of how we traded it."
+            sub={`${pct(sq.overall?.hit_rate)} hit · ${sq.overall?.n ?? 0} decisions · raw (see excess above)`}
+            info="Across ALL decisions (opened and skipped): the underlying's direction-adjusted move 5 trading days after the call. Measures the signal itself, independent of how we traded it. This is the RAW move — the excess-vs-market banner above is the one that separates edge from beta."
           />
           <Metric
             label="Entry timing"
@@ -276,6 +331,10 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
                   <th className="py-1 pr-3">n</th>
                   <th className="py-1 pr-3">Hit rate</th>
                   <th className="py-1 pr-3">Avg +5d</th>
+                  <th className="py-1 pr-3">
+                    Excess
+                    <InfoTip text="Avg +5d move net of the market baseline. This is the column that matters — positive raw moves that are just beta collapse to ~0 here." />
+                  </th>
                   <th className="py-1">Avg +1d</th>
                 </tr>
               </thead>

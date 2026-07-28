@@ -554,6 +554,19 @@ export interface SignalGroup {
   avg_fav_move_5d: number;
   avg_fav_move_5d_ci: [number, number] | null;
   avg_fav_move_1d: number | null;
+  n_excess: number;
+  avg_excess_move_5d: number | null;
+  avg_excess_move_5d_ci: [number, number] | null;
+  beat_rate: number | null;
+  beat_rate_ci: [number, number] | null;
+}
+
+export interface MarketBaseline {
+  n: number;
+  avg_excess_move_5d: number;
+  avg_excess_move_5d_ci: [number, number] | null;
+  beat_rate: number | null;
+  significant: boolean;
 }
 
 export interface SignalCohort extends SignalGroup {
@@ -595,12 +608,14 @@ export interface ExecSignalWeek {
   n: number;
   hit_rate: number | null;
   avg_fav_move_5d: number | null;
+  avg_excess_move_5d: number | null;
 }
 
 export interface ExecutionResponse {
   generated_at: string;
   graded_signals: number;
   min_samples: number;
+  market_baseline: MarketBaseline | null;
   signal_quality: {
     overall: SignalGroup | null;
     by_strategy: SignalCohort[];

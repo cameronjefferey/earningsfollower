@@ -130,6 +130,39 @@ def test_exit_capture_handles_bearish_direction():
     assert worst["capture_ratio"] == 0.5
 
 
+def test_market_baseline_strips_beta():
+    """The universe rises ~10% over the window. A signal that just tracks it should
+    show ~0 excess; one that beats it by 10pts should show ~+0.10 excess."""
+    db = _session()
+    # Equal-weight universe: 6 names each compounding +2%/day, with history before
+    # the decision so the anchor has a prior level ⇒ 5-day index move ≈ 10.4%.
+    for m in range(6):
+        for k in range(13):
+            db.add(PriceBar(
+                ticker=f"M{m}", date=date(2026, 7, 1) + timedelta(days=k),
+                open=100.0, high=None, low=None, close=round(100 * (1.02 ** k), 4),
+            ))
+    # A reddit signal that only matched the market, and a drift signal that beat it.
+    db.add(_dec(ticker="S", strategy="reddit", decision_date=date(2026, 7, 6),
+                fav_move_5d=0.104))
+    db.add(_dec(ticker="T", strategy="drift", decision_date=date(2026, 7, 6),
+                fav_move_5d=0.204))
+    db.commit()
+
+    rep = execution_report(db, min_samples=1)
+    base = rep["market_baseline"]
+    assert base is not None and base["n"] == 2
+    # Mean excess ≈ (0 + 0.10) / 2 = 0.05, and NOT significant (n=2, wide CI).
+    assert abs(base["avg_excess_move_5d"] - 0.05) < 0.01
+    assert base["significant"] is False
+
+    by_strat = {c["key"]: c for c in rep["signal_quality"]["by_strategy"]}
+    assert abs(by_strat["reddit"]["avg_excess_move_5d"]) < 0.01  # just beta
+    assert abs(by_strat["drift"]["avg_excess_move_5d"] - 0.10) < 0.01  # real excess
+    # Beta-stripped ranking puts the true-excess strategy first.
+    assert rep["signal_quality"]["by_strategy"][0]["key"] == "drift"
+
+
 def test_entry_timing_flags_chasing():
     """Decision spot 100, filled at 105 (already +5% our way) => chased."""
     db = _session()

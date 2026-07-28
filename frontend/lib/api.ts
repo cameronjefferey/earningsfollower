@@ -648,8 +648,27 @@ export interface ExecutionResponse {
     policies: ExitPolicy[];
     best: ExitPolicy | null;
   };
+  live_exit_policy: LiveExitPolicy | null;
   signal_weeks: ExecSignalWeek[];
   notes: string[];
+}
+
+export interface LiveExitPolicy {
+  enabled: boolean;
+  learning_enabled: boolean;
+  default_pct: number;
+  effective_pct: number;
+  band: [number, number];
+  min_samples: number;
+  learned: {
+    take_profit_pct: number;
+    n: number;
+    avg_captured: number;
+    actual_avg_captured: number;
+    lift: number;
+    applicable: boolean;
+    source: string;
+  } | null;
 }
 
 async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {

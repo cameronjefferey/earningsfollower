@@ -32,6 +32,10 @@ from app.services.dashboard import company_detail
 from app.services.notify import send_telegram, telegram_configured
 from app.services.paper.calibration import adjust_win_prob, compute_calibration
 from app.services.paper.contracts import TradeSpec, build_trade_spec
+from app.services.paper.exit_learning import (
+    compute_learned_take_profit,
+    effective_take_profit,
+)
 from app.services.paper.decisions import (
     drift_features,
     earnings_features,
@@ -164,11 +168,26 @@ def run(db: Session, dry_run: bool = False) -> dict:
                     logger.warning("trade notification failed: %s", e)
             return summary
 
+        # Learned exit discipline: derive the take-profit to enforce this run from
+        # the realized record (guardrailed, falls back to the static default).
+        # Computed before the managers so every directional book uses the same
+        # threshold. Never let it break the run.
+        try:
+            learned_exit = compute_learned_take_profit(db, settings)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("exit-learning compute failed: %s", e)
+            learned_exit = None
+        tp_pct = effective_take_profit(settings, learned_exit)
+        if learned_exit and learned_exit.applicable:
+            summary["take_profit_pct"] = tp_pct
+
         summary["closed"] += _manage_exits(db, client, settings, dry_run)
-        summary["closed"] += _manage_wave_exits(db, client, settings, dry_run)
-        summary["closed"] += _manage_drift_exits(db, client, settings, dry_run)
-        summary["closed"] += _manage_reddit_exits(db, client, settings, dry_run)
-        summary["closed"] += _manage_earnings_equity_exits(db, client, settings, dry_run)
+        summary["closed"] += _manage_wave_exits(db, client, settings, dry_run, tp_pct)
+        summary["closed"] += _manage_drift_exits(db, client, settings, dry_run, tp_pct)
+        summary["closed"] += _manage_reddit_exits(db, client, settings, dry_run, tp_pct)
+        summary["closed"] += _manage_earnings_equity_exits(
+            db, client, settings, dry_run, tp_pct
+        )
 
         # Calibration feedback: recalibrate each strategy's model win-probability
         # by its realized track record before the EV gate sees it (opt-in, and a
@@ -461,6 +480,30 @@ def _manage_exits(db: Session, client: AlpacaClient, settings, dry_run: bool) ->
     if not dry_run:
         db.commit()
     return closed
+
+
+def _underlying_take_profit(
+    t: PaperTrade, spot_now: float | None, settings, tp_pct: float
+) -> str | None:
+    """Global take-profit on the direction-adjusted underlying move, applied to the
+    directional books so we harvest a move instead of round-tripping it. Binds
+    before each book's looser gain target because ``tp_pct`` is the tighter one.
+    Returns a close reason or None."""
+    if not settings.paper_take_profit_enabled or not spot_now:
+        return None
+    entry = t.spot_entry or t.entry_credit
+    if not entry or entry <= 0:
+        return None
+    move = spot_now / entry - 1.0
+    if t.direction == "bullish":
+        fav = move
+    elif t.direction == "bearish":
+        fav = -move
+    else:
+        return None
+    if fav >= tp_pct:
+        return f"take-profit (+{fav:.1%} underlying)"
+    return None
 
 
 def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str | None:
@@ -1456,7 +1499,7 @@ def _next_earnings_equity_signal_id(db: Session) -> str:
 
 
 def _manage_earnings_equity_exits(
-    db: Session, client: AlpacaClient, settings, dry_run: bool
+    db: Session, client: AlpacaClient, settings, dry_run: bool, tp_pct: float
 ) -> int:
     """Close open earnings-equity positions: the planned post-earnings harvest
     (mirrors the options IV-crush close so the A/B shares a lifecycle), a %-move
@@ -1475,7 +1518,7 @@ def _manage_earnings_equity_exits(
         spot_now = client.stock_price(t.ticker)
         if not spot_now:
             continue
-        reason = _earnings_equity_exit_reason(t, spot_now, today, settings)
+        reason = _earnings_equity_exit_reason(t, spot_now, today, settings, tp_pct)
         if reason is None:
             continue
         if dry_run:
@@ -1510,13 +1553,17 @@ def _manage_earnings_equity_exits(
 
 
 def _earnings_equity_exit_reason(
-    t: PaperTrade, spot_now: float, today: date, settings
+    t: PaperTrade, spot_now: float, today: date, settings, tp_pct: float
 ) -> str | None:
     # Operational escape hatches first (shared with the options manager).
     if t.signal_id in settings.paper_force_close_id_set:
         return "manual close"
     if (t.note or "").startswith(_BAD_FILL_PREFIX):
         return "flatten: bad entry fill"
+    # Global learned take-profit binds before the book's wider band below.
+    tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
+    if tp is not None:
+        return tp
     # Underlying-move take-profit / stop (guardrail before and through the print).
     # Anchor to the real fill (entry_credit); spot_entry may be a stale pre-fill
     # estimate for positions opened before this reference was corrected.
@@ -1554,7 +1601,7 @@ def _parse_iso(value) -> date | None:
 
 
 def _manage_wave_exits(
-    db: Session, client: AlpacaClient, settings, dry_run: bool
+    db: Session, client: AlpacaClient, settings, dry_run: bool, tp_pct: float
 ) -> int:
     """Close open wave trades on the fixed short hold, the underlying-move
     bracket, or (as a safety) the day before the target's own print."""
@@ -1571,7 +1618,7 @@ def _manage_wave_exits(
             continue
         symbols = [l["symbol"] for l in legs]
         spot_now = client.stock_price(t.ticker)
-        reason = _wave_exit_reason(t, spot_now, today, settings)
+        reason = _wave_exit_reason(t, spot_now, today, settings, tp_pct)
         if reason is None:
             continue
         quotes = client.option_quotes(symbols)
@@ -1625,7 +1672,13 @@ def _manage_wave_exits(
     return closed
 
 
-def _wave_exit_reason(t: PaperTrade, spot_now: float | None, today: date, settings) -> str | None:
+def _wave_exit_reason(
+    t: PaperTrade, spot_now: float | None, today: date, settings, tp_pct: float
+) -> str | None:
+    # Global learned take-profit first (tighter than the book's own gain band).
+    tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
+    if tp is not None:
+        return tp
     # Fixed short hold: the sympathy pop is a few-day move — take it and leave.
     if t.opened_at and (today - t.opened_at.date()).days >= settings.paper_wave_hold_days:
         return "hold window elapsed"
@@ -1916,7 +1969,7 @@ def _next_wave_signal_id(db: Session) -> str:
 
 
 def _manage_drift_exits(
-    db: Session, client: AlpacaClient, settings, dry_run: bool
+    db: Session, client: AlpacaClient, settings, dry_run: bool, tp_pct: float
 ) -> int:
     """Close open drift debit spreads on a time horizon (the drift window has
     elapsed), a take-profit (spread near its max width), or a broken-thesis stop
@@ -1943,7 +1996,7 @@ def _manage_drift_exits(
             2,
         )
         spot_now = client.stock_price(t.ticker)
-        reason = _drift_exit_reason(t, spot_now, exit_value, today, settings)
+        reason = _drift_exit_reason(t, spot_now, exit_value, today, settings, tp_pct)
         if reason is None:
             continue
 
@@ -1990,8 +2043,14 @@ def _manage_drift_exits(
 
 
 def _drift_exit_reason(
-    t: PaperTrade, spot_now: float | None, exit_value: float, today: date, settings
+    t: PaperTrade, spot_now: float | None, exit_value: float, today: date,
+    settings, tp_pct: float,
 ) -> str | None:
+    # Global learned take-profit on the underlying move — drift otherwise has no
+    # upside exit but the time/width ones, which let winners round-trip.
+    tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
+    if tp is not None:
+        return tp
     # Time exit: the drift window the edge is measured over has elapsed.
     if t.earnings_date and (today - t.earnings_date).days >= settings.paper_drift_hold_days:
         return "drift window elapsed"
@@ -2297,7 +2356,7 @@ _REDDIT_WIN_PROB = {"high": 0.55, "medium": 0.50, "low": 0.45}
 
 
 def _manage_reddit_exits(
-    db: Session, client: AlpacaClient, settings, dry_run: bool
+    db: Session, client: AlpacaClient, settings, dry_run: bool, tp_pct: float
 ) -> int:
     """Close open Reddit debit spreads on a tight time horizon (attention fades),
     a take-profit (spread near its max width), a stop (gave back the debit), or a
@@ -2311,7 +2370,7 @@ def _manage_reddit_exits(
     ).all()
     for t in trades:
         if _is_equity(t):
-            if _manage_one_equity_exit(db, client, t, settings, dry_run):
+            if _manage_one_equity_exit(db, client, t, settings, dry_run, tp_pct):
                 closed += 1
             continue
         legs = json.loads(t.legs or "[]")
@@ -2328,7 +2387,7 @@ def _manage_reddit_exits(
             2,
         )
         spot_now = client.stock_price(t.ticker)
-        reason = _reddit_exit_reason(db, t, exit_value, today, settings)
+        reason = _reddit_exit_reason(db, t, spot_now, exit_value, today, settings, tp_pct)
         if reason is None:
             continue
 
@@ -2376,8 +2435,13 @@ def _manage_reddit_exits(
 
 
 def _reddit_exit_reason(
-    db: Session, t: PaperTrade, exit_value: float, today: date, settings
+    db: Session, t: PaperTrade, spot_now: float | None, exit_value: float,
+    today: date, settings, tp_pct: float,
 ) -> str | None:
+    # Global learned take-profit on the underlying move binds first.
+    tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
+    if tp is not None:
+        return tp
     # Time exit: this is a momentum day-trade — we ride the Reddit wave for only
     # a few hours and never hold overnight. Measured in hours since the fill (the
     # cron's ~30-min cadence is the exit granularity).
@@ -2406,9 +2470,15 @@ def _reddit_exit_reason(
     return None
 
 
-def _reddit_equity_exit_reason(t: PaperTrade, spot_now: float, settings) -> str | None:
+def _reddit_equity_exit_reason(
+    t: PaperTrade, spot_now: float, settings, tp_pct: float
+) -> str | None:
     """Same intraday clock as the options twin, but the take-profit / stop are
     measured on the underlying's move (there's no spread to value)."""
+    # Global learned take-profit binds before the book's own (already-tight) band.
+    tp_reason = _underlying_take_profit(t, spot_now, settings, tp_pct)
+    if tp_reason is not None:
+        return tp_reason
     if t.opened_at:
         held_hours = (datetime.utcnow() - t.opened_at).total_seconds() / 3600.0
         if held_hours >= settings.paper_reddit_hold_hours:
@@ -2433,13 +2503,14 @@ def _reddit_equity_exit_reason(t: PaperTrade, spot_now: float, settings) -> str 
 
 
 def _manage_one_equity_exit(
-    db: Session, client: AlpacaClient, t: PaperTrade, settings, dry_run: bool
+    db: Session, client: AlpacaClient, t: PaperTrade, settings, dry_run: bool,
+    tp_pct: float,
 ) -> bool:
     """Close a Reddit equity twin (market order) on time or a %-move TP/SL."""
     spot_now = client.stock_price(t.ticker)
     if not spot_now:
         return False
-    reason = _reddit_equity_exit_reason(t, spot_now, settings)
+    reason = _reddit_equity_exit_reason(t, spot_now, settings, tp_pct)
     if reason is None:
         return False
     if dry_run:

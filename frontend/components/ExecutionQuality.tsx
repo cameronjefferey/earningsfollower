@@ -3,6 +3,7 @@
 import {
   ExecutionResponse,
   ExitPolicy,
+  LiveExitPolicy,
   MarketBaseline,
   SignalCohort,
   SignalGroup,
@@ -179,6 +180,42 @@ function OpenedVsSkipped({
           </span>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function LiveExitPolicyBanner({ live }: { live: LiveExitPolicy | null }) {
+  if (!live || !live.enabled) return null;
+  const learned = live.learned;
+  const isLearned = Boolean(learned && learned.applicable);
+  const color = isLearned ? PROFIT : ACCENT;
+  return (
+    <div
+      className="mb-2 rounded-lg border px-3 py-2 text-sm"
+      style={{ borderColor: `${color}55`, backgroundColor: `${color}10` }}
+    >
+      <span className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+        Live now
+      </span>{" "}
+      <span className="font-semibold" style={{ color }}>
+        take-profit at {pct(live.effective_pct, 1)}
+      </span>{" "}
+      on the directional books —{" "}
+      {isLearned && learned ? (
+        <>
+          auto-tuned from {learned.n} graded trades (would have added{" "}
+          <span className="font-semibold" style={{ color: PROFIT }}>
+            {signed(learned.lift)}
+          </span>{" "}
+          of captured move vs. actual). Recomputed every run as the record grows.
+        </>
+      ) : (
+        <>
+          the {pct(live.default_pct, 1)} default is running while the record builds
+          toward {live.min_samples} graded trades; then it auto-tunes within{" "}
+          {pct(live.band[0], 1)}–{pct(live.band[1], 1)}.
+        </>
+      )}
     </div>
   );
 }
@@ -485,6 +522,7 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
           </div>
         ) : null}
 
+        <LiveExitPolicyBanner live={report.live_exit_policy} />
         <ExitPolicyWhatIf policy={ep} />
 
         <SignalVintage weeks={report.signal_weeks} />

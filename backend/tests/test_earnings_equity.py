@@ -32,6 +32,8 @@ from app.services.paper.executor import (  # noqa: E402
 class FakeSettings:
     paper_earnings_equity_take_profit_pct: float = 0.10
     paper_earnings_equity_stop_pct: float = 0.07
+    # Global learned take-profit off here so these cases test the book's own band.
+    paper_take_profit_enabled: bool = False
     paper_force_close_id_set: set = field(default_factory=set)
     paper_walk_limit_enabled: bool = True
     paper_walk_step: float = 0.01
@@ -114,17 +116,17 @@ def _trade(structure: str, spot_entry: float, earnings_date=None, note=None,
 def test_long_equity_take_profit_and_stop():
     s = FakeSettings()
     t = _trade(EQUITY_LONG, 100.0)
-    assert _earnings_equity_exit_reason(t, 111.0, date.today(), s).startswith("take-profit")
-    assert _earnings_equity_exit_reason(t, 92.0, date.today(), s).startswith("stop")
-    assert _earnings_equity_exit_reason(t, 103.0, date.today(), s) is None
+    assert _earnings_equity_exit_reason(t, 111.0, date.today(), s, 0.03).startswith("take-profit")
+    assert _earnings_equity_exit_reason(t, 92.0, date.today(), s, 0.03).startswith("stop")
+    assert _earnings_equity_exit_reason(t, 103.0, date.today(), s, 0.03) is None
 
 
 def test_short_equity_take_profit_and_stop():
     s = FakeSettings()
     t = _trade(EQUITY_SHORT, 100.0)
     # Short profits when the stock falls.
-    assert _earnings_equity_exit_reason(t, 89.0, date.today(), s).startswith("take-profit")
-    assert _earnings_equity_exit_reason(t, 108.0, date.today(), s).startswith("stop")
+    assert _earnings_equity_exit_reason(t, 89.0, date.today(), s, 0.03).startswith("take-profit")
+    assert _earnings_equity_exit_reason(t, 108.0, date.today(), s, 0.03).startswith("stop")
 
 
 def test_exit_move_anchors_to_fill_not_stale_spot_entry():
@@ -136,9 +138,9 @@ def test_exit_move_anchors_to_fill_not_stale_spot_entry():
     s = FakeSettings()
     t = _trade(EQUITY_LONG, spot_entry=11.72, entry_credit=10.15)
     # ~flat vs the real fill -> no exit, despite -13.9% vs the stale spot_entry.
-    assert _earnings_equity_exit_reason(t, 10.09, date.today(), s) is None
+    assert _earnings_equity_exit_reason(t, 10.09, date.today(), s, 0.03) is None
     # A genuine 8% drop from the fill still stops out.
-    assert _earnings_equity_exit_reason(t, 9.30, date.today(), s).startswith("stop")
+    assert _earnings_equity_exit_reason(t, 9.30, date.today(), s, 0.03).startswith("stop")
 
 
 def test_post_earnings_harvest_after_print():
@@ -146,15 +148,15 @@ def test_post_earnings_harvest_after_print():
     yesterday = date.today() - timedelta(days=1)
     t = _trade(EQUITY_LONG, 100.0, earnings_date=yesterday)
     # Small move (no TP/SL) but the print has passed -> harvest.
-    assert _earnings_equity_exit_reason(t, 101.0, date.today(), s) == "post-earnings"
+    assert _earnings_equity_exit_reason(t, 101.0, date.today(), s, 0.03) == "post-earnings"
 
 
 def test_force_close_and_bad_fill_take_priority():
     s = FakeSettings(paper_force_close_id_set={"EE-1"})
     t = _trade(EQUITY_LONG, 100.0, signal_id="EE-1")
-    assert _earnings_equity_exit_reason(t, 100.0, date.today(), s) == "manual close"
+    assert _earnings_equity_exit_reason(t, 100.0, date.today(), s, 0.03) == "manual close"
     t2 = _trade(EQUITY_LONG, 100.0, note="bad fill: something", signal_id="EE-2")
-    assert _earnings_equity_exit_reason(t2, 100.0, date.today(), s) == "flatten: bad entry fill"
+    assert _earnings_equity_exit_reason(t2, 100.0, date.today(), s, 0.03) == "flatten: bad entry fill"
 
 
 def test_close_client_order_id_is_unique_per_attempt():

@@ -226,6 +226,25 @@ class Settings(BaseSettings):
     # historical ratio can only nudge the gate, never swing it.
     paper_calibration_max_delta: float = 0.15
 
+    # --- Exit discipline: underlying take-profit (learning loop acts) ----------
+    # The exit-quality backtest showed our directional books reach a favorable
+    # underlying move and then hand most of it back — capturing < 0 of the peak on
+    # average. This is a global take-profit on the direction-adjusted underlying
+    # move that binds *before* each book's looser gain target, so we harvest the
+    # move instead of round-tripping it. Applies to the directional books
+    # (waves/drift/reddit + equity twins); the earnings sell-vol options book wins
+    # on IV crush, not direction, so it's excluded.
+    paper_take_profit_enabled: bool = True
+    paper_take_profit_pct: float = 0.03
+    # Auto-tune the threshold from the realized record each run (the weekly
+    # learning acting on itself). Guardrailed like calibration: needs a minimum
+    # graded sample, is clamped to a sane band, and is only adopted when it beats
+    # how we actually exited. Falls back to the static pct above otherwise.
+    paper_exit_learning_enabled: bool = True
+    paper_exit_learning_min_samples: int = 20
+    paper_take_profit_min: float = 0.015
+    paper_take_profit_max: float = 0.08
+
     # --- Earnings equity book (options A/B twin) ------------------------------
     # Alongside the earnings options play, take a plain equity position on the same
     # directional lean (long a bullish name, short a bearish one) so we can compare

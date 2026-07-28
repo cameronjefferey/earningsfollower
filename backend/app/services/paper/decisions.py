@@ -35,7 +35,10 @@ logger = logging.getLogger(__name__)
 
 # Bump when the signal-generation logic changes in a way that makes older rows
 # not directly comparable, so analysis can segment by regime.
-PLAYBOOK_VERSION = "1"
+#   1 -> initial journal.
+#   2 -> global underlying take-profit turned on across the directional books
+#        (exit discipline changed materially, so pre/post capture isn't comparable).
+PLAYBOOK_VERSION = "2"
 
 # The tunable knobs that shape which trades open and how they're sized. Snapshotted
 # with every decision so results can be attributed to a specific config regime.
@@ -59,6 +62,9 @@ _REGIME_KEYS = (
     "reddit_min_conviction",
     "reddit_max_pump_risk",
     "reddit_min_velocity",
+    "paper_take_profit_enabled",
+    "paper_take_profit_pct",
+    "paper_exit_learning_enabled",
 )
 
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MarketingAuth } from "@/components/marketing/MarketingAuth";
 
 export default function MarketingLayout({
   children,
@@ -13,15 +14,16 @@ export default function MarketingLayout({
             earnings<span>follower</span>
           </Link>
           <nav className="flex items-center gap-1 sm:gap-2 text-sm">
-            <Link href="/how-it-works" className="m-nav-link">
+            <Link href="/how-it-works" className="m-nav-link hidden sm:inline">
               How it works
             </Link>
-            <Link href="/faq" className="m-nav-link">
+            <Link href="/faq" className="m-nav-link hidden sm:inline">
               FAQ
             </Link>
             <Link href="/pricing" className="m-nav-link">
               Pricing
             </Link>
+            <MarketingAuth />
             <Link href="/calendar" className="m-nav-cta">
               Launch calendar
             </Link>
@@ -52,6 +54,7 @@ export default function MarketingLayout({
             <Link href="/pricing" className="hover:text-white transition-colors">
               Pricing
             </Link>
+            <MarketingAuth variant="footer" />
             <Link href="/faq" className="hover:text-white transition-colors">
               FAQ
             </Link>

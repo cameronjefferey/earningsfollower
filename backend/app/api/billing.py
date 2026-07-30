@@ -56,8 +56,11 @@ def _get_or_create_user(db: Session, caller: AuthUser) -> User:
 
 def _ensure_stripe_customer(user: User, settings: Settings) -> str:
     _stripe(settings)
-    if user.stripe_customer_id:
+    if user.stripe_customer_id and _customer_exists(user.stripe_customer_id):
         return user.stripe_customer_id
+    if user.stripe_customer_id:
+        # Test-mode leftover after flipping to live keys.
+        _clear_stripe_ids(user)
     # Prefer an existing Stripe customer for this email (avoids duplicates after
     # a webhook miss left our row without stripe_customer_id).
     existing = list(stripe.Customer.list(email=user.email, limit=1).get("data") or [])
@@ -73,9 +76,34 @@ def _ensure_stripe_customer(user: User, settings: Settings) -> str:
     return customer["id"]
 
 
+def _clear_stripe_ids(user: User) -> None:
+    """Drop Stripe ids that don't exist in the current mode (e.g. test→live)."""
+    user.stripe_customer_id = None
+    user.stripe_subscription_id = None
+    user.subscription_status = "none"
+    user.current_period_end = None
+
+
+def _customer_exists(customer_id: str) -> bool:
+    try:
+        stripe.Customer.retrieve(customer_id)
+        return True
+    except stripe.InvalidRequestError:
+        return False
+
+
 def _resolve_customer_id(user: User) -> str | None:
     if user.stripe_customer_id:
-        return user.stripe_customer_id
+        # Stale ids from the other Stripe mode (test vs live) look valid in our
+        # DB but 404 in the API — clear them so the user can re-subscribe cleanly.
+        if _customer_exists(user.stripe_customer_id):
+            return user.stripe_customer_id
+        logger.warning(
+            "Clearing stale Stripe customer %s for %s (not in current mode)",
+            user.stripe_customer_id,
+            user.email,
+        )
+        _clear_stripe_ids(user)
     customers = list(stripe.Customer.list(email=user.email, limit=1).get("data") or [])
     if not customers:
         return None
@@ -282,18 +310,44 @@ def create_portal_session(
     caller = _require_signed_in(caller)
     _stripe(settings)
     user = _get_or_create_user(db, caller)
-    customer_id = _resolve_customer_id(user)
-    if not customer_id:
+    try:
+        customer_id = _resolve_customer_id(user)
+        db.commit()
+        if not customer_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No Stripe customer on this account yet — subscribe first",
+            )
+        app_url = settings.public_app_url.rstrip("/")
+        portal = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=body.return_url or f"{app_url}/account",
+        )
+    except HTTPException:
+        raise
+    except stripe.InvalidRequestError as exc:
+        logger.exception("Stripe portal invalid request for %s", user.email)
+        # Common after flipping test→live: DB still has the sandbox customer id.
+        if "No such customer" in str(exc):
+            _clear_stripe_ids(user)
+            db.commit()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Your billing account was from Stripe test mode and isn't in "
+                    "live mode. Subscribe again to manage billing."
+                ),
+            ) from exc
         raise HTTPException(
             status_code=400,
-            detail="No Stripe customer on this account yet — subscribe first",
-        )
-    db.commit()
-    app_url = settings.public_app_url.rstrip("/")
-    portal = stripe.billing_portal.Session.create(
-        customer=customer_id,
-        return_url=body.return_url or f"{app_url}/account",
-    )
+            detail=str(exc.user_message or exc) or "Stripe rejected the portal",
+        ) from exc
+    except stripe.StripeError as exc:
+        logger.exception("Stripe portal failed for %s", user.email)
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc.user_message or exc) or "Could not open billing portal",
+        ) from exc
     return {"url": portal["url"]}
 
 

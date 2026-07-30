@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import type { NextRequest, NextFetchEvent } from "next/server";
 import { auth } from "@/auth";
 
 const ADMIN_PREFIXES = ["/paper", "/learning"];
 
 // Auth.js is configured for the www host (AUTH_URL). Google redirects the OAuth
-// callback there, so the PKCE/state cookie must also be set there. If a user
-// starts on the bare apex, the cookie is host-only to the apex and is missing at
-// the www callback → "InvalidCheck: pkceCodeVerifier could not be parsed". Keep
-// the whole app (and therefore the sign-in flow) on one canonical host.
+// callback there, so the PKCE/state cookie must also be set there. If any part of
+// the flow touches the bare apex, the cookie is host-only to the apex and is
+// missing at the www callback → "InvalidCheck: pkceCodeVerifier could not be
+// parsed" / 'response parameter "iss" missing'. So the apex→www canonicalization
+// MUST also cover /api/auth (the sign-in + callback endpoints), which is why this
+// middleware runs on /api too — otherwise those hits fall back to a lossy
+// platform 301 that breaks the OAuth handshake.
 const APEX_HOST = "earningsfollower.com";
 const CANONICAL_HOST = "www.earningsfollower.com";
 
@@ -16,19 +19,11 @@ function isPrefixed(path: string, prefixes: string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`));
 }
 
-export default auth((req) => {
+// Page-level gating (admin surfaces + legacy root redirects). Wrapped in auth()
+// so req.auth is populated. Only invoked for non-apex, non-/api requests.
+const gated = auth((req) => {
   const path = req.nextUrl.pathname;
   const request = req as unknown as NextRequest;
-
-  // Canonicalize apex → www before anything else (SEO + keeps OAuth on one host).
-  const host = req.headers.get("host")?.split(":")[0]?.toLowerCase();
-  if (host === APEX_HOST) {
-    const dest = new URL(req.url);
-    dest.protocol = "https:";
-    dest.hostname = CANONICAL_HOST;
-    dest.port = "";
-    return NextResponse.redirect(dest, 308);
-  }
 
   // Old calendar lived at /. Preserve HappyTrader / deep links that still
   // pass tab or theme query params on the root URL.
@@ -60,10 +55,37 @@ export default auth((req) => {
   return NextResponse.next();
 });
 
+export default function middleware(req: NextRequest, event: NextFetchEvent) {
+  // Canonicalize apex → www before anything else, for EVERY path including
+  // /api/auth, so the OAuth handshake (sign-in, cookies, callback) lives entirely
+  // on one host. 308 preserves method + body + query, so the sign-in POST and the
+  // Google callback aren't mangled the way a 301 would mangle them.
+  const host = req.headers.get("host")?.split(":")[0]?.toLowerCase();
+  if (host === APEX_HOST) {
+    const dest = new URL(req.url);
+    dest.protocol = "https:";
+    dest.hostname = CANONICAL_HOST;
+    dest.port = "";
+    return NextResponse.redirect(dest, 308);
+  }
+
+  // Never run the auth session wrapper on NextAuth's own endpoints (or any API
+  // route) — just let them through. The apex check above already handled
+  // canonicalization for them.
+  if (req.nextUrl.pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  return (gated as unknown as (
+    r: NextRequest,
+    e: NextFetchEvent
+  ) => ReturnType<typeof gated>)(req, event);
+}
+
 export const config = {
-  // Run on all app routes (so apex→www canonicalization always applies) except
-  // Next internals, the auth/API handlers, and static files.
+  // Run on all app routes AND /api (so apex→www canonicalization always applies,
+  // including to the OAuth endpoints) except Next internals and static files.
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|opengraph-image|twitter-image|llms.txt|marketing/).*)",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|opengraph-image|twitter-image|llms.txt|marketing/).*)",
   ],
 };

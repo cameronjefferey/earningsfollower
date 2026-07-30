@@ -9,6 +9,8 @@ export type BillingResponse = {
   subscription_status?: string;
   synced?: boolean;
   current_period_end?: string | null;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
 };
 
 export async function postBilling(

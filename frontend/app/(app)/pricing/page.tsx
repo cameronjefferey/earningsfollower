@@ -4,7 +4,7 @@ import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { postBilling } from "@/lib/billing";
+import { BillingResponse, postBilling } from "@/lib/billing";
 import { Card } from "@/components/ui";
 
 function safeNextPath(raw: string | null): string {
@@ -21,7 +21,29 @@ function PricingInner() {
   const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Live Stripe reality (not AUTH_BYPASS / stale JWT). Manage only when this
+  // has a customer id — otherwise show Subscribe even if session says "active".
+  const [billing, setBilling] = useState<BillingResponse | null>(null);
   const confirmStarted = useRef(false);
+  const syncedOnce = useRef(false);
+
+  const refreshBilling = useCallback(async () => {
+    if (!session?.accessToken) return null;
+    const sync = await postBilling("/billing/sync", session.accessToken);
+    setBilling(sync);
+    await update();
+    return sync;
+  }, [session?.accessToken, update]);
+
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.accessToken || syncedOnce.current) {
+      return;
+    }
+    syncedOnce.current = true;
+    void refreshBilling().catch(() => {
+      /* keep session-based UI until the user acts */
+    });
+  }, [status, session?.accessToken, refreshBilling]);
 
   useEffect(() => {
     if (checkout === "cancel") {
@@ -37,11 +59,9 @@ function PricingInner() {
 
     const confirm = async () => {
       try {
-        const sync = await postBilling("/billing/sync", session.accessToken);
+        const sync = await refreshBilling();
         if (cancelled) return;
-        if (sync.subscribed) {
-          await update();
-          if (cancelled) return;
+        if (sync?.subscribed) {
           setMessage("You're subscribed — opening the brief…");
           router.replace(nextPath === "/" ? "/brief" : nextPath);
           return;
@@ -55,16 +75,15 @@ function PricingInner() {
       for (let tries = 0; tries < 6 && !cancelled; tries += 1) {
         await new Promise((r) => window.setTimeout(r, 1500));
         try {
-          await postBilling("/billing/sync", session.accessToken);
+          const sync = await refreshBilling();
+          if (cancelled) return;
+          if (sync?.subscribed) {
+            setMessage("You're subscribed — opening the brief…");
+            router.replace(nextPath === "/" ? "/brief" : nextPath);
+            return;
+          }
         } catch {
-          /* keep trying session refresh */
-        }
-        const next = await update();
-        if (cancelled) return;
-        if (next?.subscribed) {
-          setMessage("You're subscribed — opening the brief…");
-          router.replace(nextPath === "/" ? "/brief" : nextPath);
-          return;
+          /* keep trying */
         }
       }
 
@@ -99,7 +118,7 @@ function PricingInner() {
         cancel_url: `${origin}/pricing?checkout=cancel${nextQ}`,
       });
       if (data.already_subscribed) {
-        await update();
+        await refreshBilling();
         setMessage("You're already subscribed — opening billing…");
       }
       if (data.url) {
@@ -111,7 +130,7 @@ function PricingInner() {
       setError(e instanceof Error ? e.message : "Checkout failed");
       setBusy(null);
     }
-  }, [session, nextPath, update]);
+  }, [session, nextPath, refreshBilling]);
 
   const openPortal = useCallback(async () => {
     setError(null);
@@ -132,21 +151,35 @@ function PricingInner() {
       }
       throw new Error("No portal URL returned");
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Portal failed";
-      setError(message);
-      // After a test→live Stripe flip the portal clears stale sandbox ids —
-      // refresh so the UI stops saying "active" and offers Subscribe again.
+      const msg = e instanceof Error ? e.message : "Portal failed";
+      setError(msg);
+      // Ghost sandbox subscription cleared — drop Manage and offer Subscribe.
+      if (/subscribe first|test mode|no stripe customer/i.test(msg)) {
+        setBilling({
+          subscribed: false,
+          subscription_status: "none",
+          stripe_customer_id: null,
+          stripe_subscription_id: null,
+        });
+        setMessage("Sandbox billing cleared — subscribe again with a live card.");
+      }
       try {
-        await postBilling("/billing/sync", session.accessToken);
-        await update();
+        await refreshBilling();
       } catch {
-        /* ignore — the portal error is the one to show */
+        /* keep the local flip above */
       }
       setBusy(null);
     }
-  }, [session, nextPath, update]);
+  }, [session, nextPath, refreshBilling]);
 
-  const subscribed = Boolean(session?.subscribed);
+  // Manage only when Stripe actually has a customer. AUTH_BYPASS / admin can keep
+  // session.subscribed true with no live customer — that must not show Manage.
+  const hasStripeCustomer = Boolean(billing?.stripe_customer_id);
+  const statusLabel =
+    billing?.subscription_status ??
+    session?.subscriptionStatus ??
+    (hasStripeCustomer ? "active" : "none");
+  const showManage = hasStripeCustomer;
 
   return (
     <div className="max-w-xl mx-auto mt-8 space-y-6">
@@ -195,9 +228,10 @@ function PricingInner() {
         {status === "authenticated" && (
           <p className="text-xs text-[var(--color-muted)]">
             Signed in as {session?.user?.email}
-            {subscribed
-              ? ` · status: ${session?.subscriptionStatus ?? "active"}`
-              : " · not subscribed"}
+            {` · status: ${statusLabel}`}
+            {!hasStripeCustomer && session?.subscribed
+              ? " · access via bypass/admin (no live Stripe sub)"
+              : null}
             {" · "}
             <Link href="/account" className="text-[var(--color-accent)] hover:underline">
               Account
@@ -212,7 +246,7 @@ function PricingInner() {
           <p className="text-sm text-[var(--color-down)]">{error}</p>
         )}
 
-        {subscribed ? (
+        {showManage ? (
           <div className="space-y-2">
             <button
               type="button"

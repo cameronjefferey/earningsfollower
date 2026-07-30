@@ -89,8 +89,8 @@ def morning_brief(db: Session, *, preview: bool = False) -> dict[str, Any]:
     note = None
     if preview:
         note = (
-            "Free users see who prints. Pro tells you what to lean on — "
-            "one focus setup with action, watch, and drop-if for the session."
+            "Calendar stays free. The ranked lean, conviction, and plan are Pro — "
+            "preview numbers are sample data, not today's live book."
         )
 
     return {

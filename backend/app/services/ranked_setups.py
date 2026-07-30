@@ -381,6 +381,48 @@ def _cluster_waves(rows: list[dict]) -> list[dict]:
     return out
 
 
+# Fixed placeholders for unpaid brief preview — identity + edge stats of the
+# live lean must not leave the server. Kind/direction stay so the card chrome
+# still looks like a real brief.
+_PREVIEW_TICKERS = ("ORCL", "AMD")
+_PREVIEW_NAMES = ("Sample focus name", "Sample secondary name")
+
+
+def _demo_preview_setup(row: dict[str, Any], index: int) -> dict[str, Any]:
+    """Strip the live lean; keep card shape for the blurred teaser."""
+    r = dict(row)
+    i = index % len(_PREVIEW_TICKERS)
+    r["ticker"] = _PREVIEW_TICKERS[i]
+    r["name"] = _PREVIEW_NAMES[i]
+    r["href"] = "/pricing"
+    r["board_href"] = "/pricing"
+    r["trigger"] = "PEER"
+    r["edge_pct"] = 0.045 if i == 0 else 0.028
+    r["win_rate"] = 0.67 if i == 0 else 0.58
+    r["win_rate_ci_low"] = 0.38
+    r["win_rate_ci_high"] = 0.88
+    r["sample_size"] = 6
+    r["sample_tier"] = "ok"
+    r["conviction"] = 72 if i == 0 else 58
+    r["conviction_label"] = "Medium"
+    r["headline"] = "Sample setup — unlock Pro for today's live lean."
+    r["why"] = ["Sample historical pattern (not today's live book)."]
+    r["action"] = "Unlock Pro for the full action / watch note."
+    r["invalidation"] = "Unlock Pro for invalidation framing."
+    r.pop("cluster_peers", None)
+    r["plan"] = {
+        "thesis": "Sample thesis for layout — not today's live lean.",
+        "trigger_status": "Sample trigger already printed",
+        "target": "Pro",
+        "window": "a few sessions",
+        "invalidation": "Pro",
+        "sizing": "Pro",
+    }
+    r["rank"] = index + 1
+    r.pop("_raw_score", None)
+    return r
+
+
 def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dict[str, Any]:
     today = date.today()
     waves = board_snapshots.get_snapshot(db, "waves", "14:21") or {}
@@ -427,27 +469,14 @@ def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dic
 
     note = None
     if preview:
-        picked = picked[:3]
-        for r in picked:
-            r["why"] = (r.get("why") or [])[:1]
-            r["action"] = "Unlock Pro for the full action / watch note."
-            r["invalidation"] = "Unlock Pro for invalidation framing."
-            # The correlated peer list is part of the paid breadth — don't ship it
-            # to unpaid callers even though the UI hides it.
-            r.pop("cluster_peers", None)
-            # Keep the shape (thesis/trigger) as a teaser; lock the actionable rows.
-            if isinstance(r.get("plan"), dict):
-                r["plan"] = {
-                    "thesis": r["plan"].get("thesis"),
-                    "trigger_status": r["plan"].get("trigger_status"),
-                    "target": "Pro",
-                    "window": r["plan"].get("window"),
-                    "invalidation": "Pro",
-                    "sizing": "Pro",
-                }
+        # Never ship the live lean to unpaid callers — ticker / edge / win /
+        # conviction / thesis are the product. Keep kind + direction so the
+        # layout still reads as a real brief card; swap identity + numbers for
+        # fixed demo placeholders (UI also blurs them).
+        picked = [_demo_preview_setup(r, i) for i, r in enumerate(picked[:2])]
         note = (
-            "Preview — a taste of today's ranked setups. Pro unlocks the full "
-            "morning brief with action, watch, and invalidation."
+            "Preview — layout of today's brief. Numbers and the live lean are "
+            "sample data. Pro unlocks the real focus, plan, and board."
         )
 
     updated = waves.get("updated_at") or drift.get("updated_at")

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { api, MorningBriefResponse, RankedSetup } from "@/lib/api";
+import { BlurZone } from "@/components/BlurValue";
 import { PaywallBanner } from "@/components/PaywallBanner";
 import { RankedSetupCard } from "@/components/RankedSetupCard";
 import { FocusHero, BoardQualityBar } from "@/components/brief/FocusHero";
@@ -110,20 +111,22 @@ export default function BriefPage() {
               </h2>
               {isPreview ? (
                 <Card className="p-4">
-                  <ul className="space-y-2">
-                    {rest.map((s) => (
-                      <li
-                        key={s.id}
-                        className="text-sm flex flex-wrap items-baseline gap-x-2 text-[var(--color-muted)]"
-                      >
-                        <span className="text-white font-medium">#{s.rank}</span>
-                        <span className="text-white font-semibold">{s.ticker}</span>
-                        <span>{s.headline}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <BlurZone active label="Pro — full board">
+                    <ul className="space-y-2">
+                      {rest.map((s) => (
+                        <li
+                          key={s.id}
+                          className="text-sm flex flex-wrap items-baseline gap-x-2 text-[var(--color-muted)]"
+                        >
+                          <span className="text-white font-medium">#{s.rank}</span>
+                          <span className="text-white font-semibold">{s.ticker}</span>
+                          <span>{s.headline}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </BlurZone>
                   <p className="text-xs text-[var(--color-muted)] mt-3">
-                    Full plan and levels unlock with Pro.
+                    Full board, plan, and levels unlock with Pro.
                   </p>
                 </Card>
               ) : (

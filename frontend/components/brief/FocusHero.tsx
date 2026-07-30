@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { BoardQuality, RankedSetup } from "@/lib/api";
-import { BlurValue } from "@/components/BlurValue";
+import { BlurValue, BlurZone } from "@/components/BlurValue";
 import { SampleTierBadge } from "@/components/SampleTierBadge";
 import { ThemePill } from "@/components/ui";
 import { fmtDate, pct, signedPct } from "@/lib/format";
@@ -218,42 +218,52 @@ export function FocusHero({
             <SampleTierBadge tier={setup.sample_tier} />
           </div>
 
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <Link
-              href={setup.href || `/company/${setup.ticker}`}
-              className="text-3xl font-semibold tracking-tight hover:text-[var(--color-accent)]"
-            >
-              {setup.ticker}
-            </Link>
-            {setup.name ? (
-              <span className="text-sm text-[var(--color-muted)]">{setup.name}</span>
-            ) : null}
-          </div>
-
-          {plan?.thesis ? (
-            <p className="mt-3 text-base leading-relaxed max-w-2xl">{plan.thesis}</p>
-          ) : (
-            <p className="mt-3 text-base text-[var(--color-muted)]">{setup.headline}</p>
-          )}
-
-          {plan?.trigger_status ? (
-            <div className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--color-muted)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-up)] animate-pulse" />
-              {plan.trigger_status}
+          <BlurZone active={preview} label="Pro — today's lean">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              {preview ? (
+                <span className="text-3xl font-semibold tracking-tight">
+                  {setup.ticker}
+                </span>
+              ) : (
+                <Link
+                  href={setup.href || `/company/${setup.ticker}`}
+                  className="text-3xl font-semibold tracking-tight hover:text-[var(--color-accent)]"
+                >
+                  {setup.ticker}
+                </Link>
+              )}
+              {setup.name ? (
+                <span className="text-sm text-[var(--color-muted)]">{setup.name}</span>
+              ) : null}
             </div>
-          ) : null}
+
+            {plan?.thesis ? (
+              <p className="mt-3 text-base leading-relaxed max-w-2xl">{plan.thesis}</p>
+            ) : (
+              <p className="mt-3 text-base text-[var(--color-muted)]">{setup.headline}</p>
+            )}
+
+            {plan?.trigger_status ? (
+              <div className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--color-muted)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-up)] animate-pulse" />
+                {plan.trigger_status}
+              </div>
+            ) : null}
+          </BlurZone>
         </div>
 
-        <ConvictionRing value={setup.conviction} label={setup.conviction_label} />
+        <BlurZone active={preview} label="Pro">
+          <ConvictionRing value={setup.conviction} label={setup.conviction_label} />
+        </BlurZone>
       </div>
 
-      <div className="mt-5">
+      <BlurZone active={preview} label="Pro stats" className="mt-5">
         <EdgeViz setup={setup} />
-      </div>
+      </BlurZone>
 
       <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <PlanCell label="Target" value={plan?.target} locked={preview} />
-        <PlanCell label="Window" value={plan?.window} />
+        <PlanCell label="Window" value={plan?.window} locked={preview} />
         <PlanCell label="Invalidate" value={plan?.invalidation} locked={preview} />
         <PlanCell label="Sizing" value={plan?.sizing} locked={preview} />
       </div>
@@ -267,13 +277,21 @@ export function FocusHero({
       ) : null}
 
       <div className="mt-4 pt-4 border-t border-[var(--color-edge)] flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
-        {setup.report_date ? <span>Reports {fmtDate(setup.report_date)}</span> : null}
-        <Link
-          href={setup.board_href || (setup.kind === "wave" ? "/waves" : "/drift")}
-          className="text-[var(--color-accent)] hover:underline ml-auto"
-        >
-          {setup.kind === "wave" ? "Wave" : "Drift"} board →
-        </Link>
+        {setup.report_date && !preview ? (
+          <span>Reports {fmtDate(setup.report_date)}</span>
+        ) : null}
+        {preview ? (
+          <span className="text-[var(--color-muted)] ml-auto">
+            Unlock Pro for today&apos;s ranked lean
+          </span>
+        ) : (
+          <Link
+            href={setup.board_href || (setup.kind === "wave" ? "/waves" : "/drift")}
+            className="text-[var(--color-accent)] hover:underline ml-auto"
+          >
+            {setup.kind === "wave" ? "Wave" : "Drift"} board →
+          </Link>
+        )}
       </div>
 
       {!preview ? (

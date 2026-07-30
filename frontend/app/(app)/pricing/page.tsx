@@ -132,10 +132,19 @@ function PricingInner() {
       }
       throw new Error("No portal URL returned");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Portal failed");
+      const message = e instanceof Error ? e.message : "Portal failed";
+      setError(message);
+      // After a test→live Stripe flip the portal clears stale sandbox ids —
+      // refresh so the UI stops saying "active" and offers Subscribe again.
+      try {
+        await postBilling("/billing/sync", session.accessToken);
+        await update();
+      } catch {
+        /* ignore — the portal error is the one to show */
+      }
       setBusy(null);
     }
-  }, [session, nextPath]);
+  }, [session, nextPath, update]);
 
   const subscribed = Boolean(session?.subscribed);
 

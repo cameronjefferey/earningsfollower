@@ -63,9 +63,9 @@ def _ensure_stripe_customer(user: User, settings: Settings) -> str:
         _clear_stripe_ids(user)
     # Prefer an existing Stripe customer for this email (avoids duplicates after
     # a webhook miss left our row without stripe_customer_id).
-    existing = list(stripe.Customer.list(email=user.email, limit=1).get("data") or [])
+    existing = _list_data(stripe.Customer.list(email=user.email, limit=1))
     if existing:
-        user.stripe_customer_id = existing[0]["id"]
+        user.stripe_customer_id = _field(existing[0], "id")
         return user.stripe_customer_id
     customer = stripe.Customer.create(
         email=user.email,
@@ -104,10 +104,10 @@ def _resolve_customer_id(user: User) -> str | None:
             user.email,
         )
         _clear_stripe_ids(user)
-    customers = list(stripe.Customer.list(email=user.email, limit=1).get("data") or [])
+    customers = _list_data(stripe.Customer.list(email=user.email, limit=1))
     if not customers:
         return None
-    user.stripe_customer_id = customers[0]["id"]
+    user.stripe_customer_id = _field(customers[0], "id")
     return user.stripe_customer_id
 
 
@@ -129,6 +129,18 @@ def _as_dict(obj: object) -> dict:
         return dict(obj)  # type: ignore[arg-type]
     except Exception:
         return {}
+
+
+def _list_data(obj: object) -> list:
+    """Extract the ``data`` array from a Stripe list response safely."""
+    data = _as_dict(obj).get("data")
+    if isinstance(data, list):
+        return data
+    # ListObject is often directly iterable even when .get is broken.
+    try:
+        return list(obj)  # type: ignore[arg-type]
+    except Exception:
+        return []
 
 
 def _field(obj: object, key: str, default=None):
@@ -166,11 +178,8 @@ def _apply_subscription(user: User, sub: object) -> None:
 
 
 def _pick_subscription(customer_id: str) -> object | None:
-    subs = list(
-        stripe.Subscription.list(customer=customer_id, status="all", limit=10).get(
-            "data"
-        )
-        or []
+    subs = _list_data(
+        stripe.Subscription.list(customer=customer_id, status="all", limit=10)
     )
     chosen = None
     for sub in subs:

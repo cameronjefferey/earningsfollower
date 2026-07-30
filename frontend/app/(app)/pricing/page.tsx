@@ -174,12 +174,7 @@ function PricingInner() {
 
   // Manage only when Stripe actually has a customer. AUTH_BYPASS / admin can keep
   // session.subscribed true with no live customer — that must not show Manage.
-  const hasStripeCustomer = Boolean(billing?.stripe_customer_id);
-  const statusLabel =
-    billing?.subscription_status ??
-    session?.subscriptionStatus ??
-    (hasStripeCustomer ? "active" : "none");
-  const showManage = hasStripeCustomer;
+  const showManage = Boolean(billing?.stripe_customer_id);
 
   return (
     <div className="max-w-xl mx-auto mt-8 space-y-6">
@@ -228,10 +223,6 @@ function PricingInner() {
         {status === "authenticated" && (
           <p className="text-xs text-[var(--color-muted)]">
             Signed in as {session?.user?.email}
-            {` · status: ${statusLabel}`}
-            {!hasStripeCustomer && session?.subscribed
-              ? " · access via bypass/admin (no live Stripe sub)"
-              : null}
             {" · "}
             <Link href="/account" className="text-[var(--color-accent)] hover:underline">
               Account

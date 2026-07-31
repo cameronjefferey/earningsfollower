@@ -372,12 +372,25 @@ export interface PaperAccount {
   status: string | null;
 }
 
+export interface PaperLastRun {
+  id: number;
+  job: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  opened: number;
+  closed: number;
+  error_count: number;
+  detail: Record<string, unknown> | null;
+}
+
 export interface PaperResponse {
   generated_at: string;
   account: PaperAccount | null;
   stats: PaperStats;
   open: PaperTrade[];
   closed: PaperTrade[];
+  last_run?: PaperLastRun | null;
 }
 
 export interface AttrCohort {

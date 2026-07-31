@@ -10,11 +10,19 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime
 
 from app.clients.fmp import FMPClient
 from app.config import get_settings
 from app.db.session import init_db, session_scope
 from app.services.ingest import _build_universe, ingest_company, refresh_all
+from app.services.job_runs import record_job_run
+from app.services.paper.health import (
+    notify_refresh_health,
+    refresh_is_unhealthy,
+    refresh_stale_anomaly,
+    notify_anomalies,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s | %(message)s")
 logger = logging.getLogger("app.refresh")
@@ -35,6 +43,7 @@ def main() -> None:
 
     init_db()
     settings = get_settings()
+    started = datetime.utcnow()
 
     if args.tickers:
         tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
@@ -48,8 +57,32 @@ def main() -> None:
         return
 
     with session_scope() as db:
+        # Missed daily refresh?
+        try:
+            stale = refresh_stale_anomaly(db)
+            if stale:
+                notify_anomalies(
+                    title="earningsfollower — refresh heartbeat stale",
+                    anomalies=stale,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("refresh heartbeat check failed: %s", e)
+
         result = refresh_all(db, expand_peers=None if not args.no_peers else False)
+        try:
+            record_job_run(db, job="refresh", started_at=started, result=result)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("failed to persist refresh job run: %s", e)
+
     logger.info("Refresh result: %s", result)
+
+    if refresh_is_unhealthy(result):
+        try:
+            notify_refresh_health(result)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("refresh health notify failed: %s", e)
+        logger.error("Refresh unhealthy — exiting non-zero")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

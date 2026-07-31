@@ -144,6 +144,7 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
     # stay fast / useful after each refresh.
     board_stats: dict = {}
     digest_date: str | None = None
+    boards_error: str | None = None
     try:
         from app.services import board_snapshots, digest as digest_svc
 
@@ -153,6 +154,10 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
         digest_date = digest_payload.get("date")
     except Exception as exc:  # noqa: BLE001 - never fail the whole refresh on boards
         logger.warning("Board snapshot / digest failed: %s", exc, exc_info=True)
+        boards_error = str(exc)
+        if log.status == "ok":
+            log.status = "partial"
+            db.commit()
 
     return {
         "processed": processed,
@@ -165,6 +170,7 @@ def refresh_all(db: Session, *, expand_peers: bool | None = None) -> dict[str, A
         "no_implied": no_implied,
         "status": log.status,
         "boards": board_stats,
+        "boards_error": boards_error,
         "digest_date": digest_date,
     }
 

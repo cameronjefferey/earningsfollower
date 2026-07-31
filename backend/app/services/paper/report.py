@@ -234,12 +234,21 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
     if client is not None:
         client.close()
 
+    last_run = None
+    try:
+        from app.services.job_runs import job_run_payload, latest_job_run
+
+        last_run = job_run_payload(latest_job_run(db, "paper"))
+    except Exception as e:  # noqa: BLE001 - never let health status break the page
+        logger.warning("Could not load last paper run: %s", e)
+
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "account": account,
         "stats": stats,
         "open": open_trades,
         "closed": closed_dicts,
+        "last_run": last_run,
     }
 
 

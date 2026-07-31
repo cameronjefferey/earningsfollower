@@ -914,6 +914,44 @@ export default function PaperPage() {
         </Card>
       ) : null}
 
+      {data.last_run ? (
+        <Card
+          className={`p-4 mb-6 ${
+            data.last_run.status === "ok"
+              ? "border-[var(--color-edge)]"
+              : "border-[#f0556d]/50"
+          }`}
+        >
+          <div className="text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span
+              className="font-semibold"
+              style={{
+                color: data.last_run.status === "ok" ? "#28c08a" : "#f0556d",
+              }}
+            >
+              Last paper run: {data.last_run.status}
+            </span>
+            <span className="text-[var(--color-muted)]">
+              {data.last_run.finished_at
+                ? new Date(data.last_run.finished_at + "Z").toLocaleString()
+                : "—"}
+            </span>
+            <span className="text-[var(--color-muted)]">
+              opened {data.last_run.opened} · closed {data.last_run.closed}
+              {data.last_run.error_count
+                ? ` · ${data.last_run.error_count} error(s)`
+                : ""}
+            </span>
+          </div>
+          {Array.isArray(data.last_run.detail?.errors) &&
+          (data.last_run.detail!.errors as unknown[]).length > 0 ? (
+            <div className="text-xs text-[#f0556d] mt-2 font-mono">
+              {(data.last_run.detail!.errors as string[]).slice(0, 3).join(" · ")}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <Stat
           label="Account equity"

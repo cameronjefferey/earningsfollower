@@ -382,6 +382,22 @@ class RefreshLog(Base):
     detail: Mapped[str | None] = mapped_column(String(1024))
 
 
+class JobRunLog(Base):
+    """Persisted cron/job outcomes so we can heartbeat and surface last-run status."""
+
+    __tablename__ = "job_run_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job: Mapped[str] = mapped_column(String(32), index=True)  # paper | refresh
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(32), default="running", index=True)
+    detail: Mapped[str | None] = mapped_column(Text)
+    opened: Mapped[int] = mapped_column(Integer, default=0)
+    closed: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class BoardSnapshot(Base):
     """Persisted Waves/Drift board payloads so paid pages serve instantly."""
 

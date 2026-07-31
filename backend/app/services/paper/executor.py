@@ -99,6 +99,10 @@ def run(db: Session, dry_run: bool = False) -> dict:
         "skipped": [],
         "errors": [],
     }
+    # Snapshot / notify flag live outside the try so an Alpaca blow-up mid-scan
+    # still fires Telegram for closes that already happened this cycle.
+    pre_status: dict[str, str] = {}
+    notify_on = False
     try:
         equity = client.equity()
         summary["equity"] = equity
@@ -127,7 +131,6 @@ def run(db: Session, dry_run: bool = False) -> dict:
         # FILL (status reaches "open"/"closed"), never on mere order submission
         # ("pending"/"closing") -- a resting limit that hasn't filled is not a
         # trade yet, and a re-armed close shouldn't read as a new open.
-        pre_status: dict[str, str] = {}
         if notify_on:
             pre_status = {
                 sig: status
@@ -159,13 +162,6 @@ def run(db: Session, dry_run: bool = False) -> dict:
         if not market_open:
             logger.info("market closed; reconciling only, no orders this run")
             summary["skipped"] = [{"reason": "market closed"}]
-            # Reconcile/expiry can still fill or close positions from the prior
-            # session, so fire the alert for those transitions before bailing out.
-            if notify_on:
-                try:
-                    _notify_trades(db, pre_status)
-                except Exception as e:  # noqa: BLE001 - never let a notify break the run
-                    logger.warning("trade notification failed: %s", e)
             return summary
 
         # Learned exit discipline: derive the take-profit to enforce this run from
@@ -223,17 +219,26 @@ def run(db: Session, dry_run: bool = False) -> dict:
                 scan_results.append((0, []))
         summary["opened"] = sum(n for n, _ in scan_results)
         summary["skipped"] = [s for _, skips in scan_results for s in skips]
-
-        if notify_on:
-            try:
-                _notify_trades(db, pre_status)
-            except Exception as e:  # noqa: BLE001 - never let a notify break the run
-                logger.warning("trade notification failed: %s", e)
     except AlpacaError as e:
         logger.error("Alpaca error during paper run: %s", e)
         summary["status"] = "error"
         summary["errors"].append(str(e))
     finally:
+        # ALWAYS attempt trade alerts here. A late scan failure used to skip this
+        # and silently swallow fills/closes that already landed earlier in the run.
+        if notify_on:
+            try:
+                telegram = _notify_trades(db, pre_status)
+                summary["telegram"] = telegram
+                if telegram.get("attempted") and not telegram.get("ok"):
+                    summary["errors"].append("telegram trade alert failed")
+                    if summary.get("status") == "ok":
+                        summary["status"] = "error"
+            except Exception as e:  # noqa: BLE001 - never let a notify break the run
+                logger.warning("trade notification failed: %s", e)
+                summary["errors"].append(f"telegram notify exception: {e}")
+                if summary.get("status") == "ok":
+                    summary["status"] = "error"
         client.close()
     return summary
 
@@ -2974,7 +2979,7 @@ def _next_reddit_signal_id(db: Session) -> str:
 # --- trade notifications -----------------------------------------------------
 
 
-def _notify_trades(db: Session, pre_status: dict[str, str]) -> None:
+def _notify_trades(db: Session, pre_status: dict[str, str]) -> dict:
     """Send a Telegram alert for trades that actually FILLED this run.
 
     We alert on the fill, not the order: an entry that's still a resting limit
@@ -2982,7 +2987,14 @@ def _notify_trades(db: Session, pre_status: dict[str, str]) -> None:
     is not reported. Comparing each trade's status against the pre-run snapshot:
       - opened = reached "open" from a not-yet-filled state (new/"pending"),
         excluding a "closing"->"open" re-arm (a lapsed close, not a new entry).
-      - closed = reached "closed" (the close order filled)."""
+      - closed = reached "closed" (the close order filled).
+
+    Returns ``{attempted, ok, opened, closed}`` so the health layer can fail
+    loud when Telegram drops a real fill/close alert.
+    """
+    # Expire cached ORM state — sync_labels may have committed mid-run, and we
+    # need the statuses mutated by reconcile/exits, not a stale identity map.
+    db.expire_all()
     rows = db.scalars(
         select(PaperTrade).where(PaperTrade.status.in_(("open", "closed")))
     ).all()
@@ -2996,7 +3008,7 @@ def _notify_trades(db: Session, pre_status: dict[str, str]) -> None:
     ]
 
     if not opened and not closed:
-        return
+        return {"attempted": False, "ok": True, "opened": 0, "closed": 0}
     ok = send_telegram(_format_trade_alert(opened, closed))
     logger.info(
         "telegram alert %s: %d opened, %d closed",
@@ -3004,6 +3016,12 @@ def _notify_trades(db: Session, pre_status: dict[str, str]) -> None:
         len(opened),
         len(closed),
     )
+    return {
+        "attempted": True,
+        "ok": ok,
+        "opened": len(opened),
+        "closed": len(closed),
+    }
 
 
 def _format_trade_alert(

@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 
 from app.db.session import SessionLocal, init_db
 from app.services.paper.executor import run

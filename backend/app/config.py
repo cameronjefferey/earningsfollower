@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     telegram_notify_trades: bool = True
     # Ping when Waves/Drift boards gain new tickers after a refresh (same chat).
     telegram_notify_setups: bool = True
+    # Ping when a live paper run errors / aborts a book so silent empty books
+    # don't wait on someone noticing zero open positions.
+    telegram_notify_paper_health: bool = True
 
     # --- Calendar-driven universe --------------------------------------------
     # Beyond the curated themes, screen the whole market: each refresh pulls the

@@ -22,7 +22,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from app.clients.alpaca import AlpacaClient
+from app.clients.alpaca import AlpacaClient, AlpacaError
 from app.services.paper.contracts import SpecLeg
 
 logger = logging.getLogger(__name__)
@@ -82,14 +82,17 @@ def build_wave_spec(
     today = date.today()
     window_lo = today + timedelta(days=min_dte)
     window_hi = today + timedelta(days=max_dte)
-    contracts = client.option_contracts(
-        target,
-        expiration_gte=window_lo.isoformat(),
-        expiration_lte=window_hi.isoformat(),
-        option_type=otype,
-        strike_gte=spot * 0.80,
-        strike_lte=spot * 1.20,
-    )
+    try:
+        contracts = client.option_contracts(
+            target,
+            expiration_gte=window_lo.isoformat(),
+            expiration_lte=window_hi.isoformat(),
+            option_type=otype,
+            strike_gte=spot * 0.80,
+            strike_lte=spot * 1.20,
+        )
+    except AlpacaError as e:
+        return None, f"alpaca chain error: {e}"
     if not contracts:
         return None, "no listed contracts near the money in the DTE window"
 

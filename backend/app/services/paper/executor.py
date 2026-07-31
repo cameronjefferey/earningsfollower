@@ -200,19 +200,29 @@ def run(db: Session, dry_run: bool = False) -> dict:
         if calib:
             summary["calibration"] = {s: e.multiplier for s, e in calib.items()}
 
-        opened, skipped = _scan_entries(db, client, equity, settings, dry_run, calib)
-        w_opened, w_skipped = _scan_wave_entries(db, client, equity, settings, dry_run, calib)
-        d_opened, d_skipped = _scan_drift_entries(db, client, equity, settings, dry_run, calib)
-        r_opened, r_skipped = _scan_reddit_entries(db, client, equity, settings, dry_run, calib)
-        # Earnings-equity runs after the options scan so it can size a twin to
-        # the spread that just opened for the same name (or stand alone otherwise).
-        eq_opened, eq_skipped = _scan_earnings_equity_entries(
-            db, client, equity, settings, dry_run
-        )
-        summary["opened"] = opened + w_opened + d_opened + r_opened + eq_opened
-        summary["skipped"] = (
-            skipped + w_skipped + d_skipped + r_skipped + eq_skipped
-        )
+        # Each book scans independently — a bad underlying in one strategy must
+        # not prevent the others from opening trades the same cycle.
+        scan_results: list[tuple[int, list]] = []
+        for label, fn in (
+            ("earnings", lambda: _scan_entries(db, client, equity, settings, dry_run, calib)),
+            ("waves", lambda: _scan_wave_entries(db, client, equity, settings, dry_run, calib)),
+            ("drift", lambda: _scan_drift_entries(db, client, equity, settings, dry_run, calib)),
+            ("reddit", lambda: _scan_reddit_entries(db, client, equity, settings, dry_run, calib)),
+            # Earnings-equity runs after the options scan so it can size a twin
+            # to the spread that just opened (or stand alone otherwise).
+            (
+                "earnings_equity",
+                lambda: _scan_earnings_equity_entries(db, client, equity, settings, dry_run),
+            ),
+        ):
+            try:
+                scan_results.append(fn())
+            except AlpacaError as e:
+                logger.error("%s scan aborted: %s", label, e)
+                summary["errors"].append(f"{label}: {e}")
+                scan_results.append((0, []))
+        summary["opened"] = sum(n for n, _ in scan_results)
+        summary["skipped"] = [s for _, skips in scan_results for s in skips]
 
         if notify_on:
             try:
@@ -638,169 +648,195 @@ def _scan_entries(
         if ticker in seen:
             continue
         seen.add(ticker)
-
-        if open_n + opened >= settings.paper_max_open:
-            skipped.append({"ticker": ticker, "reason": "max open positions reached"})
-            continue
-
-        # Already have an options trade for this ticker+event? Equity twins for
-        # the same print don't count — they have their own one-per-event guard.
-        existing = db.scalars(
-            select(PaperTrade).where(
-                PaperTrade.ticker == ticker,
-                PaperTrade.earnings_date == ev.date,
-                PaperTrade.strategy == "earnings",
-                PaperTrade.structure.not_in(EQUITY_STRUCTURES),
-            )
-        ).first()
-        if existing:
-            continue
-
-        detail = company_detail(db, ticker)
-        pb = (detail or {}).get("playbook")
-        if not pb:
-            skipped.append({"ticker": ticker, "reason": "no playbook"})
-            continue
-        im = (detail or {}).get("implied_move") or {}
-        if pb["vol_stance"] != "sell" or pb["structure"] not in SELLING_STRUCTURES:
-            reason = f"not a sell-vol setup ({pb['structure']})"
-            skipped.append({"ticker": ticker, "reason": reason})
-            record_decision(
-                db, strategy="earnings", ticker=ticker, decision="skipped",
-                earnings_date=ev.date, skip_reason=reason, regime=regime,
-                features=earnings_features(pb, im, equity=equity),
-            )
-            continue
-
-        # Size by the playbook's conviction: risk more when the signals agree.
-        # The budget also caps the spread width (wings pull in to fit it).
-        risk_frac = settings.paper_risk_fraction(pb["conviction"])
-        budget = equity * risk_frac
-
-        spec, reason = build_trade_spec(
-            client, ticker, pb, ev.date,
-            risk_budget=budget,
-            min_credit_ratio=settings.paper_min_credit_width_ratio,
-        )
-        if spec is None:
-            skipped.append({"ticker": ticker, "reason": reason})
-            record_decision(
-                db, strategy="earnings", ticker=ticker, decision="skipped",
-                earnings_date=ev.date, skip_reason=reason, regime=regime,
-                features=earnings_features(pb, im, risk_frac=risk_frac, equity=equity),
-            )
-            continue
-        if spec.net_credit < settings.paper_min_credit:
-            reason = f"credit too thin ({spec.net_credit})"
-            skipped.append({"ticker": ticker, "reason": reason})
-            record_decision(
-                db, strategy="earnings", ticker=ticker, decision="skipped",
-                earnings_date=ev.date, skip_reason=reason, regime=regime,
-                features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
-            )
-            continue
-
-        contracts = int(budget // spec.max_risk_per_contract)
-        contracts = min(contracts, settings.paper_max_contracts)
-        if contracts < 1:
-            reason = (
-                f"spread too wide for {pb['conviction']} budget "
-                f"({risk_frac:.1%} = ${budget:.0f}; risk ${spec.max_risk_per_contract:.0f}/ct)"
-            )
-            skipped.append({"ticker": ticker, "reason": reason})
-            record_decision(
-                db, strategy="earnings", ticker=ticker, decision="skipped",
-                earnings_date=ev.date, skip_reason=reason, regime=regime,
-                features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
-            )
-            continue
-
-        trade = _record_trade(
-            db, ticker, ev, pb, spec, contracts,
-            expected_move_pct=im.get("expected_move_pct"),
-            spot_entry=im.get("underlying_price") or pb.get("spot"),
-            equity=equity,
-        )
-        feats = earnings_features(
-            pb, im, spec=spec, contracts=contracts, risk_frac=risk_frac, equity=equity
-        )
-
-        if dry_run:
-            logger.info(
-                "[dry-run] %s %s [%s %.1f%%] x%d @ credit %.2f (risk $%.0f)",
-                ticker, pb["structure"], pb["conviction"], risk_frac * 100,
-                contracts, spec.net_credit, spec.max_risk_per_contract * contracts,
-            )
-            trade.note = "dry-run (not submitted)"
-            record_decision(
-                db, strategy="earnings", ticker=ticker, decision="opened",
-                earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
-                features=feats,
-            )
-            opened += 1
-            continue
-
-        order_legs = [
-            {
-                "symbol": l.symbol,
-                "ratio_qty": "1",
-                "side": l.side,
-                "position_intent": l.position_intent,
-            }
-            for l in spec.legs
-        ]
-        # Sell-vol win probability = how often the realized move historically
-        # stayed inside the strike we actually sell. Since the short is pulled in
-        # to frac x EM, use the strike-level edge (1 - exceed_rate_at_strike);
-        # fall back to the full-move seller_edge if the strike-level recompute
-        # wasn't available. This keeps the EV gate honest for the closer strike.
-        basis = pb.get("conviction_basis") or {}
-        win_prob = basis.get("seller_edge_at_strike") or basis.get("seller_edge")
-        win_prob = adjust_win_prob(win_prob, "earnings", calib, settings)
-        limit, reason = _gate_entry(
-            client, order_legs, is_credit=True, mid=spec.net_credit,
-            width=spec.width, win_prob=win_prob, settings=settings,
-        )
-        if limit is None:
-            trade.status = "canceled"
-            trade.note = f"skipped: {reason}"
-            skipped.append({"ticker": ticker, "reason": reason})
-            record_decision(
-                db, strategy="earnings", ticker=ticker, decision="skipped",
-                earnings_date=ev.date, skip_reason=reason, regime=regime,
-                features=feats,
-            )
-            continue
         try:
-            order = client.submit_mleg(
-                legs=order_legs,
-                qty=contracts,
-                limit_price=limit,
-                client_order_id=trade.signal_id,
+            opened_one, skip = _try_earnings_entry(
+                db, client, equity, settings, dry_run, calib,
+                ev=ev, ticker=ticker, open_n=open_n, opened=opened, regime=regime,
             )
         except AlpacaError as e:
-            logger.error("Order failed for %s: %s", ticker, e)
-            trade.status = "canceled"
-            trade.note = f"submit error: {e}"[:500]
-            skipped.append({"ticker": ticker, "reason": f"submit error: {e}"})
+            # One bad underlying (e.g. unmapped share-class ticker) must not
+            # abort the rest of earnings season.
+            logger.error("Alpaca error on %s; continuing scan: %s", ticker, e)
+            reason = f"alpaca error: {e}"
+            skipped.append({"ticker": ticker, "reason": reason})
             record_decision(
                 db, strategy="earnings", ticker=ticker, decision="skipped",
-                earnings_date=ev.date, skip_reason=f"submit error: {e}", regime=regime,
-                features=feats,
+                earnings_date=ev.date, skip_reason=reason[:500], regime=regime,
             )
             continue
-        trade.entry_order_id = order.get("id")
-        _apply_entry_fill(trade, order)
+        if skip:
+            skipped.append(skip)
+        opened += opened_one
+
+    if not dry_run:
+        db.commit()
+    return opened, skipped
+
+
+def _try_earnings_entry(
+    db: Session,
+    client: AlpacaClient,
+    equity: float,
+    settings,
+    dry_run: bool,
+    calib: dict | None,
+    *,
+    ev: EarningsEvent,
+    ticker: str,
+    open_n: int,
+    opened: int,
+    regime: dict,
+) -> tuple[int, dict | None]:
+    """Attempt one earnings sell-vol entry. Returns (opened_delta, skip_row)."""
+    if open_n + opened >= settings.paper_max_open:
+        return 0, {"ticker": ticker, "reason": "max open positions reached"}
+
+    # Already have an options trade for this ticker+event? Equity twins for
+    # the same print don't count — they have their own one-per-event guard.
+    existing = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.ticker == ticker,
+            PaperTrade.earnings_date == ev.date,
+            PaperTrade.strategy == "earnings",
+            PaperTrade.structure.not_in(EQUITY_STRUCTURES),
+        )
+    ).first()
+    if existing:
+        return 0, None
+
+    detail = company_detail(db, ticker)
+    pb = (detail or {}).get("playbook")
+    if not pb:
+        return 0, {"ticker": ticker, "reason": "no playbook"}
+    im = (detail or {}).get("implied_move") or {}
+    if pb["vol_stance"] != "sell" or pb["structure"] not in SELLING_STRUCTURES:
+        reason = f"not a sell-vol setup ({pb['structure']})"
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=reason, regime=regime,
+            features=earnings_features(pb, im, equity=equity),
+        )
+        return 0, {"ticker": ticker, "reason": reason}
+
+    # Size by the playbook's conviction: risk more when the signals agree.
+    # The budget also caps the spread width (wings pull in to fit it).
+    risk_frac = settings.paper_risk_fraction(pb["conviction"])
+    budget = equity * risk_frac
+
+    spec, reason = build_trade_spec(
+        client, ticker, pb, ev.date,
+        risk_budget=budget,
+        min_credit_ratio=settings.paper_min_credit_width_ratio,
+    )
+    if spec is None:
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=reason, regime=regime,
+            features=earnings_features(pb, im, risk_frac=risk_frac, equity=equity),
+        )
+        return 0, {"ticker": ticker, "reason": reason}
+    if spec.net_credit < settings.paper_min_credit:
+        reason = f"credit too thin ({spec.net_credit})"
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=reason, regime=regime,
+            features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
+        )
+        return 0, {"ticker": ticker, "reason": reason}
+
+    contracts = int(budget // spec.max_risk_per_contract)
+    contracts = min(contracts, settings.paper_max_contracts)
+    if contracts < 1:
+        reason = (
+            f"spread too wide for {pb['conviction']} budget "
+            f"({risk_frac:.1%} = ${budget:.0f}; risk ${spec.max_risk_per_contract:.0f}/ct)"
+        )
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=reason, regime=regime,
+            features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
+        )
+        return 0, {"ticker": ticker, "reason": reason}
+
+    trade = _record_trade(
+        db, ticker, ev, pb, spec, contracts,
+        expected_move_pct=im.get("expected_move_pct"),
+        spot_entry=im.get("underlying_price") or pb.get("spot"),
+        equity=equity,
+    )
+    feats = earnings_features(
+        pb, im, spec=spec, contracts=contracts, risk_frac=risk_frac, equity=equity
+    )
+
+    if dry_run:
+        logger.info(
+            "[dry-run] %s %s [%s %.1f%%] x%d @ credit %.2f (risk $%.0f)",
+            ticker, pb["structure"], pb["conviction"], risk_frac * 100,
+            contracts, spec.net_credit, spec.max_risk_per_contract * contracts,
+        )
+        trade.note = "dry-run (not submitted)"
         record_decision(
             db, strategy="earnings", ticker=ticker, decision="opened",
             earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
             features=feats,
         )
-        opened += 1
+        return 1, None
 
-    if not dry_run:
-        db.commit()
-    return opened, skipped
+    order_legs = [
+        {
+            "symbol": l.symbol,
+            "ratio_qty": "1",
+            "side": l.side,
+            "position_intent": l.position_intent,
+        }
+        for l in spec.legs
+    ]
+    # Sell-vol win probability = how often the realized move historically
+    # stayed inside the strike we actually sell. Since the short is pulled in
+    # to frac x EM, use the strike-level edge (1 - exceed_rate_at_strike);
+    # fall back to the full-move seller_edge if the strike-level recompute
+    # wasn't available. This keeps the EV gate honest for the closer strike.
+    basis = pb.get("conviction_basis") or {}
+    win_prob = basis.get("seller_edge_at_strike") or basis.get("seller_edge")
+    win_prob = adjust_win_prob(win_prob, "earnings", calib, settings)
+    limit, reason = _gate_entry(
+        client, order_legs, is_credit=True, mid=spec.net_credit,
+        width=spec.width, win_prob=win_prob, settings=settings,
+    )
+    if limit is None:
+        trade.status = "canceled"
+        trade.note = f"skipped: {reason}"
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=reason, regime=regime,
+            features=feats,
+        )
+        return 0, {"ticker": ticker, "reason": reason}
+    try:
+        order = client.submit_mleg(
+            legs=order_legs,
+            qty=contracts,
+            limit_price=limit,
+            client_order_id=trade.signal_id,
+        )
+    except AlpacaError as e:
+        logger.error("Order failed for %s: %s", ticker, e)
+        trade.status = "canceled"
+        trade.note = f"submit error: {e}"[:500]
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=f"submit error: {e}", regime=regime,
+            features=feats,
+        )
+        return 0, {"ticker": ticker, "reason": f"submit error: {e}"}
+    trade.entry_order_id = order.get("id")
+    _apply_entry_fill(trade, order)
+    record_decision(
+        db, strategy="earnings", ticker=ticker, decision="opened",
+        earnings_date=ev.date, signal_id=trade.signal_id, regime=regime,
+        features=feats,
+    )
+    return 1, None
 
 
 def _record_trade(

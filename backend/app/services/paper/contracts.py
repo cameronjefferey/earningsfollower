@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
-from app.clients.alpaca import AlpacaClient
+from app.clients.alpaca import AlpacaClient, AlpacaError
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +82,16 @@ def build_trade_spec(
     # list monthly options (next monthly can be 3-4 weeks out).
     strike_lo = lo * 0.8
     strike_hi = hi * 1.25
-    contracts = client.option_contracts(
-        ticker,
-        expiration_gte=earnings_date.isoformat(),
-        expiration_lte=(earnings_date + timedelta(days=45)).isoformat(),
-        strike_gte=strike_lo,
-        strike_lte=strike_hi,
-    )
+    try:
+        contracts = client.option_contracts(
+            ticker,
+            expiration_gte=earnings_date.isoformat(),
+            expiration_lte=(earnings_date + timedelta(days=45)).isoformat(),
+            strike_gte=strike_lo,
+            strike_lte=strike_hi,
+        )
+    except AlpacaError as e:
+        return None, f"alpaca chain error: {e}"
     if not contracts:
         return None, "no listed contracts in the expected-move range"
 

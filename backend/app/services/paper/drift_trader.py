@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from app.clients.alpaca import AlpacaClient
+from app.clients.alpaca import AlpacaClient, AlpacaError
 from app.services.paper.contracts import SpecLeg
 
 logger = logging.getLogger(__name__)
@@ -89,14 +89,17 @@ def build_drift_spec(
     target_move = max(edge, MIN_TARGET_MOVE)
 
     today = date.today()
-    contracts = client.option_contracts(
-        ticker,
-        expiration_gte=(today + timedelta(days=10)).isoformat(),
-        expiration_lte=(today + timedelta(days=45)).isoformat(),
-        option_type=otype,
-        strike_gte=spot * 0.80,
-        strike_lte=spot * 1.20,
-    )
+    try:
+        contracts = client.option_contracts(
+            ticker,
+            expiration_gte=(today + timedelta(days=10)).isoformat(),
+            expiration_lte=(today + timedelta(days=45)).isoformat(),
+            option_type=otype,
+            strike_gte=spot * 0.80,
+            strike_lte=spot * 1.20,
+        )
+    except AlpacaError as e:
+        return None, f"alpaca chain error: {e}"
     if not contracts:
         return None, "no listed contracts near the money"
 

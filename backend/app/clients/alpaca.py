@@ -24,6 +24,21 @@ class AlpacaError(RuntimeError):
     pass
 
 
+def normalize_alpaca_symbol(symbol: str) -> str:
+    """Map vendor tickers onto Alpaca's equity/options symbol format.
+
+    FMP/Yahoo style share-class hyphens (``BRK-B``, ``BF-A``) must become
+    Alpaca dots (``BRK.B``, ``BF.A``). Passing the hyphenated form makes the
+    options-contracts endpoint 422 and used to abort the whole paper scan.
+    """
+    s = (symbol or "").strip().upper()
+    if "-" in s and "." not in s:
+        head, _, tail = s.partition("-")
+        if head and tail.isalpha() and len(tail) <= 2:
+            return f"{head}.{tail}"
+    return s
+
+
 class AlpacaClient:
     def __init__(
         self,
@@ -128,7 +143,7 @@ class AlpacaClient:
         expiration window, call/put, and strike range. Returns the raw contract
         dicts (symbol, strike_price, expiration_date, type, ...)."""
         params: dict[str, Any] = {
-            "underlying_symbols": underlying.upper(),
+            "underlying_symbols": normalize_alpaca_symbol(underlying),
             "status": "active",
             "limit": limit,
         }
@@ -159,12 +174,13 @@ class AlpacaClient:
         for f in (self.data_feed, "iex"):
             if f and f not in feeds:
                 feeds.append(f)
+        sym = normalize_alpaca_symbol(symbol)
         for feed in feeds:
             try:
                 data = self._request(
                     "GET",
                     self.data_base,
-                    f"/v2/stocks/{symbol.upper()}/trades/latest",
+                    f"/v2/stocks/{sym}/trades/latest",
                     params={"feed": feed},
                 )
             except AlpacaError as exc:
@@ -259,7 +275,7 @@ class AlpacaClient:
         option spread to cross). A ``sell`` with no long position opens a short;
         a ``buy`` closes it (Alpaca nets against the existing position)."""
         body: dict[str, Any] = {
-            "symbol": symbol,
+            "symbol": normalize_alpaca_symbol(symbol),
             "qty": str(qty),
             "side": side,
             "type": "market",

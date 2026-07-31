@@ -10,9 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 
 from app.db.session import SessionLocal, init_db
 from app.services.paper.executor import run
+from app.services.paper.health import notify_paper_health, run_is_unhealthy
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s | %(message)s")
 logger = logging.getLogger("app.paper_run")
@@ -62,6 +64,16 @@ def main() -> None:
     finally:
         db.close()
     logger.info("Paper run result:\n%s", json.dumps(result, indent=2, default=str))
+
+    # Fail the process (and page via Telegram / Render notifyOnFail) when the
+    # run is unhealthy. Dry-runs stay exit-0 so local previews aren't alarms.
+    if not args.dry_run and run_is_unhealthy(result):
+        try:
+            notify_paper_health(result)
+        except Exception as e:  # noqa: BLE001 - never mask the real failure
+            logger.warning("paper health notify failed: %s", e)
+        logger.error("Paper run unhealthy — exiting non-zero for cron alerting")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

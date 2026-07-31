@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.services import board_snapshots
 from app.services.sample_stats import sample_tier
+from app.services.waves import filter_by_min_peers
 
 TIER_BOOST = {"solid": 1.25, "ok": 1.0, "thin": 0.45}
 TIER_BASE_CONVICTION = {"solid": 60.0, "ok": 46.0, "thin": 28.0}
@@ -428,7 +429,8 @@ def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dic
     waves = board_snapshots.get_snapshot(db, "waves", "14:21") or {}
     drift = board_snapshots.get_snapshot(db, "drift", "12") or {}
 
-    wave_rows = _cluster_waves(_wave_rows(list(waves.get("signals") or []), today))
+    wave_signals = filter_by_min_peers(list(waves.get("signals") or []))
+    wave_rows = _cluster_waves(_wave_rows(wave_signals, today))
     drift_rows = _drift_rows(list(drift.get("setups") or []), today)
     rows = wave_rows + drift_rows
 

@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 def _targets_from_waves(payload: dict | None) -> set[str]:
     if not payload:
         return set()
+    from app.services.waves import filter_by_min_peers
+
     return {
         str(s.get("target") or "").upper()
-        for s in (payload.get("signals") or [])
+        for s in filter_by_min_peers(list(payload.get("signals") or []))
         if s.get("target")
     }
 

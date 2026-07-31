@@ -22,6 +22,9 @@ interface TargetGroup {
   avgExpected: number | null;
 }
 
+/** Match backend MIN_PEERS_PER_TARGET — one peer must not fan out an industry. */
+const MIN_PEERS_PER_TARGET = 2;
+
 function groupByTarget(signals: WaveSignal[]): TargetGroup[] {
   const map = new Map<string, TargetGroup>();
   for (const sig of signals) {
@@ -43,7 +46,9 @@ function groupByTarget(signals: WaveSignal[]): TargetGroup[] {
     }
   }
 
-  const groups = [...map.values()];
+  const groups = [...map.values()].filter(
+    (g) => g.peers.length >= MIN_PEERS_PER_TARGET
+  );
   for (const g of groups) {
     g.peers.sort((a, b) => b.stats.score - a.stats.score);
     const vals = g.peers
@@ -135,9 +140,9 @@ export default function WavesPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Ride the wave</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1 max-w-2xl">
-          Grouped by the name reporting next. Each card shows the peers that already
-          reported and how this stock has historically drifted into its own print after
-          each one — the SNOW&nbsp;→&nbsp;ORCL setup, quantified.
+          Grouped by the name reporting next. Only the closest comps of each print count,
+          and a card needs at least two of them — how this stock has historically drifted
+          into its own print after each one.
         </p>
         <UpdatedAt value={data?.updated_at} />
       </div>
@@ -167,7 +172,7 @@ export default function WavesPage() {
       ) : groups.length === 0 ? (
         <EmptyState
           title="No active wave setups in this window."
-          hint="Widen the windows above, or refresh data so more peers and upcoming prints are tracked."
+          hint="Need at least two peers reporting in the window. Widen the sliders above, or wait for more peer prints."
         />
       ) : (
         <>

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import EarningsEvent
-from app.services.peers import get_peers, shared_themes
+from app.services.peers import DEFAULT_PEER_LIMIT, get_peers, shared_themes
 from app.services.prices import load_price_series
 from app.services.reactions import compute_reactions
 from app.services.sample_stats import annotate_history
@@ -18,6 +18,11 @@ from app.services.sample_stats import annotate_history
 # pre-earnings drift (a target reports within ~1 quarter of the peer).
 MAX_GAP_DAYS = 100
 MIN_SAMPLE = 3
+# A single peer printing (e.g. ABBV) used to surface every themed name
+# reporting soon — noisy industry fan-out. Require breadth before a target
+# appears on the board, and only the closest comps of each print count.
+MIN_PEERS_PER_TARGET = 2
+MAX_PEERS_PER_TRIGGER = DEFAULT_PEER_LIMIT
 
 
 @dataclass
@@ -157,7 +162,7 @@ def peers_lead_lag(db: Session, target: str, *, limit: int = 12) -> list[dict]:
     reports_cache: dict[str, list[date]] = {}
     reactions_cache: dict[str, dict[date, float | None]] = {}
     out: list[LeadLagStats] = []
-    for peer in get_peers(db, target):
+    for peer in get_peers(db, target, limit=MAX_PEERS_PER_TRIGGER):
         stats = lead_lag(
             db,
             peer,
@@ -172,6 +177,51 @@ def peers_lead_lag(db: Session, target: str, *, limit: int = 12) -> list[dict]:
     return [asdict(s) for s in out[:limit]]
 
 
+def filter_by_min_peers(
+    signals: list[dict],
+    *,
+    min_peers: int = MIN_PEERS_PER_TARGET,
+) -> list[dict]:
+    """Drop targets that only have a single confirming peer in the window.
+
+    Applied when serving persisted board snapshots so stale single-peer fan-outs
+    disappear before the next full recompute.
+    """
+    counts: dict[str, int] = {}
+    for s in signals:
+        target = s.get("target")
+        if target:
+            counts[target] = counts.get(target, 0) + 1
+    return [s for s in signals if counts.get(s.get("target"), 0) >= min_peers]
+
+
+def page_wave_signals(
+    signals: list[dict],
+    *,
+    limit: int,
+) -> tuple[list[dict], bool]:
+    """Paginate wave signals by whole target groups (never orphan a peer)."""
+    signals = filter_by_min_peers(signals)
+    by_target: dict[str, list[dict]] = {}
+    target_order: list[str] = []
+    for s in signals:
+        target = s.get("target") or ""
+        if target not in by_target:
+            by_target[target] = []
+            target_order.append(target)
+        by_target[target].append(s)
+
+    page: list[dict] = []
+    has_more = False
+    for target in target_order:
+        group = by_target[target]
+        if page and len(page) + len(group) > limit:
+            has_more = True
+            break
+        page.extend(group)
+    return page, has_more
+
+
 def current_waves(
     db: Session,
     *,
@@ -183,6 +233,9 @@ def current_waves(
 
     A peer reported recently AND a themed target reports soon -> surface the
     historical lead-lag so the user can decide whether to ride the wave.
+
+    Targets need at least ``MIN_PEERS_PER_TARGET`` distinct recent peers with
+    usable history — one peer printing must not fan out into every themed name.
 
     Stops once ``limit + 1`` qualifying signals are found so small first-page
     requests stay cheap. Returns ``(page, has_more)``.
@@ -210,37 +263,59 @@ def current_waves(
     for ev in upcoming:
         upcoming_by_ticker.setdefault(ev.ticker, ev)
 
+    # Cheap pass: which upcoming targets have enough distinct recent peer prints?
+    # Skip lead-lag work for single-peer industry fan-outs.
+    candidates_by_target: dict[str, list[EarningsEvent]] = {}
+    seen_pairs: set[tuple[str, str]] = set()
+    for trig_event in recent:
+        trig = trig_event.ticker
+        for target in get_peers(db, trig, limit=MAX_PEERS_PER_TRIGGER):
+            if target not in upcoming_by_ticker:
+                continue
+            key = (trig, target)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            candidates_by_target.setdefault(target, []).append(trig_event)
+
+    eligible_targets = [
+        (target, trig_events)
+        for target, trig_events in candidates_by_target.items()
+        if len(trig_events) >= MIN_PEERS_PER_TARGET
+    ]
+    # Nearer prints first; among ties prefer broader peer confirmation.
+    eligible_targets.sort(
+        key=lambda item: (
+            upcoming_by_ticker[item[0]].date,
+            -len(item[1]),
+            item[0],
+        )
+    )
+
     series_cache: dict[str, object] = {}
     reports_cache: dict[str, list[date]] = {}
     reactions_cache: dict[str, dict[date, float | None]] = {}
     name_cache: dict[str, str | None] = {}
 
     signals: list[WaveSignal] = []
-    seen: set[tuple[str, str]] = set()
 
-    for trig_event in recent:
+    for target, trig_events in eligible_targets:
         if len(signals) >= probe:
             break
-        trig = trig_event.ticker
-        if trig not in reactions_cache:
-            series = series_cache.get(trig) or load_price_series(db, trig)
-            series_cache[trig] = series
-            reactions_cache[trig] = {
-                r.date: r.move_pct for r in compute_reactions(db, trig, series=series)
-            }
-        trig_move = reactions_cache[trig].get(trig_event.date)
-        trig_beat = _beat(trig_event)
+        target_event = upcoming_by_ticker[target]
+        target_signals: list[WaveSignal] = []
 
-        for target in get_peers(db, trig):
-            if len(signals) >= probe:
-                break
-            target_event = upcoming_by_ticker.get(target)
-            if target_event is None:
-                continue
-            key = (trig, target)
-            if key in seen:
-                continue
-            seen.add(key)
+        for trig_event in trig_events:
+            trig = trig_event.ticker
+            if trig not in reactions_cache:
+                series = series_cache.get(trig) or load_price_series(db, trig)
+                series_cache[trig] = series
+                reactions_cache[trig] = {
+                    r.date: r.move_pct
+                    for r in compute_reactions(db, trig, series=series)
+                }
+            trig_move = reactions_cache[trig].get(trig_event.date)
+            trig_beat = _beat(trig_event)
 
             stats = lead_lag(
                 db,
@@ -270,7 +345,7 @@ def current_waves(
             if target not in name_cache:
                 name_cache[target] = _name(db, target)
 
-            signals.append(
+            target_signals.append(
                 WaveSignal(
                     trigger=trig,
                     trigger_name=name_cache[trig],
@@ -287,19 +362,29 @@ def current_waves(
                 )
             )
 
+        # History filters can thin a multi-peer candidate back to one usable
+        # peer — still drop those so the board never shows single-peer noise.
+        if len(target_signals) < MIN_PEERS_PER_TARGET:
+            continue
+        signals.extend(target_signals)
+
     signals.sort(
         key=lambda s: (s.stats["score"], abs(s.expected_runup_pct or 0)),
         reverse=True,
     )
-    has_more = len(signals) > limit
-    out: list[dict] = []
-    for s in signals[:limit]:
+    rows: list[dict] = []
+    for s in signals:
         row = asdict(s)
         row.update(
             annotate_history(row["stats"].get("sample_size"), row["stats"].get("win_rate"))
         )
-        out.append(row)
-    return out, has_more
+        rows.append(row)
+
+    page, has_more = page_wave_signals(rows, limit=limit)
+    # Collection may have stopped early at probe even if this page fits.
+    if not has_more and len(signals) >= probe:
+        has_more = True
+    return page, has_more
 
 
 # --- peer-earnings sympathy ride (short, fixed hold) -------------------------
@@ -427,7 +512,7 @@ def current_sympathy_waves(
             continue
         trig_beat = _beat(trig_event)
 
-        for target in get_peers(db, trig):
+        for target in get_peers(db, trig, limit=MAX_PEERS_PER_TRIGGER):
             key = (trig, target)
             if key in seen:
                 continue

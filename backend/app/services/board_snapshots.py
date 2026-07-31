@@ -151,8 +151,12 @@ def slice_list_payload(
     items = list(payload.get(list_key) or [])
     if strip_plans:
         items = [{**s, "plan": None} for s in items]
-    has_more = len(items) > limit
-    page = items[:limit]
+    if list_key == "signals":
+        # Waves: drop single-peer fan-outs and keep target groups intact.
+        page, has_more = waves.page_wave_signals(items, limit=limit)
+    else:
+        has_more = len(items) > limit
+        page = items[:limit]
     out = {**payload, list_key: page, "count": len(page), "limit": limit, "has_more": has_more}
     return out
 

@@ -17,9 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 def _load_snapshot_lists(db: Session) -> tuple[list[dict], list[dict]]:
+    from app.services.waves import filter_by_min_peers
+
     waves = board_snapshots.get_snapshot(db, "waves", "14:21") or {}
     drift = board_snapshots.get_snapshot(db, "drift", "12") or {}
-    return list(waves.get("signals") or []), list(drift.get("setups") or [])
+    return filter_by_min_peers(list(waves.get("signals") or [])), list(
+        drift.get("setups") or []
+    )
 
 
 def _prior_digest_payload(db: Session, today: date) -> dict | None:

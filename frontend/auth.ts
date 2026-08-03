@@ -96,6 +96,53 @@ async function fetchMe(accessToken: string): Promise<{
   }
 }
 
+/** Auth errors that block sign-in / signup (not routine session noise). */
+const SIGNUP_AUTH_ALERT_TYPES = new Set([
+  "InvalidCheck",
+  "CallbackRouteError",
+  "OAuthCallbackError",
+  "OAuthSignInError",
+  "AccessDenied",
+  "Configuration",
+  "AccountNotLinked",
+  "OAuthAccountNotLinked",
+  "MissingCSRF",
+]);
+
+function authErrorType(error: Error): string {
+  const typed = error as Error & { type?: string };
+  return typed.type || error.name || "Error";
+}
+
+function reportAuthFailure(error: Error): void {
+  const type = authErrorType(error);
+  if (!SIGNUP_AUTH_ALERT_TYPES.has(type)) return;
+
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return;
+
+  const message =
+    `Auth fail: ${type}` +
+    (error.message ? ` — ${error.message.slice(0, 280)}` : "");
+
+  // Fire-and-forget; never block the Auth.js response path.
+  void fetch(`${API_BASE}/ops/alert`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${secret}`,
+    },
+    body: JSON.stringify({
+      kind: "auth_fail",
+      message,
+      debounce_key: `auth_fail:${type}`,
+    }),
+    cache: "no-store",
+  }).catch(() => {
+    /* ignore — alerting must never break auth */
+  });
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers: [
@@ -106,6 +153,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   pages: {
     signIn: "/login",
+  },
+  logger: {
+    error(error) {
+      const name = authErrorType(error);
+      console.error(`[auth][error] ${name}: ${error.message}`);
+      reportAuthFailure(error);
+    },
   },
   callbacks: {
     async jwt({ token, account, profile, trigger }) {

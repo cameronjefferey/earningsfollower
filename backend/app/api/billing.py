@@ -13,6 +13,7 @@ from app.api.deps import AuthUser, OptionalAuth, subscription_is_active
 from app.config import Settings, get_settings
 from app.db.models import User
 from app.db.session import get_db
+from app.services.signup_alerts import notify_signup
 
 logger = logging.getLogger("earningsfollower.billing")
 
@@ -236,6 +237,12 @@ def _construct_event(payload: bytes, sig: str, secrets: list[str]):
     logger.warning(
         "Stripe webhook signature failed against %d secret(s)", len(secrets)
     )
+    notify_signup(
+        "webhook_fail",
+        f"Stripe webhook signature failed ({len(secrets)} secret(s) tried)",
+        debounce_key="webhook_sig",
+        debounce_s=900,
+    )
     raise HTTPException(status_code=400, detail="Invalid signature") from last_exc
 
 
@@ -296,16 +303,22 @@ def create_checkout_session(
         )
     except stripe.InvalidRequestError as exc:
         logger.exception("Stripe checkout invalid request")
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc.user_message or exc) or "Stripe rejected checkout",
-        ) from exc
+        detail = str(exc.user_message or exc) or "Stripe rejected checkout"
+        notify_signup(
+            "checkout_fail",
+            f"Checkout failed for {user.email}: {detail}",
+            debounce_key=f"checkout_fail:{user.email}",
+        )
+        raise HTTPException(status_code=400, detail=detail) from exc
     except stripe.StripeError as exc:
         logger.exception("Stripe checkout failed")
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc.user_message or exc) or "Stripe checkout failed",
-        ) from exc
+        detail = str(exc.user_message or exc) or "Stripe checkout failed"
+        notify_signup(
+            "checkout_fail",
+            f"Checkout failed for {user.email}: {detail}",
+            debounce_key=f"checkout_fail:{user.email}",
+        )
+        raise HTTPException(status_code=502, detail=detail) from exc
     return {"url": session["url"], "id": session["id"], "already_subscribed": False}
 
 
@@ -425,9 +438,15 @@ async def stripe_webhook(
                 _handle_subscription_event(db, sub)
         db.commit()
         logger.info("Stripe webhook ok: %s", etype)
-    except Exception:
+    except Exception as exc:
         db.rollback()
         logger.exception("Stripe webhook handler failed for %s", etype)
+        notify_signup(
+            "webhook_fail",
+            f"Stripe webhook handler failed for {etype}: {exc}",
+            debounce_key=f"webhook_handler:{etype}",
+            debounce_s=300,
+        )
         raise
 
     return {"received": True}
@@ -463,6 +482,17 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
         logger.warning(
             "checkout.session.completed with no matching user: %s", data.get("id")
         )
+        meta = _as_dict(data.get("metadata"))
+        email = (
+            meta.get("email") or data.get("customer_email") or "(unknown)"
+        )
+        notify_signup(
+            "webhook_fail",
+            f"checkout.session.completed with no matching user "
+            f"(session={data.get('id')}, email={email})",
+            debounce_key=f"checkout_orphan:{data.get('id')}",
+            debounce_s=0,
+        )
         return
     customer = data.get("customer")
     if isinstance(customer, dict):
@@ -475,6 +505,13 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
     if sub_id:
         sub = stripe.Subscription.retrieve(str(sub_id))
         _apply_subscription(user, sub)
+    notify_signup(
+        "new_sub",
+        f"New Pro: {user.email}"
+        + (f" (sub={sub_id})" if sub_id else ""),
+        debounce_key=f"new_sub:{user.email}:{sub_id or data.get('id')}",
+        debounce_s=0,
+    )
 
 
 def _handle_subscription_event(db: Session, sub: object) -> None:

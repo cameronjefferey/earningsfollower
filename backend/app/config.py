@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # Ping when a live paper run errors / aborts a book so silent empty books
     # don't wait on someone noticing zero open positions.
     telegram_notify_paper_health: bool = True
+    # Ping on signup-funnel events: auth failures, checkout/webhook failures,
+    # and successful new paid subscriptions (same Telegram chat).
+    telegram_notify_signup: bool = True
 
     # --- Calendar-driven universe --------------------------------------------
     # Beyond the curated themes, screen the whole market: each refresh pulls the

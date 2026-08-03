@@ -5,15 +5,16 @@ import { auth } from "@/auth";
 const ADMIN_PREFIXES = ["/paper", "/learning"];
 
 // Auth.js is configured for the www host (AUTH_URL). Google redirects the OAuth
-// callback there, so the PKCE/state cookie must also be set there. If any part of
-// the flow touches the bare apex, the cookie is host-only to the apex and is
-// missing at the www callback → "InvalidCheck: pkceCodeVerifier could not be
-// parsed" / 'response parameter "iss" missing'. So the apex→www canonicalization
-// MUST also cover /api/auth (the sign-in + callback endpoints), which is why this
-// middleware runs on /api too — otherwise those hits fall back to a lossy
-// platform 301 that breaks the OAuth handshake.
-const APEX_HOST = "earningsfollower.com";
+// callback there, so the PKCE/state cookie must also be set there. If sign-in
+// starts on a different host (bare apex, or the Render default
+// *.onrender.com hostname), the cookie is host-only to that host and missing
+// at the www callback → "InvalidCheck: pkceCodeVerifier could not be parsed".
+// Canonicalize every alias → www, including /api/auth.
 const CANONICAL_HOST = "www.earningsfollower.com";
+const ALIAS_HOSTS = new Set([
+  "earningsfollower.com",
+  "earningsfollower-web.onrender.com",
+]);
 
 function isPrefixed(path: string, prefixes: string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`));
@@ -56,12 +57,11 @@ const gated = auth((req) => {
 });
 
 export default function middleware(req: NextRequest, event: NextFetchEvent) {
-  // Canonicalize apex → www before anything else, for EVERY path including
-  // /api/auth, so the OAuth handshake (sign-in, cookies, callback) lives entirely
-  // on one host. 308 preserves method + body + query, so the sign-in POST and the
-  // Google callback aren't mangled the way a 301 would mangle them.
+  // Canonicalize alias hosts → www before anything else, for EVERY path
+  // including /api/auth, so the OAuth handshake lives entirely on one host.
+  // 308 preserves method + body + query.
   const host = req.headers.get("host")?.split(":")[0]?.toLowerCase();
-  if (host === APEX_HOST) {
+  if (host && ALIAS_HOSTS.has(host)) {
     const dest = new URL(req.url);
     dest.protocol = "https:";
     dest.hostname = CANONICAL_HOST;
@@ -70,8 +70,7 @@ export default function middleware(req: NextRequest, event: NextFetchEvent) {
   }
 
   // Never run the auth session wrapper on NextAuth's own endpoints (or any API
-  // route) — just let them through. The apex check above already handled
-  // canonicalization for them.
+  // route) — just let them through. Alias hosts already redirected above.
   if (req.nextUrl.pathname.startsWith("/api")) {
     return NextResponse.next();
   }

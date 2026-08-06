@@ -21,9 +21,9 @@ function money(v: number | null | undefined): string {
 }
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
-  improved: { label: "improved", color: PROFIT },
-  regressed: { label: "regressed", color: LOSS },
-  flat: { label: "flat", color: MUTED },
+  improved: { label: "got better", color: PROFIT },
+  regressed: { label: "got worse", color: LOSS },
+  flat: { label: "same", color: MUTED },
 };
 
 // A signed delta chip. `goodWhenNegative` flips the color logic (used for the
@@ -54,9 +54,9 @@ function VerdictBanner({ report }: { report: ProgressResponse }) {
   const color = v.learning === true ? PROFIT : v.learning === false ? LOSS : WARN;
   const label =
     v.learning === true
-      ? "Learning"
+      ? "Getting sharper"
       : v.learning === false
-      ? "Not improving yet"
+      ? "Not clearly better yet"
       : "Too early to tell";
   return (
     <div
@@ -69,7 +69,7 @@ function VerdictBanner({ report }: { report: ProgressResponse }) {
         </span>
         {v.weeks_improved !== undefined ? (
           <span className="text-[11px] text-[var(--color-muted)]">
-            {v.weeks_improved} up · {v.weeks_regressed} down
+            {v.weeks_improved} better weeks · {v.weeks_regressed} worse
           </span>
         ) : null}
       </div>
@@ -148,8 +148,8 @@ export function WeeklyProgress({ report }: { report: ProgressResponse | null }) 
   return (
     <div className="mb-8">
       <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="font-semibold">Weekly learning</h2>
-        <InfoTip text="The attribution state reconstructed at each past week-end, so you can see exactly what changed week to week and whether the model is actually getting better. 'Cum win' and 'Cal gap' are cumulative (all trades known by that week); 'New' is the trades that closed that week. Green deltas = improvement (for the calibration gap, smaller is better)." />
+        <h2 className="font-semibold">Week by week</h2>
+        <InfoTip text="Each row is the paper book as of that week: how many trades had closed, win rate so far, whether our odds were honest, and what newly closed that week. Green arrows usually mean improvement (for 'odds miss', smaller is better)." />
       </div>
 
       <VerdictBanner report={report} />
@@ -160,22 +160,25 @@ export function WeeklyProgress({ report }: { report: ProgressResponse | null }) 
             <thead>
               <tr className="text-left text-[var(--color-muted)] text-xs uppercase tracking-wide">
                 <th className="py-2 pr-3">Week</th>
-                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Trend</th>
                 <th className="py-2 pr-3">
-                  Graded
-                  <InfoTip text="Cumulative count of closed, graded trades known as of this week." />
-                </th>
-                <th className="py-2 pr-3">Cum win</th>
-                <th className="py-2 pr-3">
-                  Cal gap
-                  <InfoTip text="|predicted − realized| win rate. Smaller = the model's probabilities are more honest. A green ▼ means it tightened." />
+                  Closed
+                  <InfoTip text="How many paper trades had finished and been scored by the end of this week." />
                 </th>
                 <th className="py-2 pr-3">
-                  Sig feat
-                  <InfoTip text="Number of entry features whose correlation with P&L is statistically distinguishable from zero — the signals the model has actually found." />
+                  Win rate
+                  <InfoTip text="Wins ÷ closed trades known by this week." />
                 </th>
-                <th className="py-2 pr-3">New (this wk)</th>
-                <th className="py-2">What changed</th>
+                <th className="py-2 pr-3">
+                  Odds miss
+                  <InfoTip text="How far our predicted win rate was from reality. Smaller is better — a green down arrow means we got more honest." />
+                </th>
+                <th className="py-2 pr-3">
+                  Patterns
+                  <InfoTip text="How many entry clues (like conviction or edge size) clearly line up with winners so far." />
+                </th>
+                <th className="py-2 pr-3">Closed this week</th>
+                <th className="py-2">In plain English</th>
               </tr>
             </thead>
             <tbody>

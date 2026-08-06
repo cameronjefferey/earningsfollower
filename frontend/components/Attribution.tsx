@@ -254,11 +254,11 @@ export function Attribution({ report }: { report: AttributionResponse | null }) 
   return (
     <div className="mb-8">
       <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="font-semibold">Signal attribution</h2>
+        <h2 className="font-semibold">Which setup types win?</h2>
         <span className="text-[11px] text-[var(--color-muted)]">
-          {report.graded_trades} graded trade{report.graded_trades === 1 ? "" : "s"}
+          {report.graded_trades} closed trade{report.graded_trades === 1 ? "" : "s"}
         </span>
-        <InfoTip text="Which cohorts and entry features actually predict winners, learned from the trade-decision journal. Every number carries a sample size and a confidence interval — small samples are shown so you can weight them, not hidden." />
+        <InfoTip text="Breaks closed trades into buckets (strategy, conviction, etc.) and shows which ones make money. Small samples are labeled so you don't over-trust them." />
       </div>
 
       {report.graded_trades === 0 ? (

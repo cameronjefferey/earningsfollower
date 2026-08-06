@@ -15,6 +15,7 @@ import { WeeklyProgress } from "@/components/WeeklyProgress";
 import { Narrative } from "@/components/Narrative";
 import { Attribution } from "@/components/Attribution";
 import { ExecutionQuality } from "@/components/ExecutionQuality";
+import { LearningTakeaways } from "@/components/LearningTakeaways";
 
 export default function LearningPage() {
   const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
@@ -23,14 +24,13 @@ export default function LearningPage() {
   const [execution, setExecution] = useState<ExecutionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [showNumbers, setShowNumbers] = useState(false);
 
   const { ready, accessToken } = useAuthReady();
 
   useEffect(() => {
     if (!ready) return;
     setLoading(true);
-    // Each view loads independently; the page renders once all have settled so a
-    // slow LLM narrative doesn't hold up the metrics.
     Promise.allSettled([
       api.paperProgress(8, accessToken).then(setProgress),
       api.paperNarrative(accessToken).then(setNarrative),
@@ -45,9 +45,6 @@ export default function LearningPage() {
   if (!ready || loading) return <Spinner label="Loading learning…" />;
   if (error) return <EmptyState title="Couldn't load the learning data." />;
 
-  // With a fresh account nothing has graded yet: the progress table, the
-  // narrative, and attribution all self-hide, which leaves the page looking
-  // broken. Detect that and show one honest empty state instead of an orphan.
   const hasProgress = Boolean(
     progress?.weeks.some(
       (w) => w.cumulative.graded_trades > 0 || w.new_this_week.closed > 0
@@ -62,36 +59,52 @@ export default function LearningPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Learning</h1>
-        <p className="text-[var(--color-muted)] mt-1 max-w-3xl">
-          How the paper trader is learning from its own record. Every decision it
-          makes — the trades it takes <span className="text-white">and</span> the
-          setups it skips — is journaled, then graded against what the stock actually
-          did. The real question isn&apos;t just P&amp;L: it&apos;s whether the{" "}
-          <span className="text-white">signal</span> was right, whether we{" "}
-          <span className="text-white">entered</span> on time, and whether we{" "}
-          <span className="text-white">exited</span> on time — so a loss can be
-          diagnosed, not just counted. Below: that signal-vs-execution split,
-          whether it&apos;s improving week to week, a plain-English read of the tape,
-          and which signals predict winners (with sample sizes and confidence
-          intervals). The live positions and scorecard live on the{" "}
+        <p className="text-[var(--color-muted)] mt-1 max-w-2xl leading-relaxed">
+          What the paper trader is learning from closed trades — and how you can
+          use the same lessons in your own book. Live positions stay on{" "}
           <Link href="/paper" className="text-[var(--color-accent)] hover:underline">
             Paper
-          </Link>{" "}
-          tab.
+          </Link>
+          .
         </p>
       </div>
 
       {hasAnyData ? (
         <>
-          <ExecutionQuality report={execution} />
-          <WeeklyProgress report={progress} />
+          <LearningTakeaways
+            narrative={narrative}
+            progress={progress}
+            attribution={attribution}
+            execution={execution}
+          />
           <Narrative report={narrative} />
-          <Attribution report={attribution} />
+          <WeeklyProgress report={progress} />
+
+          <div className="mb-8">
+            <button
+              type="button"
+              onClick={() => setShowNumbers((v) => !v)}
+              className="text-sm text-[var(--color-accent)] hover:underline"
+            >
+              {showNumbers ? "Hide the detailed numbers ↑" : "Show the detailed numbers ↓"}
+            </button>
+            {showNumbers ? (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs text-[var(--color-muted)] mb-4 max-w-2xl">
+                  Optional deep dive: signal quality, entry/exit timing, and which
+                  cohorts win. You don&apos;t need this section to act on the
+                  takeaways above.
+                </p>
+                <ExecutionQuality report={execution} />
+                <Attribution report={attribution} />
+              </div>
+            ) : null}
+          </div>
         </>
       ) : (
         <EmptyState
           title="Nothing graded yet."
-          hint="The journal is already recording every decision the paper trader makes — the setups it takes and the ones it skips. Weekly progress, the read of the tape, and signal attribution all appear here once trades close and their outcomes are labeled. Check the Paper tab for live positions in the meantime."
+          hint="Once paper trades close, this page will spell out what worked, what didn't, and what to try in your own trades. Check Paper for live positions in the meantime."
         />
       )}
     </div>

@@ -119,8 +119,8 @@ def _week_changes(cur: dict, prev: dict | None) -> tuple[list[str], int]:
 
     if cn["closed"]:
         changes.append(
-            f"{cn['closed']} trade(s) closed this week at {_pct(cn['win_rate'])} win, "
-            f"{_money(cn['avg_pnl'])}/trade ({_money(cn['total_pnl'])} total)."
+            f"{cn['closed']} trade(s) closed this week — {_pct(cn['win_rate'])} wins, "
+            f"about {_money(cn['avg_pnl'])} each ({_money(cn['total_pnl'])} total)."
         )
         if cn["avg_pnl"] is not None:
             if cn["avg_pnl"] > 0:
@@ -139,28 +139,29 @@ def _week_changes(cur: dict, prev: dict | None) -> tuple[list[str], int]:
         better = gap_d < 0
         score += 1 if better else -1
         changes.append(
-            f"Calibration gap {_pct(pc['calibration_gap'])}→{_pct(cc['calibration_gap'])} "
-            f"({'tighter' if better else 'wider'})."
+            f"{'Predictions got closer to reality' if better else 'Predictions drifted further from reality'} "
+            f"({_pct(pc['calibration_gap'])} → {_pct(cc['calibration_gap'])} miss)."
         )
 
     wr_d = _delta(cc["win_rate"], pc["win_rate"])
     if wr_d is not None and abs(wr_d) >= _EPS:
         score += 1 if wr_d > 0 else -1
         changes.append(
-            f"Cumulative win rate {_pct(pc['win_rate'])}→{_pct(cc['win_rate'])}."
+            f"Overall win rate moved {_pct(pc['win_rate'])} → {_pct(cc['win_rate'])}."
         )
 
     sf_d = cc["significant_features"] - pc["significant_features"]
     if sf_d:
         score += 1 if sf_d > 0 else -1
         changes.append(
-            f"{abs(sf_d)} {'more' if sf_d > 0 else 'fewer'} significant "
-            f"feature(s) ({pc['significant_features']}→{cc['significant_features']})."
+            f"{'Found' if sf_d > 0 else 'Lost'} {abs(sf_d)} clear pattern"
+            f"{'' if abs(sf_d) == 1 else 's'} linking entry clues to winners "
+            f"({pc['significant_features']} → {cc['significant_features']})."
         )
 
     gt_d = cc["graded_trades"] - pc["graded_trades"]
     if gt_d:
-        changes.append(f"+{gt_d} graded trade(s) (now {cc['graded_trades']}).")
+        changes.append(f"+{gt_d} more closed trade(s) on the book (now {cc['graded_trades']}).")
 
     return changes, score
 
@@ -223,8 +224,8 @@ def _verdict(series: list[dict]) -> dict:
         return {
             "learning": None,
             "summary": (
-                "Not enough history yet to judge learning — need at least two weeks "
-                "with graded trades. The tracker will fill in as trades close."
+                "Too early to call a trend — need at least two weeks with closed "
+                "trades. This fills in as more paper trades finish."
             ),
         }
 
@@ -247,18 +248,23 @@ def _verdict(series: list[dict]) -> dict:
 
     parts: list[str] = []
     if scored:
-        parts.append(f"{improved} of {len(scored)} weeks improved (net); {regressed} regressed.")
+        parts.append(
+            f"{improved} of {len(scored)} weeks got better; {regressed} got worse."
+        )
     if gap_trend is not None:
         parts.append(
-            f"Calibration gap {'tightened' if gap_trend < 0 else 'widened' if gap_trend > 0 else 'flat'} "
-            f"{_pct(abs(gap_trend))} across the window."
+            f"Our odds calls got "
+            f"{'closer to reality' if gap_trend < 0 else 'further from reality' if gap_trend > 0 else 'no clearer'} "
+            f"by {_pct(abs(gap_trend))} over the window."
         )
     if wr_trend is not None and abs(wr_trend) >= _EPS:
-        parts.append(f"Cumulative win rate {'up' if wr_trend > 0 else 'down'} {_pct(abs(wr_trend))}.")
+        parts.append(
+            f"Overall win rate is {'up' if wr_trend > 0 else 'down'} {_pct(abs(wr_trend))}."
+        )
     if learning is False:
         parts.append(
-            "No consistent week-over-week improvement yet — if this persists as the "
-            "sample grows, the edge (or the acted-on learning) isn't there."
+            "No steady week-to-week improvement yet — if that continues as the "
+            "sample grows, the edge may not be there."
         )
 
     return {
@@ -267,7 +273,7 @@ def _verdict(series: list[dict]) -> dict:
         "weeks_regressed": regressed,
         "calibration_gap_trend": gap_trend,
         "win_rate_trend": wr_trend,
-        "summary": " ".join(parts) if parts else "Stable — no material change across the window.",
+        "summary": " ".join(parts) if parts else "Steady — nothing big changed across the window.",
     }
 
 

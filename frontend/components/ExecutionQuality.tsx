@@ -385,11 +385,11 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
   return (
     <div className="mb-8">
       <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="font-semibold">Signal vs. execution</h2>
+        <h2 className="font-semibold">Did we pick, enter, and exit well?</h2>
         <span className="text-[11px] text-[var(--color-muted)]">
-          {report.graded_signals} graded signal{report.graded_signals === 1 ? "" : "s"}
+          {report.graded_signals} scored setup{report.graded_signals === 1 ? "" : "s"}
         </span>
-        <InfoTip text="Realized P&L blends three things: was the lean right, did we enter on time, and did we exit on time. This splits them apart so a loss can be diagnosed — a bad signal, a chased entry, or a mistimed exit are very different problems." />
+        <InfoTip text="A loss can mean three different things: the idea was wrong, we entered late, or we exited poorly. This section splits those apart." />
       </div>
 
       <Card className="p-4">

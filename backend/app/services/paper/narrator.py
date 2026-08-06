@@ -22,16 +22,22 @@ from app.clients.llm import LLMClient
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "You are a disciplined quant trading analyst writing a weekly post-mortem for "
-    "a paper options-trading bot. You are handed pre-computed statistics (cohort "
-    "win rates with confidence intervals, feature-vs-outcome correlations, "
-    "calibration, and an opened-vs-skipped gate check). Your job is ONLY to "
-    "explain and prioritize what the numbers say — never invent figures, never "
-    "claim certainty a small sample can't support, and always respect confidence "
-    "intervals and sample sizes (a wide interval or tiny n means 'inconclusive'). "
-    "Be concrete and brief. Reply with a single JSON object with keys: "
+    "You are a trading coach writing a weekly post-mortem a retail trader can "
+    "actually use. You are handed pre-computed statistics (cohort win rates with "
+    "confidence intervals, feature-vs-outcome correlations, calibration, and an "
+    "opened-vs-skipped entry-filter check). Explain ONLY what the numbers say — "
+    "never invent figures, never claim certainty a small sample can't support, "
+    "and always respect confidence intervals and sample sizes (wide interval or "
+    "tiny n = 'inconclusive'). Write in plain English a trader would say out loud: "
+    "avoid jargon like 'calibration gap', 'significant feature', 'EV gate', "
+    "'alpha/beta'. Prefer 'our odds were off', 'this setup type is working', "
+    "'we're passing on trades that then worked'. Hypotheses must be actionable "
+    "for the reader's own book (what to lean into, size down, or skip). Be "
+    "concrete and brief. Reply with a single JSON object with keys: "
     "headline (string), sections (array of {title, points:[string]}), "
-    "hypotheses (array of string), caveats (array of string)."
+    "hypotheses (array of string), caveats (array of string). Prefer section "
+    "titles: \"What's working\", \"What's hurting\", \"Clues at entry\", "
+    "\"Are the odds honest?\", \"Are we passing on good trades?\"."
 )
 
 
@@ -150,10 +156,11 @@ def _best_worst_cohorts(report: dict) -> tuple[list[str], list[str]]:
         dim_label = labels.get(dim, dim)
         for r in rows:
             lo, hi = r["win_rate_ci"]
-            tag = " (thin sample)" if r["n"] < 8 else ""
+            tag = " — small sample, take lightly" if r["n"] < 8 else ""
             line = (
-                f"{dim_label} · {r['key']}: {_money(r['avg_pnl'])}/trade, "
-                f"{_pct(r['win_rate'])} win [{_pct(lo)}–{_pct(hi)}], n={r['n']}{tag}"
+                f"{dim_label} · {r['key']}: about {_money(r['avg_pnl'])} per trade, "
+                f"{_pct(r['win_rate'])} wins (likely range {_pct(lo)}–{_pct(hi)}), "
+                f"{r['n']} trades{tag}"
             )
             (winners if r["avg_pnl"] > 0 else losers).append((r["avg_pnl"], line))
     winners.sort(key=lambda x: x[0], reverse=True)
@@ -169,10 +176,12 @@ def _feature_points(report: dict) -> list[str]:
             continue
         direction = "higher" if cp["r"] > 0 else "lower"
         out.append(
-            f"{f['label']}: {direction} values track better P&L "
-            f"(r={cp['r']:+.2f}, CI {cp['ci']}, n={f['n']})."
+            f"When {f['label']} is {direction}, trades have tended to make more money "
+            f"({f['n']} trades)."
         )
-    return out[:5] or ["No entry feature yet shows a statistically clear link to P&L."]
+    return out[:5] or [
+        "No entry clue yet clearly lines up with winners — still early."
+    ]
 
 
 def _calibration_points(report: dict) -> list[str]:
@@ -182,14 +191,15 @@ def _calibration_points(report: dict) -> list[str]:
         return []
     gap = real - pred
     if abs(gap) < 0.05:
-        verdict = "well-calibrated"
+        verdict = "roughly honest about its odds"
     elif gap > 0:
-        verdict = "under-confident (winning more than it predicts)"
+        verdict = "winning more often than it expected"
     else:
-        verdict = "over-confident (winning less than it predicts)"
+        verdict = "winning less often than it expected"
     return [
-        f"Overall the model predicts {_pct(pred)} and realizes {_pct(real)} "
-        f"— {verdict} across {c.get('n', 0)} graded trades."
+        f"It figured about a {_pct(pred)} chance of winning and actually won "
+        f"{_pct(real)} of the time — {verdict} "
+        f"({c.get('n', 0)} closed trades)."
     ]
 
 
@@ -201,15 +211,15 @@ def _gate_points(report: dict) -> list[str]:
             continue
         if skipped["up_rate"] >= opened["up_rate"]:
             out.append(
-                f"{c['strategy']}: skipped setups moved favorably {_pct(skipped['up_rate'])} "
-                f"of the time vs {_pct(opened['up_rate'])} for the ones we traded "
-                "— the gate may be rejecting winners; worth a look."
+                f"{c['strategy']}: setups we passed on still moved our way "
+                f"{_pct(skipped['up_rate'])} of the time vs {_pct(opened['up_rate'])} "
+                "for the ones we took — we may be skipping good trades."
             )
         else:
             out.append(
-                f"{c['strategy']}: the gate is earning its keep — traded setups "
-                f"moved favorably {_pct(opened['up_rate'])} vs {_pct(skipped['up_rate'])} "
-                "for skips."
+                f"{c['strategy']}: the trades we took moved our way "
+                f"{_pct(opened['up_rate'])} of the time vs {_pct(skipped['up_rate'])} "
+                "for skips — the filter is helping."
             )
     return out
 
@@ -218,16 +228,15 @@ def _calibration_feedback_points(calibration: dict | None) -> list[str]:
     if not calibration:
         return []
     if not calibration.get("enabled"):
-        return ["Calibration feedback is off — predictions feed the gate as-is."]
+        return ["Odds adjustment is off — new trades use the raw model odds."]
     out: list[str] = []
     for e in calibration.get("strategies", []):
         if not e.get("applicable"):
             continue
-        m = e["multiplier"]
-        lean = "up" if m > 1 else "down"
+        lean = "a bit more willing" if e["multiplier"] > 1 else "a bit more cautious"
         out.append(
-            f"{e['strategy']}: recalibrating win-prob {lean} (x{m:.2f}; predicted "
-            f"{_pct(e['predicted'])} vs realized {_pct(e['realized'])}, n={e['n']})."
+            f"{e['strategy']}: now {lean} after seeing predicted {_pct(e['predicted'])} "
+            f"vs real {_pct(e['realized'])} ({e['n']} trades)."
         )
     return out
 
@@ -237,33 +246,50 @@ def _heuristic(report: dict, calibration: dict | None) -> dict:
     winners, losers = _best_worst_cohorts(report)
 
     headline = (
-        f"{overall.get('n', 0)} graded trades: {_money(overall.get('total_pnl'))} net, "
+        f"{overall.get('n', 0)} closed trades: {_money(overall.get('total_pnl'))} net, "
         f"{_pct(overall.get('win_rate'))} win rate."
     )
 
     sections = [
-        {"title": "What's working", "points": winners or ["Nothing profitable clears the sample floor yet."]},
-        {"title": "What's not", "points": losers or ["No clearly losing cohort above the sample floor."]},
-        {"title": "Feature signal", "points": _feature_points(report)},
-        {"title": "Calibration", "points": _calibration_points(report) + _calibration_feedback_points(calibration)},
-        {"title": "Gate check (opened vs skipped)", "points": _gate_points(report) or ["Not enough labeled skips yet to grade the gate."]},
+        {
+            "title": "What's working",
+            "points": winners
+            or ["Nothing clearly profitable with a big enough sample yet."],
+        },
+        {
+            "title": "What's hurting",
+            "points": losers
+            or ["No clearly losing bucket with a big enough sample yet."],
+        },
+        {"title": "Clues at entry", "points": _feature_points(report)},
+        {
+            "title": "Are the odds honest?",
+            "points": _calibration_points(report)
+            + _calibration_feedback_points(calibration),
+        },
+        {
+            "title": "Are we passing on good trades?",
+            "points": _gate_points(report)
+            or ["Not enough skipped setups yet to judge the entry filter."],
+        },
     ]
 
     hypotheses: list[str] = []
     if winners:
         hypotheses.append(
-            f"Lean into the best cohort ({winners[0].split(':')[0]}) — confirm it "
-            "holds as more of those trades close before sizing up."
+            f"In your own book, lean toward setups like {winners[0].split(':')[0]} — "
+            "confirm it keeps working before you size up."
         )
     if losers:
         hypotheses.append(
-            f"Tighten or drop the worst cohort ({losers[0].split(':')[0]}) if the "
-            "sample keeps growing against it."
+            f"Size down or skip setups like {losers[0].split(':')[0]} if that bucket "
+            "keeps losing as more trades close."
         )
-    gate_concerns = [p for p in _gate_points(report) if "rejecting winners" in p]
+    gate_concerns = [p for p in _gate_points(report) if "skipping good trades" in p]
     if gate_concerns:
         hypotheses.append(
-            "Revisit the entry gate on the flagged strategy — it may be too strict."
+            "On the flagged strategy, consider taking a few more borderline setups — "
+            "we may be passing on winners."
         )
 
     return {

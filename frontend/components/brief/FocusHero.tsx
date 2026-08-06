@@ -286,7 +286,7 @@ export function FocusHero({
           </span>
         ) : (
           <Link
-            href={setup.board_href || (setup.kind === "wave" ? "/waves" : "/drift")}
+            href={setup.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=drift"}
             className="text-[var(--color-accent)] hover:underline ml-auto"
           >
             {setup.kind === "wave" ? "Wave" : "Drift"} board →

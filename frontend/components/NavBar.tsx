@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthMenu } from "@/components/AuthMenu";
 
-/** Product nav stays tiny on purpose — Calendar + Brief. Boards link from the brief. */
+/** Product nav: Calendar + Boards. Drift/Waves live under Boards. */
 const links = [
   { href: "/calendar", label: "Calendar" },
-  { href: "/brief", label: "Brief" },
+  { href: "/boards?tab=waves", label: "Boards" },
 ];
 
 export function NavBar() {
@@ -19,7 +19,9 @@ export function NavBar() {
         const active =
           l.href === "/calendar"
             ? pathname === "/calendar" || pathname.startsWith("/calendar/")
-            : pathname.startsWith(l.href);
+            : pathname.startsWith("/boards") ||
+              pathname.startsWith("/drift") ||
+              pathname.startsWith("/waves");
         return (
           <Link
             key={l.href}

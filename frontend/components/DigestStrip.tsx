@@ -7,7 +7,16 @@ import { Card } from "@/components/ui";
 import { signedPct } from "@/lib/format";
 import { useAuthReady } from "@/lib/useAuthReady";
 
-/** Single lead into the morning brief — not a mini product menu. */
+function boardsHref(focus: RankedSetup | null): string {
+  if (focus?.board_href?.startsWith("/")) {
+    if (focus.board_href.includes("wave")) return "/boards?tab=waves";
+    if (focus.board_href.includes("drift")) return "/boards?tab=drift";
+  }
+  if (focus?.kind === "drift") return "/boards?tab=drift";
+  return "/boards?tab=waves";
+}
+
+/** Compact Today lead on Calendar — points into Boards, not a Brief page. */
 export function DigestStrip() {
   const { ready, accessToken } = useAuthReady();
   const [focus, setFocus] = useState<RankedSetup | null>(null);
@@ -33,12 +42,16 @@ export function DigestStrip() {
 
   if (!focus && !changeLine) return null;
 
+  const href = boardsHref(focus);
+  const cta =
+    focus?.kind === "wave" ? "Open Waves →" : focus ? "Open Drift →" : "Open Boards →";
+
   return (
     <Card className="p-4 mb-6 border-[var(--color-accent)]/25">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-accent)] mb-1">
-            Morning brief · what to lean on
+            Today
           </div>
           {focus ? (
             <>
@@ -53,22 +66,19 @@ export function DigestStrip() {
                   </span>
                 ) : null}
               </p>
-              <p className="text-sm text-[var(--color-muted)] mt-1">
-                Pro ranks one focus setup for the session — action, watch, drop-if.
-              </p>
+              {changeLine ? (
+                <p className="text-sm text-[var(--color-muted)] mt-1">{changeLine}</p>
+              ) : null}
             </>
           ) : (
-            <p className="text-sm text-[var(--color-muted)]">
-              {changeLine ??
-                "Pro turns the calendar into one clear daily lean. Open the brief to see how."}
-            </p>
+            <p className="text-sm text-[var(--color-muted)]">{changeLine}</p>
           )}
         </div>
         <Link
-          href="/brief"
+          href={href}
           className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--color-accent)]/15 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
         >
-          See the brief →
+          {cta}
         </Link>
       </div>
     </Card>

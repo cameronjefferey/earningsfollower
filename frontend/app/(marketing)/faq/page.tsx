@@ -4,22 +4,22 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "FAQ for earningsfollower: free earnings calendar vs Pro morning brief, pricing, data sources, and what the product is not.",
+    "FAQ for earningsfollower: free earnings calendar vs Pro Drift/Waves boards, pricing, data sources, and what the product is not.",
   alternates: { canonical: "https://www.earningsfollower.com/faq" },
 };
 
 const faqs: { q: string; a: string }[] = [
   {
     q: "What is earningsfollower?",
-    a: "Research for earnings season built around what’s already priced in options, peer waves and post-report drift, and one morning focus with action / watch / drop-if.",
+    a: "Research for earnings season built around what’s already priced in options, plus live Drift and Waves boards for post-report continuation and peer setups.",
   },
   {
     q: "What’s free vs paid?",
-    a: "Calendar and company pages stay free. The morning brief (ranked focus + short board) is Pro — details on Pricing.",
+    a: "Calendar and company pages stay free. Live Drift and Waves boards are Pro — details on Pricing.",
   },
   {
-    q: "What’s on the morning brief?",
-    a: "One focus lean for the session (usually a peer wave or post-report drift), a short ranked board, what changed since the last refresh, and who’s reporting today.",
+    q: "What’s on the boards?",
+    a: "Drift: stocks that just printed hard and historically keep moving for ~5 sessions. Waves: names reporting next that historically run after peers in the same theme already reported.",
   },
   {
     q: "Is this financial advice or trade signals?",
@@ -80,19 +80,14 @@ export default function FaqPage() {
         ))}
       </dl>
 
-      <p className="mt-14 text-sm text-[var(--m-muted)]">
-        <Link href="/how-it-works" className="text-[var(--m-accent)] m-link-underline">
-          How it works
+      <div className="mt-14 flex flex-wrap gap-3">
+        <Link href="/calendar" className="m-btn-primary">
+          Open calendar
         </Link>
-        {" · "}
-        <Link href="/calendar" className="text-[var(--m-accent)] m-link-underline">
-          Calendar
+        <Link href="/boards" className="m-btn-ghost">
+          Boards
         </Link>
-        {" · "}
-        <Link href="/pricing" className="text-[var(--m-accent)] m-link-underline">
-          Pricing
-        </Link>
-      </p>
+      </div>
     </article>
   );
 }

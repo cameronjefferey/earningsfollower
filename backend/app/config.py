@@ -338,13 +338,11 @@ class Settings(BaseSettings):
     # level doesn't whipsaw a fresh entry into a loss.
     paper_drift_stop_buffer: float = 0.015
 
-    # --- Reddit sentiment strategy --------------------------------------------
-    # A fourth, social-attention strategy: monitor Reddit, turn a sustained,
-    # directional spike in chatter about a tradeable name into a defined-risk
-    # debit spread (bull call / bear put), and exit fast — it's a pure momentum
-    # trade, so we just ride the Reddit wave for a short window and take a quick
-    # gain or a quick loss. Everything below is a knob to tune over time.
-    paper_reddit_enabled: bool = True
+    # --- Reddit sentiment strategy (RETIRED) ----------------------------------
+    # Formerly traded social-attention spikes as debit spreads. Disabled after
+    # poor live results — keep the knobs so historical paper trades / research
+    # still deserialize, but never open new reddit positions.
+    paper_reddit_enabled: bool = False
     # Discovery + velocity source. ApeWisdom is a free, no-auth aggregator that
     # already crawls the retail subreddits and reports per-ticker mentions plus
     # the same count 24h ago (a ready-made acceleration signal). It's the
@@ -422,7 +420,7 @@ class Settings(BaseSettings):
     # dollar risk as the spread, so we can A/B whether buying the shares beats
     # the options (the momentum may already be priced into rich option premium).
     # Exits on the same hold_hours, plus its own %-move take-profit / stop.
-    paper_reddit_equity_twin_enabled: bool = True
+    paper_reddit_equity_twin_enabled: bool = False
     paper_reddit_equity_take_profit_pct: float = 0.03
     paper_reddit_equity_stop_pct: float = 0.02
     # Days out to target for the option expiry (short-dated, but enough time for

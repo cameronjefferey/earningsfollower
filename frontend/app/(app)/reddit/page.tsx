@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Distraction surface — removed from the product. */
+/** Reddit trading surface removed — send leftovers to Calendar. */
 export default function RedditRedirect() {
-  redirect("/brief");
+  redirect("/calendar");
 }

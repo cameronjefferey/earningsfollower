@@ -23,6 +23,10 @@ MIN_SAMPLE = 3
 # appears on the board, and only the closest comps of each print count.
 MIN_PEERS_PER_TARGET = 2
 MAX_PEERS_PER_TRIGGER = DEFAULT_PEER_LIMIT
+# Reverse of the above: a popular upcoming name can sit in dozens of recent
+# peers' graphs. Cap triggers kept per target so one mega-card can't eat the
+# whole signal budget / early-stop and starve the rest of the board.
+MAX_TRIGGERS_PER_TARGET = DEFAULT_PEER_LIMIT
 
 
 @dataclass
@@ -237,13 +241,16 @@ def current_waves(
     Targets need at least ``MIN_PEERS_PER_TARGET`` distinct recent peers with
     usable history — one peer printing must not fan out into every themed name.
 
-    Stops once ``limit + 1`` qualifying signals are found so small first-page
-    requests stay cheap. Returns ``(page, has_more)``.
+    Stops once enough qualifying *target groups* are found to fill ``limit``
+    (plus one probe group for ``has_more``). Caps peers per target so a single
+    popular name can't consume the whole budget. Returns ``(page, has_more)``.
     """
     today = date.today()
     recent_start = today - timedelta(days=recent_days)
     upcoming_end = today + timedelta(days=upcoming_days)
-    probe = max(limit + 1, 1)
+    # Budget in cards, not raw peer rows — otherwise one 60-peer target
+    # early-stops the scan and the board shows a single card in season.
+    max_targets = max(1, math.ceil(limit / MIN_PEERS_PER_TARGET)) + 1
 
     recent = db.scalars(
         select(EarningsEvent)
@@ -298,11 +305,17 @@ def current_waves(
     name_cache: dict[str, str | None] = {}
 
     signals: list[WaveSignal] = []
+    qualifying_targets = 0
 
     for target, trig_events in eligible_targets:
-        if len(signals) >= probe:
+        if qualifying_targets >= max_targets:
             break
         target_event = upcoming_by_ticker[target]
+        # Prefer the most recent confirming prints; drop the long tail before
+        # spending lead-lag compute on a 60-peer industry pile.
+        trig_events = sorted(trig_events, key=lambda e: e.date, reverse=True)[
+            :MAX_TRIGGERS_PER_TARGET
+        ]
         target_signals: list[WaveSignal] = []
 
         for trig_event in trig_events:
@@ -366,7 +379,12 @@ def current_waves(
         # peer — still drop those so the board never shows single-peer noise.
         if len(target_signals) < MIN_PEERS_PER_TARGET:
             continue
-        signals.extend(target_signals)
+        target_signals.sort(
+            key=lambda s: (s.stats["score"], abs(s.expected_runup_pct or 0)),
+            reverse=True,
+        )
+        signals.extend(target_signals[:MAX_TRIGGERS_PER_TARGET])
+        qualifying_targets += 1
 
     signals.sort(
         key=lambda s: (s.stats["score"], abs(s.expected_runup_pct or 0)),
@@ -381,8 +399,8 @@ def current_waves(
         rows.append(row)
 
     page, has_more = page_wave_signals(rows, limit=limit)
-    # Collection may have stopped early at probe even if this page fits.
-    if not has_more and len(signals) >= probe:
+    # Collection may have stopped early at the target probe even if this page fits.
+    if not has_more and qualifying_targets >= max_targets:
         has_more = True
     return page, has_more
 

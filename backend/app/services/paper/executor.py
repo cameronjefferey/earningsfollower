@@ -203,7 +203,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
             ("earnings", lambda: _scan_entries(db, client, equity, settings, dry_run, calib)),
             ("waves", lambda: _scan_wave_entries(db, client, equity, settings, dry_run, calib)),
             ("drift", lambda: _scan_drift_entries(db, client, equity, settings, dry_run, calib)),
-            ("reddit", lambda: _scan_reddit_entries(db, client, equity, settings, dry_run, calib)),
+            # Reddit sentiment book retired — do not scan for new entries.
             # Earnings-equity runs after the options scan so it can size a twin
             # to the spread that just opened (or stand alone otherwise).
             (
@@ -2479,6 +2479,10 @@ def _reddit_exit_reason(
     db: Session, t: PaperTrade, spot_now: float | None, exit_value: float,
     today: date, settings, tp_pct: float,
 ) -> str | None:
+    # Book retired: flatten any leftover open reddit positions on the next run.
+    if not settings.paper_reddit_enabled:
+        return "strategy retired"
+
     # Global learned take-profit on the underlying move binds first.
     tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
     if tp is not None:
@@ -2516,6 +2520,8 @@ def _reddit_equity_exit_reason(
 ) -> str | None:
     """Same intraday clock as the options twin, but the take-profit / stop are
     measured on the underlying's move (there's no spread to value)."""
+    if not settings.paper_reddit_enabled:
+        return "strategy retired"
     # Global learned take-profit binds before the book's own (already-tight) band.
     tp_reason = _underlying_take_profit(t, spot_now, settings, tp_pct)
     if tp_reason is not None:

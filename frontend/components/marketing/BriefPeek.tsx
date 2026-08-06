@@ -12,29 +12,34 @@ function kindLabel(kind: RankedSetup["kind"]): string {
 }
 
 /**
- * Public teaser for the paid brief. Shows the shape of a focus (kind, ticker,
- * why) but never the actual action / drop-if — that's the Pro payoff, and this
- * runs unauthenticated, so we lock those rows regardless of backend redaction.
+ * Public teaser for Pro boards. Shows the shape of a live setup (kind, ticker,
+ * why) but never the full plan — that's the Pro payoff, and this runs
+ * unauthenticated, so we lock those rows regardless of backend redaction.
  */
 export function BriefPeek() {
   const { focus } = useMarketingData();
+  const boardsHref =
+    focus.data?.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=drift";
 
   return (
     <div className="m-mid-product">
       <div className="flex items-center justify-between gap-2 mb-3">
         <span className="text-xs uppercase tracking-[0.14em] text-[var(--m-muted)]">
-          Today&apos;s focus
+          Live board peek
         </span>
-        <Link href="/brief" className="text-xs text-[var(--m-accent)] hover:underline">
-          Open brief
+        <Link href={boardsHref} className="text-xs text-[var(--m-accent)] hover:underline">
+          Open boards
         </Link>
       </div>
 
       {focus.failed ? (
         <div className="py-6 text-sm text-[var(--m-muted)]">
-          <p>The brief is refreshing.</p>
-          <Link href="/brief" className="mt-2 inline-block text-[var(--m-accent)] hover:underline">
-            Open the brief →
+          <p>Boards are refreshing.</p>
+          <Link
+            href="/boards"
+            className="mt-2 inline-block text-[var(--m-accent)] hover:underline"
+          >
+            Open boards →
           </Link>
         </div>
       ) : focus.data ? (

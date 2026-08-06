@@ -20,10 +20,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     },
     {
-      url: `${BASE}/brief`,
+      url: `${BASE}/boards`,
       lastModified: now,
       changeFrequency: "daily",
-      priority: 0.7,
+      priority: 0.85,
     },
     {
       url: `${BASE}/pricing`,

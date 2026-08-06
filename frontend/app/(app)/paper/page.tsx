@@ -886,14 +886,12 @@ export default function PaperPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Paper trader</h1>
         <p className="text-[var(--color-muted)] mt-1 max-w-3xl">
-          An autonomous worker runs four strategies on one Alpaca paper account:{" "}
+          An autonomous worker runs three strategies on one Alpaca paper account:{" "}
           <span className="text-white">earnings</span> (sell rich IV into a print and
           harvest the crush), <span className="text-white">waves</span> (ride a peer-driven
-          drift into a name&apos;s own print), <span className="text-white">drift</span>{" "}
-          (post-earnings announcement drift via a directional debit spread), and{" "}
-          <span style={{ color: "#ff6a3d" }}>reddit</span> (social-attention sentiment —
-          monitor Reddit and trade a defined-risk debit spread when chatter on a tracked
-          name spikes with a clear lean). Each trade is sized by conviction and journaled
+          drift into a name&apos;s own print), and{" "}
+          <span className="text-white">drift</span> (post-earnings announcement drift via
+          a directional debit spread). Each trade is sized by conviction and journaled
           with a unique signal id. This is the live scorecard — head to the{" "}
           <Link href="/learning" className="text-[var(--color-accent)] hover:underline">
             Learning

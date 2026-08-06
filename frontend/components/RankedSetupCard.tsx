@@ -19,7 +19,8 @@ export function RankedSetupCard({
 }) {
   const kindLabel = setup.kind === "wave" ? "Wave" : "Drift";
   const kindColor = setup.kind === "wave" ? "#5b8def" : "#28c08a";
-  const boardHref = setup.board_href || (setup.kind === "wave" ? "/waves" : "/drift");
+  const boardHref =
+    setup.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=drift";
 
   if (variant === "compact") {
     return (

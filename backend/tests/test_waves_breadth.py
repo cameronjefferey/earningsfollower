@@ -1,6 +1,10 @@
 """Waves board must not fan out a single peer print across an industry."""
 
-from app.services.waves import filter_by_min_peers, page_wave_signals
+from app.services.waves import (
+    MAX_TRIGGERS_PER_TARGET,
+    filter_by_min_peers,
+    page_wave_signals,
+)
 
 
 def _sig(trigger: str, target: str, score: float = 1.0) -> dict:
@@ -39,3 +43,14 @@ def test_page_wave_signals_keeps_target_groups_intact():
     assert {s["target"] for s in page} == {"T1"}
     assert len(page) == 2
     assert has_more is True
+
+
+def test_page_wave_signals_fits_multiple_capped_groups():
+    """With peers capped per target, a normal limit should surface several cards."""
+    signals = []
+    for i, target in enumerate(["T1", "T2", "T3", "T4", "T5"]):
+        for j in range(MAX_TRIGGERS_PER_TARGET):
+            signals.append(_sig(f"{target}P{j}", target, score=10 - i - j * 0.01))
+    page, has_more = page_wave_signals(signals, limit=40)
+    assert {s["target"] for s in page} == {"T1", "T2", "T3", "T4", "T5"}
+    assert has_more is False

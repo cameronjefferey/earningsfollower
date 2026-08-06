@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WAVES = (14, 21)
 DEFAULT_DRIFT_LOOKBACK = 12
-FULL_WAVES_LIMIT = 40
+# Signal budget after per-target peer caps (~8 peers × ~10 cards).
+FULL_WAVES_LIMIT = 80
 FULL_DRIFT_LIMIT = 30
 
 

@@ -40,16 +40,16 @@ export default function MarketingLayout({
               earnings<span>follower</span>
             </p>
             <p>
-              Priced-in map, post-report follow-through, one morning lean. Not a signal
-              service. Not advice. Numbers can be late or wrong.
+              Priced-in map, post-report drift, peer waves. Not a signal service. Not
+              advice. Numbers can be late or wrong.
             </p>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2 sm:flex-col sm:items-end">
             <Link href="/calendar" className="hover:text-white transition-colors">
               Calendar
             </Link>
-            <Link href="/brief" className="hover:text-white transition-colors">
-              Morning brief
+            <Link href="/boards" className="hover:text-white transition-colors">
+              Boards
             </Link>
             <Link href="/pricing" className="hover:text-white transition-colors">
               Pricing

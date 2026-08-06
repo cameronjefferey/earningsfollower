@@ -18,24 +18,24 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.earningsfollower.com"),
   title: {
-    default: "earningsfollower — earnings calendar & morning brief",
+    default: "earningsfollower — earnings calendar & trading boards",
     template: "%s · earningsfollower",
   },
   description:
-    "Free earnings calendar with implied moves, plus a Pro morning brief — one focus setup with action, watch, and drop-if.",
+    "Free earnings calendar with implied moves, plus Pro Drift and Waves boards — post-earnings continuation and peer-wave setups.",
   openGraph: {
     type: "website",
     siteName: "earningsfollower",
-    title: "earningsfollower — earnings calendar & morning brief",
+    title: "earningsfollower — earnings calendar & trading boards",
     description:
-      "Who reports, what's priced in, and what to lean on. Free calendar; Pro morning brief.",
+      "Who reports, what's priced in, and the live boards to trade from. Free calendar; Pro Drift + Waves.",
     url: "https://www.earningsfollower.com",
   },
   twitter: {
     card: "summary_large_image",
-    title: "earningsfollower — earnings calendar & morning brief",
+    title: "earningsfollower — earnings calendar & trading boards",
     description:
-      "Who reports, what's priced in, and what to lean on. Free calendar; Pro morning brief.",
+      "Who reports, what's priced in, and the live boards to trade from. Free calendar; Pro Drift + Waves.",
   },
   alternates: {
     canonical: "https://www.earningsfollower.com",

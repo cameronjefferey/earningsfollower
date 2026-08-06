@@ -6,9 +6,9 @@ import { Reveal } from "@/components/marketing/Reveal";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
 
 export const metadata: Metadata = {
-  title: "earningsfollower — priced-in calendar & post-report brief",
+  title: "earningsfollower — priced-in calendar & trading boards",
   description:
-    "Earnings research built around what’s already priced in options, peer waves and post-report drift, and one morning focus with a drop-if.",
+    "Earnings research built around what’s already priced in options, plus live Drift and Waves boards for post-report continuation and peer setups.",
   alternates: { canonical: "https://www.earningsfollower.com/" },
 };
 
@@ -21,7 +21,7 @@ export default function MarketingHomePage() {
     operatingSystem: "Web",
     url: "https://www.earningsfollower.com",
     description:
-      "Priced-in earnings calendar, peer-wave and post-report drift research, and a morning brief with one focus setup — action, watch, drop-if.",
+      "Priced-in earnings calendar plus Pro Drift and Waves boards for post-report continuation and peer-wave setups.",
     offers: [
       {
         "@type": "Offer",
@@ -35,7 +35,7 @@ export default function MarketingHomePage() {
         price: "9.99",
         priceCurrency: "USD",
         name: "Pro",
-        description: "Morning brief subscription, billed monthly",
+        description: "Live Drift and Waves boards, billed monthly",
       },
     ],
   };
@@ -64,15 +64,15 @@ export default function MarketingHomePage() {
             reports, and after a peer reports.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-lg text-[var(--m-muted)]">
-            Calendar for the field. One morning lean when you want compression, not a
-            catalog.
+            Calendar for the field. Drift and Waves boards when you&apos;re ready to
+            trade the follow-through.
           </p>
           <div className="m-hero-line m-hero-line-3 mt-9 flex flex-wrap items-center gap-3">
             <Link href="/calendar" className="m-btn-primary">
               Open the priced-in map
             </Link>
-            <Link href="/brief" className="m-btn-ghost">
-              Today&apos;s focus
+            <Link href="/boards" className="m-btn-ghost">
+              Open boards
             </Link>
           </div>
           <p className="m-hero-line m-hero-line-3 mt-10 text-[11px] uppercase tracking-[0.18em] text-[var(--m-muted)]">
@@ -102,8 +102,8 @@ export default function MarketingHomePage() {
               },
               {
                 n: "03",
-                t: "One lean",
-                d: "Morning brief: one focus for the session. Action, watch, drop-if. Kill switch written down before you care.",
+                t: "Boards",
+                d: "Live Drift and Waves — post-earnings continuation and peer setups, with sample size attached. Trade from the board, not a catalog.",
               },
             ].map((s, i) => (
               <Reveal key={s.t} delayMs={i * 50}>
@@ -152,7 +152,7 @@ export default function MarketingHomePage() {
                 Follow-through after it reports
               </h2>
               <p className="mt-4 text-[var(--m-muted)] leading-relaxed">
-                The brief ranks peer waves (a related name already reported) and
+                Boards surface peer waves (a related name already reported) and
                 post-earnings drift (the report already landed). Sample size stays on the
                 card. If history is junk, we say so.
               </p>
@@ -229,15 +229,15 @@ export default function MarketingHomePage() {
               Start with the map
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
-              See what&apos;s priced for this week. When you want a single lean once the
-              reports start landing, open the brief.
+              See what&apos;s priced for this week. When reports start landing, open
+              Drift and Waves.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/calendar" className="m-btn-primary">
                 Live calendar
               </Link>
-              <Link href="/brief" className="m-btn-ghost">
-                Morning brief
+              <Link href="/boards" className="m-btn-ghost">
+                Boards
               </Link>
             </div>
           </Reveal>

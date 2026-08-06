@@ -38,6 +38,13 @@ const CAP_BUCKETS: { key: string; label: string; min: number; max: number }[] = 
   { key: "small", label: "Small (<$2B)", min: 0, max: 2e9 },
 ];
 
+// Playbook-aligned conviction tiers (same labels as company page).
+const CONVICTION_BUCKETS: { key: string; label: string }[] = [
+  { key: "high", label: "High" },
+  { key: "medium", label: "Medium" },
+  { key: "low", label: "Low" },
+];
+
 // HappyTrader (and any external deep-link) speaks a stable, public slug
 // vocabulary. These maps translate to/from our internal window + theme keys.
 // Keep these slugs stable — they are a published interface.
@@ -113,6 +120,7 @@ export default function DashboardPage() {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
+  const [selectedConvictions, setSelectedConvictions] = useState<string[]>([]);
   // Gate data fetching until we've read the inbound deep-link params, so we
   // fetch once with the right state instead of flashing the default view.
   const [paramsReady, setParamsReady] = useState(false);
@@ -313,10 +321,10 @@ export default function DashboardPage() {
     });
   }, [sectors]);
 
-  // Filter first (sector + market cap), then sort. Sorting happens per-group
-  // below for the grouped view, but this is the flat, filtered, sorted list.
-  // An empty selection means "no filter" (match everything); otherwise a card
-  // must match at least one of the selected sectors / cap buckets.
+  // Filter first (sector + market cap + conviction), then sort. Sorting happens
+  // per-group below for the grouped view, but this is the flat, filtered,
+  // sorted list. An empty selection means "no filter" (match everything);
+  // otherwise a card must match at least one selected bucket.
   const filteredCards = useMemo(() => {
     const buckets = CAP_BUCKETS.filter((b) => selectedCaps.includes(b.key));
     return shownCards.filter((c) => {
@@ -328,9 +336,15 @@ export default function DashboardPage() {
           cap !== null && buckets.some((b) => cap >= b.min && cap < b.max);
         if (!inBucket) return false;
       }
+      if (
+        selectedConvictions.length &&
+        !(c.conviction && selectedConvictions.includes(c.conviction))
+      ) {
+        return false;
+      }
       return true;
     });
-  }, [shownCards, selectedSectors, selectedCaps]);
+  }, [shownCards, selectedSectors, selectedCaps, selectedConvictions]);
 
   const sortedCards = useMemo(
     () => sortCards(filteredCards, sortKey),
@@ -368,6 +382,14 @@ export default function DashboardPage() {
     } else if (selectedCaps.length > 1) {
       parts.push(`${selectedCaps.length} size filters`);
     }
+    if (selectedConvictions.length === 1) {
+      const label =
+        CONVICTION_BUCKETS.find((b) => b.key === selectedConvictions[0])?.label ??
+        selectedConvictions[0];
+      parts.push(`${label} conviction`);
+    } else if (selectedConvictions.length > 1) {
+      parts.push(`${selectedConvictions.length} conviction levels`);
+    }
     return parts.join(" · ");
   }, [
     filteredCards.length,
@@ -377,6 +399,7 @@ export default function DashboardPage() {
     focusSymbol,
     selectedSectors,
     selectedCaps,
+    selectedConvictions,
   ]);
 
   return (
@@ -449,7 +472,8 @@ export default function DashboardPage() {
             {(theme ||
               focusSymbol ||
               selectedSectors.length > 0 ||
-              selectedCaps.length > 0) && (
+              selectedCaps.length > 0 ||
+              selectedConvictions.length > 0) && (
               <button
                 type="button"
                 onClick={() => {
@@ -457,6 +481,7 @@ export default function DashboardPage() {
                   setFocusSymbol(null);
                   setSelectedSectors([]);
                   setSelectedCaps([]);
+                  setSelectedConvictions([]);
                 }}
                 className="text-sm text-[var(--color-accent)] hover:underline"
               >
@@ -464,7 +489,7 @@ export default function DashboardPage() {
               </button>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <label className="block space-y-1.5">
               <span className="text-xs font-medium text-[var(--color-muted)]">
                 Search ticker
@@ -542,6 +567,17 @@ export default function DashboardPage() {
               options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
               allLabel="Any size"
             />
+
+            <MultiSelect
+              label="Conviction"
+              selected={selectedConvictions}
+              onChange={setSelectedConvictions}
+              options={CONVICTION_BUCKETS.map((b) => ({
+                value: b.key,
+                label: b.label,
+              }))}
+              allLabel="Any conviction"
+            />
           </div>
         </div>
       </div>
@@ -590,7 +626,7 @@ export default function DashboardPage() {
       ) : filteredCards.length === 0 ? (
         <EmptyState
           title="No earnings match these filters."
-          hint="Try clearing sector, market cap, or theme."
+          hint="Try clearing sector, market cap, conviction, or theme."
         />
       ) : weekGroups ? (
         <div className="space-y-10">

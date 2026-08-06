@@ -12,6 +12,8 @@ export interface ThemeTag {
   label: string;
 }
 
+export type ConvictionTier = "low" | "medium" | "high";
+
 export interface EarningsCard {
   ticker: string;
   name: string | null;
@@ -29,6 +31,8 @@ export interface EarningsCard {
   up_rate: number | null;
   beat_streak: number;
   last_move_pct: number | null;
+  /** Playbook-aligned tier; null when history is too thin to score. */
+  conviction?: ConvictionTier | null;
 }
 
 export interface EarningsResponse {

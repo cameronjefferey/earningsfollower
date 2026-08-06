@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import date, timedelta
 
 from sqlalchemy import func, select
@@ -9,9 +10,9 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import Company, EarningsEvent, ImpliedMove, ThemeMembership
 from app.services.analyst import analyst_payload
-from app.services.implied import implied_payload
+from app.services.implied import compute_vol_edge, implied_payload
 from app.services.peers import shared_themes
-from app.services.playbook import build_playbook
+from app.services.playbook import build_playbook, calendar_conviction
 from app.services.prices import load_price_series
 from app.services.reactions import reaction_payload, summarize, compute_reactions
 from app.services.waves import peers_lead_lag
@@ -168,9 +169,14 @@ def earnings_cards(
 
     # Reaction summaries are the expensive bit — once per ticker.
     summary_by: dict[str, object] = {}
+    realized_abs_by: dict[str, list[float]] = {}
     for ticker in tickers:
         series = load_price_series(db, ticker)
-        summary_by[ticker] = summarize(compute_reactions(db, ticker, series=series))
+        reactions = compute_reactions(db, ticker, series=series)
+        summary_by[ticker] = summarize(reactions)
+        realized_abs_by[ticker] = [
+            abs(r.move_pct) for r in reactions if r.move_pct is not None
+        ]
 
     cards: list[dict] = []
     for ev in uniq_events:
@@ -180,6 +186,17 @@ def earnings_cards(
         implied_row = implied_rows.get(ticker)
         expected = implied_row.expected_move_pct if implied_row else None
         avg_abs = summary.avg_abs_move_pct
+        richness = None
+        if expected is not None and avg_abs:
+            richness = round(expected / avg_abs, 3)
+        edge = compute_vol_edge(expected, realized_abs_by.get(ticker, []))
+        implied_ctx = {
+            "expected_move_pct": expected,
+            "historical_avg_abs_move_pct": avg_abs,
+            "richness": richness,
+            "verdict": _verdict_for(avg_abs, expected),
+            **edge,
+        }
         cards.append(
             {
                 "ticker": ticker,
@@ -198,6 +215,7 @@ def earnings_cards(
                 "up_rate": summary.up_rate,
                 "beat_streak": summary.beat_streak,
                 "last_move_pct": summary.last_move_pct,
+                "conviction": calendar_conviction(asdict(summary), implied_ctx),
             }
         )
     return cards, has_more

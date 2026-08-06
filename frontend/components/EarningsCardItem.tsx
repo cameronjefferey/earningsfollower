@@ -1,23 +1,49 @@
 import Link from "next/link";
-import { EarningsCard } from "@/lib/api";
+import { ConvictionTier, EarningsCard } from "@/lib/api";
 import { fmtDate, marketCap, moveClass, pct, signedPct, timingLabel } from "@/lib/format";
 import { Card, ThemePill, VerdictPill } from "./ui";
+
+const CONVICTION_STYLE: Record<
+  ConvictionTier,
+  { label: string; className: string }
+> = {
+  high: {
+    label: "High",
+    className: "bg-[var(--color-up)]/15 text-[var(--color-up)]",
+  },
+  medium: {
+    label: "Med",
+    className: "bg-[var(--color-accent)]/15 text-[var(--color-accent)]",
+  },
+  low: {
+    label: "Low",
+    className: "bg-[var(--color-panel-2)] text-[var(--color-muted)]",
+  },
+};
 
 export function EarningsCardItem({ card }: { card: EarningsCard }) {
   const primary = card.implied_move_pct ?? card.avg_abs_move_pct;
   const primaryLabel = card.implied_move_pct ? "Implied" : "Avg move";
   const theme = card.themes[0];
+  const conviction = card.conviction ? CONVICTION_STYLE[card.conviction] : null;
 
   return (
     <Link href={`/company/${card.ticker}`} className="group block h-full">
       <Card className="p-5 h-full transition-colors group-hover:border-[var(--color-accent)]/50 border-[var(--color-edge)]/80">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xl font-semibold tracking-tight">{card.ticker}</span>
               {card.reported ? (
                 <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-[var(--color-panel-2)] text-[var(--color-muted)]">
                   Reported
+                </span>
+              ) : null}
+              {conviction ? (
+                <span
+                  className={`text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${conviction.className}`}
+                >
+                  {conviction.label}
                 </span>
               ) : null}
             </div>

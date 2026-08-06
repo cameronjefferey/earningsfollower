@@ -51,6 +51,25 @@ class EarningsPlay:
     caveats: list[str]
 
 
+def calendar_conviction(
+    summary: dict | None,
+    implied: dict | None,
+) -> str | None:
+    """Lightweight conviction tier for calendar cards (same rules as playbook).
+
+    Skips analyst/price charts so the board can stay fast; direction uses
+    reaction history only. Returns None when history is too thin to tier.
+    """
+    if not summary or summary.get("sample_size", 0) < 4:
+        return None
+    direction, dir_score, _ = _direction(summary, None, [])
+    vol_stance, _ = _vol_stance(implied)
+    conviction, _ = _conviction(
+        direction, vol_stance, summary, implied, dir_score
+    )
+    return conviction
+
+
 def build_playbook(
     summary: dict,
     implied: dict | None,

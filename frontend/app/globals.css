@@ -172,6 +172,32 @@ body {
   background: var(--m-accent-dim);
 }
 
+/* Ad landing signup panel */
+.m-ad-card {
+  width: 100%;
+  padding: 1.35rem 1.35rem 1.25rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(12, 17, 28, 0.92);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+
+.m-ad-input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--m-line);
+  background: var(--m-bg);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--m-ink);
+  outline: none;
+}
+
+.m-ad-input:focus {
+  border-color: rgba(91, 255, 197, 0.55);
+}
+
 @keyframes m-hero-in {
   from {
     opacity: 0;

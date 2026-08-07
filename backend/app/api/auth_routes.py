@@ -198,7 +198,9 @@ def upsert_user(
 
     db.commit()
     db.refresh(user)
-    return _user_payload(user, settings)
+    payload = _user_payload(user, settings)
+    payload["created"] = created
+    return payload
 
 
 @router.get("/me")

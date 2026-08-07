@@ -5,6 +5,7 @@ import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { BillingResponse, postBilling } from "@/lib/billing";
+import { trackRedditPurchase } from "@/lib/reddit-pixel";
 import { Card } from "@/components/ui";
 
 function safeNextPath(raw: string | null): string {
@@ -26,6 +27,7 @@ function PricingInner() {
   const [billing, setBilling] = useState<BillingResponse | null>(null);
   const confirmStarted = useRef(false);
   const syncedOnce = useRef(false);
+  const purchaseTracked = useRef(false);
 
   const refreshBilling = useCallback(async () => {
     if (!session?.accessToken) return null;
@@ -62,6 +64,13 @@ function PricingInner() {
         const sync = await refreshBilling();
         if (cancelled) return;
         if (sync?.subscribed) {
+          if (!purchaseTracked.current) {
+            purchaseTracked.current = true;
+            trackRedditPurchase({
+              email: session.user?.email ?? undefined,
+              conversionId: `sub_${session.user?.email ?? "anon"}_${Date.now()}`,
+            });
+          }
           setMessage("You're subscribed — opening the boards…");
           router.replace(nextPath === "/" ? "/boards" : nextPath);
           return;
@@ -78,6 +87,13 @@ function PricingInner() {
           const sync = await refreshBilling();
           if (cancelled) return;
           if (sync?.subscribed) {
+            if (!purchaseTracked.current) {
+              purchaseTracked.current = true;
+              trackRedditPurchase({
+                email: session.user?.email ?? undefined,
+                conversionId: `sub_${session.user?.email ?? "anon"}_${Date.now()}`,
+              });
+            }
             setMessage("You're subscribed — opening the boards…");
             router.replace(nextPath === "/" ? "/boards" : nextPath);
             return;

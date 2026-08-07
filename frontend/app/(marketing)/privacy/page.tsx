@@ -68,6 +68,7 @@ export default function PrivacyPage() {
             <li>Resend — transactional and contact email</li>
             <li>Google — optional OAuth sign-in</li>
             <li>Render — hosting and database</li>
+            <li>Reddit — advertising measurement (conversion pixel) when ads are running</li>
             <li>Market data providers (e.g. FMP, Yahoo) — market/earnings data (not your personal account content)</li>
           </ul>
         </section>
@@ -75,8 +76,19 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="m-display text-xl text-[var(--m-ink)]">Cookies & auth</h2>
           <p>
-            We use session cookies (and related auth storage) so you stay signed in. We
-            do not run third-party advertising cookies.
+            We use session cookies (and related auth storage) so you stay signed in. When
+            we run Reddit ads, the Reddit Pixel may set cookies or similar identifiers to
+            measure visits and conversions (for example sign-ups and purchases) and help
+            us optimize campaigns. See{" "}
+            <a
+              href="https://www.reddit.com/policies/privacy-policy"
+              className="text-[var(--m-accent)] hover:underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Reddit&apos;s privacy policy
+            </a>
+            .
           </p>
         </section>
 

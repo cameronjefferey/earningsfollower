@@ -38,6 +38,7 @@ async function syncUser(input: {
   subscriptionStatus: string;
   subscribed: boolean;
   isAdmin: boolean;
+  created: boolean;
 } | null> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -60,11 +61,13 @@ async function syncUser(input: {
       subscription_status: string;
       subscribed: boolean;
       is_admin?: boolean;
+      created?: boolean;
     };
     return {
       subscriptionStatus: data.subscription_status,
       subscribed: data.subscribed,
       isAdmin: Boolean(data.is_admin),
+      created: Boolean(data.created),
     };
   } catch {
     return null;
@@ -249,20 +252,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         Date.now() - Number(token.subscriptionCheckedAt) > 5 * 60 * 1000;
 
       if (shouldSync && token.email) {
-        const synced =
-          (accessToken && (await fetchMe(accessToken))) ||
-          (await syncUser({
-            email: String(token.email),
-            name: token.name,
-            image: typeof token.picture === "string" ? token.picture : null,
-            googleSub: token.googleSub as string | undefined,
-            accessToken,
-          }));
+        // Prefer upsert on the first OAuth/credentials tick so we learn `created`
+        // (for Reddit SignUp). Later refreshes can use /auth/me.
+        const firstTick = Boolean(account) || Boolean(user);
+        const synced = firstTick
+          ? await syncUser({
+              email: String(token.email),
+              name: token.name,
+              image: typeof token.picture === "string" ? token.picture : null,
+              googleSub: token.googleSub as string | undefined,
+              accessToken,
+            })
+          : (accessToken && (await fetchMe(accessToken))) ||
+            (await syncUser({
+              email: String(token.email),
+              name: token.name,
+              image: typeof token.picture === "string" ? token.picture : null,
+              googleSub: token.googleSub as string | undefined,
+              accessToken,
+            }));
         if (synced) {
           token.subscriptionStatus = synced.subscriptionStatus;
           token.subscribed = synced.subscribed;
           token.isAdmin = synced.isAdmin;
           token.subscriptionCheckedAt = Date.now();
+          if ("created" in synced && synced.created) {
+            token.trackSignUp = true;
+          }
         }
       }
 
@@ -280,6 +296,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.subscriptionStatus = (token.subscriptionStatus as string) ?? "none";
       session.subscribed = Boolean(token.subscribed);
       session.isAdmin = Boolean(token.isAdmin);
+      session.trackSignUp = Boolean(token.trackSignUp);
       return session;
     },
   },

@@ -190,3 +190,6 @@ services:
         sync: false
       - key: AUTH_GOOGLE_SECRET
         sync: false
+      # Reddit Ads → Events Manager → Pixel ID (rebuild web after setting)
+      - key: NEXT_PUBLIC_REDDIT_PIXEL_ID
+        sync: false

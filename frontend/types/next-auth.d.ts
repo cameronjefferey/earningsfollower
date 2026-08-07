@@ -7,6 +7,8 @@ declare module "next-auth" {
     subscriptionStatus?: string;
     subscribed?: boolean;
     isAdmin?: boolean;
+    /** True once when the backend just created this account (for ad pixels). */
+    trackSignUp?: boolean;
   }
 }
 
@@ -19,5 +21,6 @@ declare module "next-auth/jwt" {
     isAdmin?: boolean;
     subscriptionCheckedAt?: number;
     picture?: string;
+    trackSignUp?: boolean;
   }
 }

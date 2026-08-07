@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { registerAccount, requestMagicLink } from "@/lib/authApi";
+import { trackRedditSignUp } from "@/lib/reddit-pixel";
 
 type Mode = "signin" | "signup";
 
@@ -51,6 +52,15 @@ function LoginInner() {
         if (!reg.ok) {
           setError(reg.error);
           return;
+        }
+        try {
+          const key = `ef_rdt_signup_${email.trim().toLowerCase()}`;
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, "1");
+            trackRedditSignUp(email.trim());
+          }
+        } catch {
+          trackRedditSignUp(email.trim());
         }
         setNote(reg.data.message);
       }

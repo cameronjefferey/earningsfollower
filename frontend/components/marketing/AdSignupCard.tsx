@@ -5,6 +5,7 @@ import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { registerAccount, requestMagicLink } from "@/lib/authApi";
+import { trackRedditSignUp } from "@/lib/reddit-pixel";
 import { withAdAttrs } from "@/lib/utm";
 
 /**
@@ -47,6 +48,15 @@ export function AdSignupCard({ next = "/calendar" }: { next?: string }) {
       if (!reg.ok) {
         setError(reg.error);
         return;
+      }
+      try {
+        const key = `ef_rdt_signup_${email.trim().toLowerCase()}`;
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          trackRedditSignUp(email.trim());
+        }
+      } catch {
+        trackRedditSignUp(email.trim());
       }
       setNote(reg.data.message);
       const result = await signIn("credentials", {

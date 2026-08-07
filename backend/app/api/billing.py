@@ -515,10 +515,14 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
         email = (
             meta.get("email") or data.get("customer_email") or "(unknown)"
         )
-        notify_signup(
-            "webhook_fail",
-            f"checkout.session.completed with no matching user "
-            f"(session={data.get('id')}, email={email})",
+        log_event(
+            db,
+            kind="stripe_checkout_orphan",
+            email=str(email).lower() if email and email != "(unknown)" else None,
+            message=(
+                f"checkout.session.completed with no matching user "
+                f"(session={data.get('id')}, email={email})"
+            ),
             debounce_key=f"checkout_orphan:{data.get('id')}",
             debounce_s=0,
         )

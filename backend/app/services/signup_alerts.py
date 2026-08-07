@@ -33,6 +33,10 @@ def notify_signup(
     if not getattr(s, "telegram_notify_signup", True):
         return False
     if not telegram_configured():
+        logger.warning(
+            "Signup alert skipped kind=%s — TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set",
+            kind,
+        )
         return False
 
     key = debounce_key or kind

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
 function NavLink({
@@ -45,13 +45,12 @@ export function AuthMenu() {
           label="Pricing"
           active={pathname.startsWith("/pricing")}
         />
-        <button
-          type="button"
-          onClick={() => signIn("google", { callbackUrl: pathname || "/" })}
+        <Link
+          href={`/login?next=${encodeURIComponent(pathname || "/")}`}
           className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--color-accent)]/15 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
         >
           Sign in
-        </button>
+        </Link>
       </div>
     );
   }

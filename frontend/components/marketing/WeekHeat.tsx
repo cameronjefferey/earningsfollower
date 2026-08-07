@@ -111,6 +111,7 @@ export function WeekHeat({ dense = false }: { dense?: boolean }) {
         const implied = c.implied_move_pct;
         const avg = c.avg_abs_move_pct;
         const theme = c.themes[0];
+        const when = timingLabel(c.timing);
         return (
           <Link
             key={`${c.ticker}-${c.date}`}
@@ -126,7 +127,7 @@ export function WeekHeat({ dense = false }: { dense?: boolean }) {
               </div>
               <div className="m-priced-when shrink-0 text-right">
                 <div className="tabular">{fmtDate(c.date)}</div>
-                <div className="m-priced-timing">{timingLabel(c.timing)}</div>
+                {when ? <div className="m-priced-timing">{when}</div> : null}
               </div>
             </div>
 

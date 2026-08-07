@@ -40,6 +40,7 @@ def init_db() -> None:
 
     models.Base.metadata.create_all(bind=engine)
     _ensure_paper_trade_columns()
+    _ensure_user_columns()
     _backfill_paper_trade_max_risk()
     _seed_trade_decisions()
 
@@ -77,6 +78,32 @@ def _ensure_paper_trade_columns() -> None:
     with engine.begin() as conn:
         for col, typ in missing.items():
             conn.execute(text(f"ALTER TABLE paper_trades ADD COLUMN {col} {typ}"))
+
+
+# Columns added to users after Google-only auth shipped.
+_USER_ADDED_COLUMNS = {
+    "password_hash": "VARCHAR(255)",
+    "email_verified_at": "TIMESTAMP",
+}
+
+
+def _ensure_user_columns() -> None:
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("users")}
+    missing = {
+        col: typ
+        for col, typ in _USER_ADDED_COLUMNS.items()
+        if col not in existing
+    }
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for col, typ in missing.items():
+            conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {typ}"))
 
 
 def _backfill_paper_trade_max_risk() -> None:

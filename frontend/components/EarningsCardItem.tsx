@@ -26,6 +26,7 @@ export function EarningsCardItem({ card }: { card: EarningsCard }) {
   const primaryLabel = card.implied_move_pct ? "Implied" : "Avg move";
   const theme = card.themes[0];
   const conviction = card.conviction ? CONVICTION_STYLE[card.conviction] : null;
+  const when = timingLabel(card.timing);
 
   return (
     <Link href={`/company/${card.ticker}`} className="group block h-full">
@@ -53,9 +54,9 @@ export function EarningsCardItem({ card }: { card: EarningsCard }) {
           </div>
           <div className="text-right shrink-0">
             <div className="text-sm font-medium tabular">{fmtDate(card.date)}</div>
-            <div className="text-xs text-[var(--color-muted)] mt-0.5">
-              {timingLabel(card.timing)}
-            </div>
+            {when ? (
+              <div className="text-xs text-[var(--color-muted)] mt-0.5">{when}</div>
+            ) : null}
           </div>
         </div>
 

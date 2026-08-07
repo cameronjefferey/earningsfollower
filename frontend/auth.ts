@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { SignJWT } from "jose";
 
@@ -102,6 +103,7 @@ const SIGNUP_AUTH_ALERT_TYPES = new Set([
   "CallbackRouteError",
   "OAuthCallbackError",
   "OAuthSignInError",
+  "CredentialsSignin",
   "AccessDenied",
   "Configuration",
   "AccountNotLinked",
@@ -143,12 +145,61 @@ function reportAuthFailure(error: Error): void {
   });
 }
 
+async function authorizeCredentials(
+  credentials: Partial<Record<"email" | "password" | "magicToken", unknown>>
+): Promise<{ id: string; email: string; name?: string | null } | null> {
+  const magicToken =
+    typeof credentials.magicToken === "string" ? credentials.magicToken.trim() : "";
+  if (magicToken) {
+    const res = await fetch(`${API_BASE}/auth/magic/consume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: magicToken }),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { email?: string; name?: string | null };
+    if (!data.email) return null;
+    return { id: data.email, email: data.email, name: data.name ?? null };
+  }
+
+  const email =
+    typeof credentials.email === "string" ? credentials.email.trim().toLowerCase() : "";
+  const password =
+    typeof credentials.password === "string" ? credentials.password : "";
+  if (!email || !password) return null;
+
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { email?: string; name?: string | null };
+  if (!data.email) return null;
+  return { id: data.email, email: data.email, name: data.name ?? null };
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      // Backend users are keyed by email; allow Google to merge with password /
+      // magic-link accounts that already use the same address.
+      allowDangerousEmailAccountLinking: true,
+    }),
+    Credentials({
+      id: "credentials",
+      name: "Email",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+        magicToken: { label: "Magic token", type: "text" },
+      },
+      authorize: async (credentials) => authorizeCredentials(credentials ?? {}),
     }),
   ],
   pages: {
@@ -162,12 +213,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
-      if (account && profile?.email) {
+    async jwt({ token, user, account, profile, trigger }) {
+      // Credentials / OAuth both pass a user on the first sign-in tick.
+      if (user?.email) {
+        token.email = user.email;
+        token.name = user.name ?? token.name;
+        if (typeof user.image === "string") {
+          token.picture = user.image;
+        }
+      }
+
+      if (account?.provider === "google" && profile?.email) {
         token.email = profile.email;
         token.name = profile.name ?? token.name;
-        token.picture = typeof profile.picture === "string" ? profile.picture : token.picture;
-        token.googleSub = typeof profile.sub === "string" ? profile.sub : token.googleSub;
+        token.picture =
+          typeof profile.picture === "string" ? profile.picture : token.picture;
+        token.googleSub =
+          typeof profile.sub === "string" ? profile.sub : token.googleSub;
       }
 
       const accessToken = await mintAccessToken({
@@ -181,6 +243,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       const shouldSync =
         Boolean(account) ||
+        Boolean(user) ||
         trigger === "update" ||
         !token.subscriptionCheckedAt ||
         Date.now() - Number(token.subscriptionCheckedAt) > 5 * 60 * 1000;

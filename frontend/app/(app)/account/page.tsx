@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { postBilling } from "@/lib/billing";
@@ -117,7 +117,7 @@ export default function AccountPage() {
     setError(null);
     setNote(null);
     if (!session?.accessToken) {
-      await signIn("google", { callbackUrl: "/account" });
+      window.location.href = "/login?next=/account";
       return;
     }
     setBusy(true);
@@ -151,16 +151,15 @@ export default function AccountPage() {
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Account</h1>
             <p className="text-sm text-[var(--color-muted)] mt-1">
-              Sign in with Google to manage your subscription.
+              Sign in to manage your subscription.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => signIn("google", { callbackUrl: "/account" })}
-            className="w-full rounded-lg bg-[var(--color-accent)] text-white font-medium py-2.5 hover:opacity-90"
+          <Link
+            href="/login?next=/account"
+            className="block w-full text-center rounded-lg bg-[var(--color-accent)] text-white font-medium py-2.5 hover:opacity-90"
           >
-            Continue with Google
-          </button>
+            Sign in
+          </Link>
           <p className="text-xs text-[var(--color-muted)]">
             New here? See{" "}
             <Link href="/pricing" className="text-[var(--color-accent)] hover:underline">
@@ -216,6 +215,11 @@ export default function AccountPage() {
             </div>
             <div className="text-sm text-[var(--color-muted)] truncate">
               {session.user?.email}
+            </div>
+            <div className="text-xs text-[var(--color-muted)] mt-1">
+              <Link href="/login/forgot" className="hover:text-white">
+                Set or reset password
+              </Link>
             </div>
           </div>
         </div>

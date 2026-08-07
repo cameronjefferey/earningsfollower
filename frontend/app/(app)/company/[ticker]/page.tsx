@@ -86,6 +86,7 @@ export default function CompanyPage() {
     .filter((d): d is string => Boolean(d));
 
   const isPreview = Boolean(data.preview);
+  const nextWhen = timingLabel(data.next_earnings_timing);
 
   return (
     <div>
@@ -125,11 +126,11 @@ export default function CompanyPage() {
           <div className="text-lg font-semibold">
             {fmtDate(data.next_earnings_date)}
           </div>
-          <div className="text-xs text-[var(--color-muted)]">
-            {data.next_earnings_date
-              ? timingLabel(data.next_earnings_timing)
-              : "Not scheduled"}
-          </div>
+          {!data.next_earnings_date ? (
+            <div className="text-xs text-[var(--color-muted)]">Not scheduled</div>
+          ) : nextWhen ? (
+            <div className="text-xs text-[var(--color-muted)]">{nextWhen}</div>
+          ) : null}
         </Card>
       </div>
 
@@ -273,7 +274,7 @@ export default function CompanyPage() {
                 <tr key={e.date} className="border-t border-[var(--color-edge)]">
                   <td className="py-2 pr-4">{fmtDate(e.date)}</td>
                   <td className="py-2 pr-4 text-[var(--color-muted)]">
-                    {timingLabel(e.timing)}
+                    {timingLabel(e.timing) ?? "—"}
                   </td>
                   <td className="py-2 pr-4">
                     <BlurValue active={isPreview}>

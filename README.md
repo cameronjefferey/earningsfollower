@@ -77,11 +77,13 @@ npm run dev
 
 ## Paywall (optional, free to set up)
 
-Auth.js (Google) + Stripe subscriptions. **Off by default** — the app stays fully
-open until you flip `PAYWALL_ENABLED` / `NEXT_PUBLIC_PAYWALL_ENABLED`.
+Auth.js (Google, email/password, magic link) + Stripe subscriptions. **Off by
+default** — the app stays fully open until you flip `PAYWALL_ENABLED` /
+`NEXT_PUBLIC_PAYWALL_ENABLED`.
 
 **What you get for $0:** Google OAuth, Auth.js, Stripe test mode, and (until someone
-pays) no Stripe fees. You only pay Stripe’s cut on real charges.
+pays) no Stripe fees. You only pay Stripe’s cut on real charges. Magic-link /
+verify / reset emails use [Resend](https://resend.com) on the API.
 
 1. **Shared secret** — same value in backend `AUTH_SECRET` and frontend `AUTH_SECRET`:
    `openssl rand -base64 32`
@@ -89,15 +91,18 @@ pays) no Stripe fees. You only pay Stripe’s cut on real charges.
    → Create OAuth client (Web). Redirect URI: `http://localhost:3000/api/auth/callback/google`
    (plus your Render URL `/api/auth/callback/google`). Set `AUTH_GOOGLE_ID` /
    `AUTH_GOOGLE_SECRET` in `frontend/.env.local`.
-3. **Stripe (free test mode)** — [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys):
+3. **Resend (email auth)** — verify a sending domain, then set backend
+   `RESEND_API_KEY` and `RESEND_FROM` (e.g. `Earnings Follower <login@mail.yoursite.com>`).
+   Links use `PUBLIC_APP_URL`.
+4. **Stripe (free test mode)** — [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys):
    - Copy the **test** secret key → backend `STRIPE_SECRET_KEY`
    - Products → add a monthly Price → `STRIPE_PRICE_ID=price_...`
    - Developers → Webhooks → endpoint `http://localhost:8000/billing/webhook`
      (or your API URL) for `checkout.session.completed`,
      `customer.subscription.*`, `invoice.paid` → `STRIPE_WEBHOOK_SECRET`
    - Locally, `stripe listen --forward-to localhost:8000/billing/webhook` is easiest
-4. **Bypass yourself while testing** — `AUTH_BYPASS_EMAILS=you@gmail.com` on the backend
-5. **Turn the gate on** (both sides):
+5. **Bypass yourself while testing** — `AUTH_BYPASS_EMAILS=you@gmail.com` on the backend
+6. **Turn the gate on** (both sides):
    - backend: `PAYWALL_ENABLED=true`, `PUBLIC_APP_URL=http://localhost:3000`
    - frontend: `NEXT_PUBLIC_PAYWALL_ENABLED=true`
 
@@ -123,7 +128,14 @@ after changes.
 | GET | `/drift?lookback_days=12` | Live post-earnings drift setups with trade plans (paid) |
 | POST | `/refresh?background=true` | Trigger a data refresh (paid) |
 | GET | `/refresh/status` | Last refresh result |
-| POST | `/auth/upsert` | Create/update user after Google sign-in |
+| POST | `/auth/upsert` | Create/update user after sign-in |
+| POST | `/auth/register` | Email/password signup |
+| POST | `/auth/login` | Email/password check (Auth.js Credentials) |
+| POST | `/auth/magic/request` | Email a magic sign-in link |
+| POST | `/auth/magic/consume` | One-time magic-link exchange |
+| POST | `/auth/password/forgot` | Email a password-reset link |
+| POST | `/auth/password/reset` | Set a new password from reset token |
+| POST | `/auth/email/verify` | Confirm email from verify token |
 | GET | `/auth/me` | Current user + subscription status |
 | POST | `/billing/checkout-session` | Stripe Checkout URL |
 | POST | `/billing/portal-session` | Stripe Customer Portal URL |

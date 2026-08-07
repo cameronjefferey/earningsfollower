@@ -66,8 +66,34 @@ def get_prices(symbol: str, start: date, end: date) -> list[dict[str, Any]]:
     return bars
 
 
+def _timing_from_timestamp(value: Any) -> str:
+    """Map a Yahoo earnings timestamp to bmo / amc / unknown.
+
+    Yahoo indexes earnings by local-exchange time. Pre-open prints cluster in
+    the early morning; after-close prints cluster around 16:00. Midday or
+    midnight placeholders are treated as unknown.
+    """
+    try:
+        ts = pd.Timestamp(value)
+    except Exception:
+        return "unknown"
+    if ts.tzinfo is None:
+        # Naive stamps from Yahoo are usually US/Eastern for US names.
+        hour = int(ts.hour)
+    else:
+        try:
+            hour = int(ts.tz_convert("America/New_York").hour)
+        except Exception:
+            hour = int(ts.hour)
+    if hour <= 11:
+        return "bmo"
+    if hour >= 14:
+        return "amc"
+    return "unknown"
+
+
 def get_earnings_dates(symbol: str, limit: int = 24) -> list[dict[str, Any]]:
-    """Historical + upcoming earnings dates as a yfinance fallback for FMP."""
+    """Historical + upcoming earnings dates (with BMO/AMC when Yahoo has a time)."""
     try:
         df = yf.Ticker(symbol).get_earnings_dates(limit=limit)
     except Exception as exc:
@@ -84,6 +110,7 @@ def get_earnings_dates(symbol: str, limit: int = 24) -> list[dict[str, Any]]:
         out.append(
             {
                 "date": d,
+                "timing": _timing_from_timestamp(ts),
                 "eps_estimate": _safe_float(row.get("EPS Estimate")),
                 "eps_actual": _safe_float(row.get("Reported EPS")),
             }

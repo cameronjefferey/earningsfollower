@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # client doesn't pass them (e.g. https://earningsfollower-web.onrender.com).
     public_app_url: str = "http://localhost:3000"
 
+    # --- Transactional email (Resend) -----------------------------------------
+    # Used for magic-link login, email verification, and password reset.
+    # Empty key = auth email endpoints no-op / return a clear config error.
+    resend_api_key: str = ""
+    # Verified sender, e.g. "Earnings Follower <login@mail.earningsfollower.com>".
+    resend_from: str = ""
+
     # --- Reddit (social sentiment) data --------------------------------------
     # Reads are best-effort. With a Reddit app (client id + secret) we use the
     # OAuth app-only token against oauth.reddit.com (higher, saner rate limits);

@@ -28,9 +28,26 @@ logger = logging.getLogger(__name__)
 
 
 def _timing_from_fmp(value: Any) -> str:
+    """Normalize FMP-ish timing strings to bmo / amc / unknown.
+
+    Stable FMP currently omits ``time`` entirely; keep parsers for the older
+    calendar shapes and common prose variants in case they return later.
+    """
     v = (str(value or "")).strip().lower()
+    if not v:
+        return "unknown"
     if v in {"bmo", "amc"}:
         return v
+    if v in {"before market open", "before-open", "before open", "pre-market", "premarket"}:
+        return "bmo"
+    if v in {"after market close", "after-close", "after close", "post-market", "postmarket"}:
+        return "amc"
+    if "before" in v and "open" in v:
+        return "bmo"
+    if ("after" in v and "close" in v) or v.endswith("amc"):
+        return "amc"
+    if v.endswith("bmo") or v.startswith("bmo"):
+        return "bmo"
     return "unknown"
 
 
@@ -398,11 +415,17 @@ def ingest_company(
             else:
                 raise
 
-    # yfinance earnings scraping is unreliable on cloud IPs, so it's only a
-    # fallback when FMP earnings aren't available (e.g. no API key).
+    # yfinance earnings scraping is unreliable on cloud IPs, so full history
+    # ingest is only a fallback when FMP earnings aren't available. Timing
+    # enrichment is cheaper and runs for names we already hit Yahoo for
+    # (implied move) — FMP's stable calendar no longer returns BMO/AMC.
     got_yahoo_earnings = False
     if fetch_earnings and not got_fmp_earnings:
         got_yahoo_earnings = _ingest_earnings_yahoo(db, ticker)
+    elif fetch_implied:
+        # FMP stable earnings omit session time; pull BMO/AMC from Yahoo for
+        # curated + upcoming names (same Yahoo budget as implied move).
+        _enrich_earnings_timing_yahoo(db, ticker)
 
     price_source = _ingest_prices(db, ticker, history_years, fmp)
     # Implied move comes from yfinance, which rate-limits hard at scale. Only
@@ -528,7 +551,7 @@ def _ingest_earnings_yahoo(db: Session, ticker: str) -> bool:
             db,
             ticker=ticker,
             event_date=row["date"],
-            timing="unknown",
+            timing=row.get("timing") or "unknown",
             eps_estimate=row.get("eps_estimate"),
             eps_actual=row.get("eps_actual"),
             revenue_estimate=None,
@@ -536,6 +559,48 @@ def _ingest_earnings_yahoo(db: Session, ticker: str) -> bool:
             fiscal_period=None,
         )
     return bool(rows)
+
+
+def _enrich_earnings_timing_yahoo(db: Session, ticker: str) -> int:
+    """Fill bmo/amc from Yahoo when FMP left timing as unknown.
+
+    Skips the Yahoo call when every event for the ticker already has a
+    session. Returns the number of rows updated.
+    """
+    has_unknown = db.scalars(
+        select(EarningsEvent.id).where(
+            EarningsEvent.ticker == ticker,
+            EarningsEvent.timing == "unknown",
+        ).limit(1)
+    ).first()
+    if has_unknown is None:
+        return 0
+
+    rows = yahoo.get_earnings_dates(ticker, limit=28)
+    if not rows:
+        return 0
+
+    by_date = {
+        r["date"]: r.get("timing") or "unknown"
+        for r in rows
+        if r.get("date") is not None
+    }
+    updated = 0
+    for event_date, timing in by_date.items():
+        if timing not in {"bmo", "amc"}:
+            continue
+        event = db.scalars(
+            select(EarningsEvent).where(
+                EarningsEvent.ticker == ticker,
+                EarningsEvent.date == event_date,
+                EarningsEvent.timing == "unknown",
+            )
+        ).first()
+        if event is None:
+            continue
+        event.timing = timing
+        updated += 1
+    return updated
 
 
 def _ingest_analyst(db: Session, fmp: FMPClient, ticker: str) -> None:

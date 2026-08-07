@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
-/** Sign in / Account for the marketing chrome. Google creates the account on first use. */
+/** Sign in / Account for the marketing chrome. */
 export function MarketingAuth({
   variant = "nav",
 }: {
@@ -12,6 +12,7 @@ export function MarketingAuth({
 }) {
   const { data: session, status } = useSession();
   const pathname = usePathname();
+  const loginHref = `/login?next=${encodeURIComponent(pathname || "/")}`;
 
   if (status === "loading") {
     if (variant === "footer") {
@@ -27,23 +28,15 @@ export function MarketingAuth({
   if (!session) {
     if (variant === "footer") {
       return (
-        <button
-          type="button"
-          onClick={() => signIn("google", { callbackUrl: pathname || "/" })}
-          className="hover:text-white transition-colors text-left"
-        >
+        <Link href={loginHref} className="hover:text-white transition-colors">
           Sign in
-        </button>
+        </Link>
       );
     }
     return (
-      <button
-        type="button"
-        onClick={() => signIn("google", { callbackUrl: pathname || "/" })}
-        className="m-nav-link"
-      >
+      <Link href={loginHref} className="m-nav-link">
         Sign in
-      </button>
+      </Link>
     );
   }
 

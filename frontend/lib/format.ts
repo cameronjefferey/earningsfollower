@@ -60,8 +60,10 @@ export function windowLabel(key: string): string {
   }
 }
 
-export function timingLabel(timing: string | null | undefined): string {
+/** Human label for earnings session timing. Null when unknown — callers should
+ * omit the line entirely rather than showing a placeholder like "Time TBD". */
+export function timingLabel(timing: string | null | undefined): string | null {
   if (timing === "bmo") return "Before open";
   if (timing === "amc") return "After close";
-  return "Time TBD";
+  return null;
 }

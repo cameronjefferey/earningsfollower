@@ -423,7 +423,7 @@ class DailyDigest(Base):
 
 
 class User(Base):
-    """App account synced from Google login; subscription state comes from Stripe."""
+    """App account (Google, email/password, or magic link); Stripe owns subscription state."""
 
     __tablename__ = "users"
 
@@ -432,6 +432,9 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255))
     image: Mapped[str | None] = mapped_column(String(512))
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    # bcrypt hash; null for Google-only / magic-link-only accounts until they set one.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     # none | active | trialing | past_due | canceled | unpaid | incomplete | ...
@@ -441,3 +444,18 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class AuthToken(Base):
+    """One-time tokens for magic login, password reset, and email verify."""
+
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    # magic_login | password_reset | email_verify
+    purpose: Mapped[str] = mapped_column(String(32), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

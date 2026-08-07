@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { AdSignupCard } from "@/components/marketing/AdSignupCard";
 import { CaptureAdAttrs } from "@/components/marketing/CaptureAdAttrs";
@@ -25,62 +26,59 @@ export default function AdStartPage() {
         <CaptureAdAttrs />
       </Suspense>
 
-      <section className="relative overflow-hidden border-b border-[var(--m-line)]">
-        <div className="absolute inset-0 m-hero-stage" aria-hidden="true">
-          <div className="m-hero-stage-grid">
-            <WeekHeat dense />
-          </div>
-          <div className="m-hero-stage-veil" />
-        </div>
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 pt-10 sm:pt-14 pb-12 sm:pb-16">
+          <p className="m-hero-brand m-brand text-[clamp(2.2rem,6vw,3.4rem)] leading-[0.92]">
+            earnings<span>follower</span>
+          </p>
+          <h1 className="m-hero-line mt-5 max-w-2xl text-lg sm:text-xl text-white/90 leading-snug font-medium">
+            See what&apos;s already priced into earnings — before you trade the print.
+          </h1>
+          <p className="m-hero-line m-hero-line-2 mt-3 max-w-lg text-sm text-[var(--m-muted)] leading-relaxed">
+            Free calendar with options-implied moves. Pro boards when you want the
+            follow-through.
+          </p>
 
-        <div className="relative mx-auto max-w-6xl px-4 sm:px-5 pt-14 sm:pt-20 pb-16 sm:pb-24">
-          <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-10 lg:gap-14 items-start">
-            <div className="min-w-0">
-              <p className="m-hero-brand m-brand text-[clamp(2.6rem,8vw,4.6rem)] leading-[0.9]">
-                earnings<span>follower</span>
+          <div className="m-hero-line m-hero-line-3 mt-10 grid lg:grid-cols-12 gap-8 lg:gap-10 items-start">
+            <div className="lg:col-span-7 order-2 lg:order-1 min-w-0">
+              <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
+                <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">
+                  What&apos;s already priced in
+                </h2>
+                <Link
+                  href="/calendar"
+                  className="text-sm text-[var(--m-accent)] hover:underline"
+                >
+                  Full calendar →
+                </Link>
+              </div>
+              <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-6">
+                Top names this week by options-implied move — with date, history, and
+                theme on each card.
               </p>
-              <h1 className="m-hero-line mt-7 max-w-xl text-xl sm:text-2xl text-white/90 leading-snug font-medium">
-                See what&apos;s already priced into earnings — before you trade the
-                print.
-              </h1>
-              <p className="m-hero-line m-hero-line-2 mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
-                Free calendar with options-implied moves. Pro Drift and Waves boards
-                when you want the follow-through.
-              </p>
-              <p className="m-hero-line m-hero-line-3 mt-8 text-[11px] uppercase tracking-[0.16em] text-[var(--m-muted)]">
-                $0 to start · cancel Pro anytime · not financial advice
-              </p>
+              <div className="m-board-frame m-ad-priced">
+                <WeekHeat limit={4} />
+              </div>
             </div>
 
-            <div className="m-hero-line m-hero-line-3 w-full max-w-md lg:max-w-none lg:justify-self-end">
+            <div className="lg:col-span-5 order-1 lg:order-2 w-full max-w-md lg:max-w-none lg:sticky lg:top-20">
               <AdSignupCard next="/calendar" />
+              <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-[var(--m-muted)] text-center lg:text-left">
+                $0 to start · not financial advice
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 sm:px-5 py-14 sm:py-16">
-        <h2 className="m-display text-2xl sm:text-3xl text-white tracking-tight max-w-lg">
+      <section className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-14">
+        <h2 className="m-display text-2xl text-white tracking-tight max-w-lg">
           Built for earnings week — not another signal feed
         </h2>
-        <p className="mt-4 max-w-xl text-[var(--m-muted)] leading-relaxed">
-          We map the field (what&apos;s priced), then the follow-through (what usually
-          happens after a print or a peer print). You decide what to do with it.
+        <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
+          We map the field (what&apos;s priced), then the follow-through after a print or
+          a peer print. You decide what to do with it.
         </p>
-        <ul className="mt-8 space-y-2.5 text-sm text-[var(--m-muted)] max-w-md">
-          <li className="flex gap-2">
-            <span className="text-[var(--m-accent)]">→</span>
-            Who reports this week, with implied move when we have it
-          </li>
-          <li className="flex gap-2">
-            <span className="text-[var(--m-accent)]">→</span>
-            Reaction history on the company page
-          </li>
-          <li className="flex gap-2">
-            <span className="text-[var(--m-accent)]">→</span>
-            Optional Pro: live post-report Drift &amp; peer Waves
-          </li>
-        </ul>
       </section>
     </MarketingDataProvider>
   );

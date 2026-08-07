@@ -198,6 +198,23 @@ body {
   border-color: rgba(91, 255, 197, 0.55);
 }
 
+/* Ad landing: keep priced-in cards readable beside the signup panel */
+.m-ad-priced .m-priced-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .m-ad-priced .m-priced-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .m-ad-priced .m-priced-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @keyframes m-hero-in {
   from {
     opacity: 0;

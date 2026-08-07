@@ -54,15 +54,23 @@ function AmbientHeat({ cards }: { cards: EarningsCard[] }) {
 }
 
 /** Live week board — fewer names, more signal per card. Shares one fetch. */
-export function WeekHeat({ dense = false }: { dense?: boolean }) {
+export function WeekHeat({
+  dense = false,
+  limit,
+}: {
+  dense?: boolean;
+  /** Cap on non-dense cards (default 6). */
+  limit?: number;
+}) {
   const { week } = useMarketingData();
+  const max = dense ? 28 : (limit ?? 6);
 
   const cells = useMemo(() => {
     if (!week.data) return [];
     return dedupeByTicker(week.data)
       .sort((a, b) => moveScore(b) - moveScore(a))
-      .slice(0, dense ? 28 : 6);
-  }, [week.data, dense]);
+      .slice(0, max);
+  }, [week.data, max]);
 
   // Decorative backdrop: only ever render tiles (skeleton while loading,
   // nothing on empty/error) — never leak a text/error box behind the hero.

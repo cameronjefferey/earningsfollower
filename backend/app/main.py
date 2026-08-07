@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth_routes import router as auth_router
 from app.api.billing import router as billing_router
+from app.api.contact_routes import router as contact_router
 from app.api.ops_routes import router as ops_router
 from app.api.routes import router
 from app.config import get_settings
@@ -63,6 +64,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(billing_router)
+app.include_router(contact_router)
 app.include_router(ops_router)
 
 

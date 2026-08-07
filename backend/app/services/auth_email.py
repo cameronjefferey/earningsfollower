@@ -25,11 +25,21 @@ def send_email(
     subject: str,
     html: str,
     text: str,
+    reply_to: str | None = None,
 ) -> bool:
     """Send one email. Returns True on success. Never raises to callers."""
     if not resend_configured(settings):
         logger.warning("Resend not configured; skipped email to %s (%s)", to, subject)
         return False
+    payload: dict[str, Any] = {
+        "from": settings.resend_from.strip(),
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "text": text,
+    }
+    if reply_to:
+        payload["reply_to"] = reply_to.strip()
     try:
         res = httpx.post(
             RESEND_URL,
@@ -37,13 +47,7 @@ def send_email(
                 "Authorization": f"Bearer {settings.resend_api_key.strip()}",
                 "Content-Type": "application/json",
             },
-            json={
-                "from": settings.resend_from.strip(),
-                "to": [to],
-                "subject": subject,
-                "html": html,
-                "text": text,
-            },
+            json=payload,
             timeout=20.0,
         )
         if res.status_code >= 400:

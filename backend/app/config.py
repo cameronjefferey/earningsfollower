@@ -48,11 +48,13 @@ class Settings(BaseSettings):
     public_app_url: str = "http://localhost:3000"
 
     # --- Transactional email (Resend) -----------------------------------------
-    # Used for magic-link login, email verification, and password reset.
+    # Used for magic-link login, email verification, password reset, and contact.
     # Empty key = auth email endpoints no-op / return a clear config error.
     resend_api_key: str = ""
     # Verified sender, e.g. "Earnings Follower <login@mail.earningsfollower.com>".
     resend_from: str = ""
+    # Inbox for /contact form submissions (Reply-To is the visitor's email).
+    contact_inbox: str = "happyuphilltrader@gmail.com"
 
     # --- Reddit (social sentiment) data --------------------------------------
     # Reads are best-effort. With a Reddit app (client id + secret) we use the

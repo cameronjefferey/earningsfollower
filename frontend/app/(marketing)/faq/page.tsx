@@ -68,7 +68,11 @@ export default function FaqPage() {
         FAQ
       </h1>
       <p className="m-hero-line mt-4 text-[var(--m-muted)] leading-relaxed">
-        Short answers. If something drifts out of date, tell us from Account.
+        Short answers. Still stuck?{" "}
+        <Link href="/contact" className="text-[var(--m-ink)] underline underline-offset-2">
+          Send a question
+        </Link>
+        .
       </p>
 
       <dl className="mt-12 space-y-10">
@@ -83,6 +87,9 @@ export default function FaqPage() {
       <div className="mt-14 flex flex-wrap gap-3">
         <Link href="/calendar" className="m-btn-primary">
           Open calendar
+        </Link>
+        <Link href="/contact" className="m-btn-ghost">
+          Contact
         </Link>
         <Link href="/boards" className="m-btn-ghost">
           Boards

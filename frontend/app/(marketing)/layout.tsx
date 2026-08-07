@@ -20,6 +20,9 @@ export default function MarketingLayout({
             <Link href="/faq" className="m-nav-link hidden sm:inline">
               FAQ
             </Link>
+            <Link href="/contact" className="m-nav-link hidden md:inline">
+              Contact
+            </Link>
             <Link href="/pricing" className="m-nav-link">
               Pricing
             </Link>
@@ -57,6 +60,9 @@ export default function MarketingLayout({
             <MarketingAuth variant="footer" />
             <Link href="/faq" className="hover:text-white transition-colors">
               FAQ
+            </Link>
+            <Link href="/contact" className="hover:text-white transition-colors">
+              Contact
             </Link>
           </div>
         </div>

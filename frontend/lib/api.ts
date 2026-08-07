@@ -395,6 +395,8 @@ export interface PaperResponse {
   open: PaperTrade[];
   closed: PaperTrade[];
   last_run?: PaperLastRun | null;
+  live_stop_policy?: LiveStopPolicy | null;
+  live_exit_policy?: LiveExitPolicy | null;
 }
 
 export interface AttrCohort {
@@ -510,6 +512,8 @@ export interface NarrativeResponse {
   hypotheses: string[];
   caveats: string[];
   calibration: CalibrationState;
+  live_stop_policy?: LiveStopPolicy | null;
+  live_exit_policy?: LiveExitPolicy | null;
 }
 
 export interface WeekCumulative {
@@ -666,6 +670,7 @@ export interface ExecutionResponse {
     best: ExitPolicy | null;
   };
   live_exit_policy: LiveExitPolicy | null;
+  live_stop_policy?: LiveStopPolicy | null;
   signal_weeks: ExecSignalWeek[];
   notes: string[];
 }
@@ -686,6 +691,15 @@ export interface LiveExitPolicy {
     applicable: boolean;
     source: string;
   } | null;
+}
+
+export interface LiveStopPolicy {
+  enabled: boolean;
+  stop_loss_frac: number;
+  late_dte: number;
+  late_stop_frac: number;
+  applies_to: string;
+  note: string;
 }
 
 async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {

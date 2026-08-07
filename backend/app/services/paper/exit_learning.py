@@ -185,3 +185,20 @@ def exit_policy_state(db: Session, settings) -> dict:
         "min_samples": settings.paper_exit_learning_min_samples,
         "learned": learned.as_dict() if learned else None,
     }
+
+
+def stop_policy_state(settings) -> dict:
+    """Live hard-stop policy for sell-vol / earnings credit trades (API/UI)."""
+    return {
+        "enabled": bool(settings.paper_stops_enabled),
+        "stop_loss_frac": settings.paper_stop_loss_frac,
+        "late_dte": settings.paper_late_dte,
+        "late_stop_frac": settings.paper_late_stop_frac,
+        "applies_to": "earnings",
+        "note": (
+            "Cut sell-vol / earnings credits once unrealized loss hits this "
+            "fraction of max risk; tighten near expiry. Checked each paper cron."
+            if settings.paper_stops_enabled
+            else "Off — losers can run to full defined risk while winners get clipped."
+        ),
+    }

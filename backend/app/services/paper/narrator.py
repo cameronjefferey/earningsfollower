@@ -41,7 +41,13 @@ _SYSTEM = (
 )
 
 
-def build_narrative(report: dict, calibration: dict | None = None) -> dict:
+def build_narrative(
+    report: dict,
+    calibration: dict | None = None,
+    *,
+    stop_policy: dict | None = None,
+    exit_policy: dict | None = None,
+) -> dict:
     """Return a narrative dict. Tries the LLM first, falls back to the heuristic."""
     graded = report.get("graded_trades", 0)
     if not graded:
@@ -57,16 +63,59 @@ def build_narrative(report: dict, calibration: dict | None = None) -> dict:
             ],
         }
 
-    llm_result = _try_llm(report, calibration)
+    llm_result = _try_llm(report, calibration, stop_policy, exit_policy)
     if llm_result is not None:
-        return llm_result
-    return _heuristic(report, calibration)
+        return _attach_risk_caveats(llm_result, stop_policy, exit_policy)
+    return _attach_risk_caveats(
+        _heuristic(report, calibration, stop_policy, exit_policy),
+        stop_policy,
+        exit_policy,
+    )
+
+
+def _attach_risk_caveats(
+    narrative: dict,
+    stop_policy: dict | None,
+    exit_policy: dict | None,
+) -> dict:
+    """Ensure the live risk rules are always visible in the post-mortem."""
+    extras: list[str] = []
+    if stop_policy is not None:
+        if stop_policy.get("enabled"):
+            extras.append(
+                f"Hard stops are ON for earnings credit trades: cut at "
+                f"{_pct(stop_policy.get('stop_loss_frac'))} of max risk"
+                f" (tighten to {_pct(stop_policy.get('late_stop_frac'))} inside "
+                f"{stop_policy.get('late_dte')} DTE)."
+            )
+        else:
+            extras.append(
+                "Hard stops are OFF for earnings credit trades — losers can run "
+                "to full defined risk while take-profits clip winners."
+            )
+    if exit_policy is not None and exit_policy.get("enabled"):
+        extras.append(
+            f"Take-profit is ON around a {_pct(exit_policy.get('effective_pct'))} "
+            "underlying move on the directional books."
+        )
+    if extras:
+        caveats = list(narrative.get("caveats") or [])
+        # Put risk rules first so they aren't buried.
+        narrative["caveats"] = extras + [
+            c for c in caveats if c not in extras
+        ]
+    return narrative
 
 
 # --- LLM path ----------------------------------------------------------------
 
 
-def _compact(report: dict, calibration: dict | None) -> dict:
+def _compact(
+    report: dict,
+    calibration: dict | None,
+    stop_policy: dict | None = None,
+    exit_policy: dict | None = None,
+) -> dict:
     """A trimmed, token-cheap view of the report for the prompt."""
     def top(rows: list[dict], k: int = 4) -> list[dict]:
         return [
@@ -95,18 +144,29 @@ def _compact(report: dict, calibration: dict | None) -> dict:
         "calibration": report.get("calibration"),
         "counterfactual": report.get("counterfactual"),
         "calibration_feedback": calibration,
+        "live_stop_policy": stop_policy,
+        "live_exit_policy": exit_policy,
     }
 
 
-def _try_llm(report: dict, calibration: dict | None) -> dict | None:
+def _try_llm(
+    report: dict,
+    calibration: dict | None,
+    stop_policy: dict | None = None,
+    exit_policy: dict | None = None,
+) -> dict | None:
     with LLMClient() as client:
         if not client.enabled:
             return None
         user = (
             "Write the post-mortem from these statistics. Prioritize the most "
             "decisive, best-sampled findings; call out anything with a tiny sample "
-            "or a confidence interval spanning zero as inconclusive.\n\n"
-            + json.dumps(_compact(report, calibration), default=str)
+            "or a confidence interval spanning zero as inconclusive. Mention whether "
+            "hard stops and take-profits are currently armed — that changes how to "
+            "read win rate vs average win/loss.\n\n"
+            + json.dumps(
+                _compact(report, calibration, stop_policy, exit_policy), default=str
+            )
         )
         data = client.score_json(_SYSTEM, user, max_tokens=900)
     if not isinstance(data, dict) or "headline" not in data:
@@ -241,7 +301,40 @@ def _calibration_feedback_points(calibration: dict | None) -> list[str]:
     return out
 
 
-def _heuristic(report: dict, calibration: dict | None) -> dict:
+def _risk_points(
+    stop_policy: dict | None, exit_policy: dict | None
+) -> list[str]:
+    out: list[str] = []
+    if stop_policy is not None:
+        if stop_policy.get("enabled"):
+            out.append(
+                f"Hard stops ON for earnings credits: exit at "
+                f"{_pct(stop_policy.get('stop_loss_frac'))} of max risk "
+                f"(or {_pct(stop_policy.get('late_stop_frac'))} inside "
+                f"{stop_policy.get('late_dte')} DTE)."
+            )
+        else:
+            out.append(
+                "Hard stops OFF for earnings credits — that lets losers run while "
+                "take-profits bank small wins (bad payoff shape at ~50% wins)."
+            )
+    if exit_policy is not None:
+        if exit_policy.get("enabled"):
+            out.append(
+                f"Take-profit ON around {_pct(exit_policy.get('effective_pct'))} "
+                "underlying move on directional books."
+            )
+        else:
+            out.append("Take-profit is off on the directional books.")
+    return out
+
+
+def _heuristic(
+    report: dict,
+    calibration: dict | None,
+    stop_policy: dict | None = None,
+    exit_policy: dict | None = None,
+) -> dict:
     overall = report.get("overall") or {}
     winners, losers = _best_worst_cohorts(report)
 
@@ -271,6 +364,11 @@ def _heuristic(report: dict, calibration: dict | None) -> dict:
             "title": "Are we passing on good trades?",
             "points": _gate_points(report)
             or ["Not enough skipped setups yet to judge the entry filter."],
+        },
+        {
+            "title": "Risk exits live now",
+            "points": _risk_points(stop_policy, exit_policy)
+            or ["No live risk-policy snapshot attached."],
         },
     ]
 

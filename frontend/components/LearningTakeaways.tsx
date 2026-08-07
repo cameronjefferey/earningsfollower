@@ -85,6 +85,19 @@ function buildDoThis(
     }
   }
 
+  const stops = execution?.live_stop_policy ?? narrative?.live_stop_policy;
+  if (stops && out.length < 4) {
+    if (stops.enabled) {
+      out.push(
+        `Hard-stop earnings credit losers around ${pct(stops.stop_loss_frac)} of max risk (tighter near expiry) — don't let a 50% win rate bleed via fat left tails.`
+      );
+    } else {
+      out.push(
+        "Hard stops are off on earnings credits — that's how a ~50% win rate still loses money (small wins, fat losses)."
+      );
+    }
+  }
+
   const live = execution?.live_exit_policy;
   if (live?.enabled && out.length < 4) {
     const tp = pct(live.effective_pct);

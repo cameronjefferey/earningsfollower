@@ -151,11 +151,12 @@ class Settings(BaseSettings):
     # 43:1 setups. The width-fitting search pulls the wings in to try to meet this
     # before giving up. Raise toward 0.33 to demand the classic "third of width".
     paper_min_credit_width_ratio: float = 0.20
-    # Proactive loss-cutting. Off to start — we exit only after the print and
-    # gather data first; flip on once we know stops would have helped. Loss is
-    # measured as a fraction of the trade's max risk, evaluated each run (so it's
-    # only as timely as the cron cadence).
-    paper_stops_enabled: bool = False
+    # Proactive loss-cutting on sell-vol / earnings credit trades. On by default:
+    # without it, take-profits clip winners while losers can run toward full
+    # defined risk — a 50% win rate still bleeds the book. Loss is measured as a
+    # fraction of the trade's max risk, evaluated each run (so it's only as
+    # timely as the cron cadence).
+    paper_stops_enabled: bool = True
     # Hard stop: close any open position once its unrealized loss hits this.
     paper_stop_loss_frac: float = 0.20
     # Near expiry (<= this many days to expiration) tighten to a smaller stop.

@@ -116,10 +116,14 @@ services:
         value: "0.03"
       - key: PAPER_RISK_LOW
         value: "0.015"
-      # Proactive loss-cutting on the sell-vol trades — off to start (exit only
-      # after the print). Flip to true to arm the stops.
+      # Proactive loss-cutting on sell-vol / earnings credit trades (fraction of
+      # max risk). Keep on — otherwise winners get clipped and losers run.
       - key: PAPER_STOPS_ENABLED
-        value: "false"
+        value: "true"
+      - key: PAPER_STOP_LOSS_FRAC
+        value: "0.20"
+      - key: PAPER_LATE_STOP_FRAC
+        value: "0.10"
       # Waves: directional sympathy-drift trades with an underlying-move bracket.
       - key: PAPER_WAVES_ENABLED
         value: "true"

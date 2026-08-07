@@ -11,9 +11,14 @@ const WARN = "#f0a85b";
 const SECTION_TITLE: Record<string, string> = {
   "What's working": "What's working",
   "What's not": "What's hurting",
+  "What's hurting": "What's hurting",
   "Feature signal": "Clues at entry",
+  "Clues at entry": "Clues at entry",
   Calibration: "Are the odds honest?",
+  "Are the odds honest?": "Are the odds honest?",
   "Gate check (opened vs skipped)": "Are we passing on good trades?",
+  "Are we passing on good trades?": "Are we passing on good trades?",
+  "Risk exits live now": "Risk exits live now",
   "Lean into": "What's working",
   "Avoid or size down": "What's hurting",
 };

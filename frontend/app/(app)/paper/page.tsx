@@ -912,6 +912,45 @@ export default function PaperPage() {
         </Card>
       ) : null}
 
+      {data.live_stop_policy ? (
+        <Card
+          className={`p-4 mb-6 ${
+            data.live_stop_policy.enabled
+              ? "border-[var(--color-up)]/40"
+              : "border-[#f0556d]/50"
+          }`}
+        >
+          <div className="text-sm">
+            <span
+              className="font-semibold"
+              style={{
+                color: data.live_stop_policy.enabled ? "#28c08a" : "#f0556d",
+              }}
+            >
+              Hard stops {data.live_stop_policy.enabled ? "ON" : "OFF"}
+            </span>
+            {" "}
+            for earnings credit trades
+            {data.live_stop_policy.enabled ? (
+              <>
+                {" "}
+                — cut at{" "}
+                {(data.live_stop_policy.stop_loss_frac * 100).toFixed(0)}% of max
+                risk, tighten to{" "}
+                {(data.live_stop_policy.late_stop_frac * 100).toFixed(0)}% inside{" "}
+                {data.live_stop_policy.late_dte} DTE. Checked each paper cron.
+              </>
+            ) : (
+              <>
+                {" "}
+                — losers can run to full defined risk while take-profits bank small
+                wins. Turn on <span className="font-mono">PAPER_STOPS_ENABLED</span>.
+              </>
+            )}
+          </div>
+        </Card>
+      ) : null}
+
       {data.last_run ? (
         <Card
           className={`p-4 mb-6 ${

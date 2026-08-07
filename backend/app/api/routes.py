@@ -14,7 +14,7 @@ from app.db.session import get_db, session_scope
 from app.research.attribution import attribution_report
 from app.research.execution import execution_report
 from app.research.progress import progress_series
-from app.services.paper.exit_learning import exit_policy_state
+from app.services.paper.exit_learning import exit_policy_state, stop_policy_state
 from app.services import (
     board_snapshots,
     brief as brief_svc,
@@ -331,8 +331,15 @@ def get_morning_brief(
 
 
 @router.get("/paper", tags=["paper"])
-def get_paper(_: Admin, db: Session = Depends(get_db)) -> dict:
-    return paper_report.scorecard(db)
+def get_paper(
+    _: Admin,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    card = paper_report.scorecard(db)
+    card["live_stop_policy"] = stop_policy_state(settings)
+    card["live_exit_policy"] = exit_policy_state(db, settings)
+    return card
 
 
 @router.get("/paper/attribution", tags=["paper"])
@@ -375,9 +382,10 @@ def get_paper_execution(
     timing (lag / chasing) vs. exit timing (MFE/MAE capture ratio). Isolates
     whether a loss was a bad signal, a late entry, or a mistimed exit."""
     report = execution_report(db, min_samples=min_samples, weeks=weeks)
-    # The take-profit the live trader is enforcing right now (default or learned),
-    # so the page shows the leak *and* that the loop has acted on it.
+    # The take-profit / hard-stop the live trader is enforcing right now, so the
+    # page shows whether risk exits are actually armed (not just theorized).
     report["live_exit_policy"] = exit_policy_state(db, settings)
+    report["live_stop_policy"] = stop_policy_state(settings)
     return report
 
 
@@ -389,8 +397,17 @@ def get_paper_narrative(_: Admin, db: Session = Depends(get_db)) -> dict:
     settings = get_settings()
     report = attribution_report(db)
     calib = calibration_state(db, settings)
-    narrative = build_narrative(report, calib)
-    return {**narrative, "calibration": calib}
+    stops = stop_policy_state(settings)
+    exits = exit_policy_state(db, settings)
+    narrative = build_narrative(
+        report, calib, stop_policy=stops, exit_policy=exits
+    )
+    return {
+        **narrative,
+        "calibration": calib,
+        "live_stop_policy": stops,
+        "live_exit_policy": exits,
+    }
 
 
 def _run_refresh() -> None:

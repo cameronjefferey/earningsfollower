@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, EarningsCard, Theme } from "@/lib/api";
+import { CalendarWelcome } from "@/components/CalendarWelcome";
 import { DigestStrip } from "@/components/DigestStrip";
 import {
   EarningsCardItem,
@@ -121,6 +122,8 @@ export default function DashboardPage() {
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [selectedConvictions, setSelectedConvictions] = useState<string[]>([]);
+  // Keep Narrow results collapsed so earnings cards stay above the fold.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // Gate data fetching until we've read the inbound deep-link params, so we
   // fetch once with the right state instead of flashing the default view.
   const [paramsReady, setParamsReady] = useState(false);
@@ -402,33 +405,35 @@ export default function DashboardPage() {
     selectedConvictions,
   ]);
 
+  const activeFilterCount =
+    (focusSymbol ? 1 : 0) +
+    selectedSectors.length +
+    selectedCaps.length +
+    selectedConvictions.length +
+    (sortKey !== "date" ? 1 : 0);
+
   return (
     <div>
-      <div className="mb-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Earnings calendar</h1>
-            <p className="text-sm text-[var(--color-muted)] mt-2 max-w-2xl leading-relaxed">
-              Who reports, what&apos;s priced in, and how they&apos;ve reacted before.
-              Trade follow-through from Boards (Waves + Drift).
-            </p>
-          </div>
-          <UpdatedAt value={updatedAt} />
-        </div>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+          Earnings calendar
+        </h1>
+        <UpdatedAt value={updatedAt} />
       </div>
+
+      <CalendarWelcome />
 
       <DigestStrip />
 
-      <div className="mb-8 space-y-7">
-        <div>
-          <div className="text-sm font-medium text-white mb-2.5">When</div>
-          <div className="inline-flex flex-wrap rounded-xl bg-[var(--color-panel)]/70 p-1.5 gap-0.5">
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex flex-wrap rounded-lg bg-[var(--color-panel)]/70 p-1 gap-0.5">
             {WINDOWS.map((w) => (
               <button
                 key={w.key}
                 type="button"
                 onClick={() => selectWindow(w.key)}
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   windowKey === w.key
                     ? "bg-[var(--color-accent)] text-white"
                     : "text-[var(--color-muted)] hover:text-white"
@@ -438,148 +443,164 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-        </div>
-
-        <div>
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
-            <div className="text-sm font-medium text-white">Themes you follow</div>
-            <ThemePinPicker
-              allThemes={themes}
-              pinnedKeys={pinnedThemeKeys}
-              onChange={persistPinnedThemes}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <ThemeChip
-              active={theme === null}
-              onClick={() => selectTheme(null)}
-              label="All themes"
-            />
-            {pinnedThemes.map((t) => (
-              <ThemeChip
-                key={t.key}
-                active={theme === t.key}
-                onClick={() => selectTheme(t.key)}
-                label={t.label}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-[var(--color-panel)]/35 p-4 sm:p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-            <div className="text-sm font-medium text-white">Narrow results</div>
-            {(theme ||
-              focusSymbol ||
-              selectedSectors.length > 0 ||
-              selectedCaps.length > 0 ||
-              selectedConvictions.length > 0) && (
-              <button
-                type="button"
-                onClick={() => {
-                  selectTheme(null);
-                  setFocusSymbol(null);
-                  setSelectedSectors([]);
-                  setSelectedCaps([]);
-                  setSelectedConvictions([]);
-                }}
-                className="text-sm text-[var(--color-accent)] hover:underline"
-              >
-                Clear all
-              </button>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-[var(--color-muted)]">
-                Search ticker
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((o) => !o)}
+            aria-expanded={filtersOpen}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+              filtersOpen || activeFilterCount > 0
+                ? "border-[var(--color-accent)]/50 text-white"
+                : "border-[var(--color-edge)]/70 text-[var(--color-muted)] hover:text-white"
+            }`}
+          >
+            Filters
+            {activeFilterCount > 0 ? (
+              <span className="rounded-md bg-[var(--color-accent)]/20 px-1.5 text-xs text-[var(--color-accent)] tabular">
+                {activeFilterCount}
               </span>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={focusSymbol ?? ""}
-                  onChange={(e) =>
-                    setFocusSymbol(
-                      e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
-                    )
-                  }
-                  placeholder="e.g. NVDA"
-                  spellCheck={false}
-                  autoCapitalize="characters"
-                  className={`w-full rounded-lg border bg-transparent py-2.5 pl-3 pr-8 text-sm font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] ${
-                    focusSymbol
-                      ? "border-[var(--color-accent)]"
-                      : "border-[var(--color-edge)]/70"
-                  }`}
-                />
-                {focusSymbol ? (
-                  <button
-                    type="button"
-                    onClick={() => setFocusSymbol(null)}
-                    aria-label="Clear symbol search"
-                    className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
-                  >
-                    <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden>
-                      <path
-                        d="M2 2 8 8 M8 2 2 8"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                ) : null}
-              </div>
-            </label>
-
-            <div className="space-y-1.5">
-              <div className="text-xs font-medium text-[var(--color-muted)]">Sort by</div>
-              <div className="inline-flex w-full rounded-lg border border-[var(--color-edge)]/70 bg-transparent p-1">
-                {SORTS.map((s) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    onClick={() => setSortKey(s.key)}
-                    className={`flex-1 px-2 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                      sortKey === s.key
-                        ? "bg-[var(--color-accent)] text-white"
-                        : "text-[var(--color-muted)] hover:text-white"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <MultiSelect
-              label="Sector"
-              selected={selectedSectors}
-              onChange={setSelectedSectors}
-              options={sectors.map((s) => ({ value: s, label: s }))}
-              allLabel="All sectors"
-            />
-
-            <MultiSelect
-              label="Market cap"
-              selected={selectedCaps}
-              onChange={setSelectedCaps}
-              options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
-              allLabel="Any size"
-            />
-
-            <MultiSelect
-              label="Conviction"
-              selected={selectedConvictions}
-              onChange={setSelectedConvictions}
-              options={CONVICTION_BUCKETS.map((b) => ({
-                value: b.key,
-                label: b.label,
-              }))}
-              allLabel="Any conviction"
-            />
-          </div>
+            ) : null}
+          </button>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <ThemeChip
+            active={theme === null}
+            onClick={() => selectTheme(null)}
+            label="All themes"
+          />
+          {pinnedThemes.map((t) => (
+            <ThemeChip
+              key={t.key}
+              active={theme === t.key}
+              onClick={() => selectTheme(t.key)}
+              label={t.label}
+            />
+          ))}
+          <ThemePinPicker
+            allThemes={themes}
+            pinnedKeys={pinnedThemeKeys}
+            onChange={persistPinnedThemes}
+          />
+        </div>
+
+        {filtersOpen ? (
+          <div className="rounded-xl bg-[var(--color-panel)]/35 p-3 sm:p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+              <div className="text-sm font-medium text-white">Narrow results</div>
+              {(theme ||
+                focusSymbol ||
+                selectedSectors.length > 0 ||
+                selectedCaps.length > 0 ||
+                selectedConvictions.length > 0 ||
+                sortKey !== "date") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    selectTheme(null);
+                    setFocusSymbol(null);
+                    setSelectedSectors([]);
+                    setSelectedCaps([]);
+                    setSelectedConvictions([]);
+                    setSortKey("date");
+                  }}
+                  className="text-sm text-[var(--color-accent)] hover:underline"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-[var(--color-muted)]">
+                  Search ticker
+                </span>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={focusSymbol ?? ""}
+                    onChange={(e) =>
+                      setFocusSymbol(
+                        e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
+                      )
+                    }
+                    placeholder="e.g. NVDA"
+                    spellCheck={false}
+                    autoCapitalize="characters"
+                    className={`w-full rounded-lg border bg-transparent py-2 pl-3 pr-8 text-sm font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] ${
+                      focusSymbol
+                        ? "border-[var(--color-accent)]"
+                        : "border-[var(--color-edge)]/70"
+                    }`}
+                  />
+                  {focusSymbol ? (
+                    <button
+                      type="button"
+                      onClick={() => setFocusSymbol(null)}
+                      aria-label="Clear symbol search"
+                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
+                    >
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden>
+                        <path
+                          d="M2 2 8 8 M8 2 2 8"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
+                  ) : null}
+                </div>
+              </label>
+
+              <div className="space-y-1.5">
+                <div className="text-xs font-medium text-[var(--color-muted)]">Sort by</div>
+                <div className="inline-flex w-full rounded-lg border border-[var(--color-edge)]/70 bg-transparent p-1">
+                  {SORTS.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => setSortKey(s.key)}
+                      className={`flex-1 px-2 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                        sortKey === s.key
+                          ? "bg-[var(--color-accent)] text-white"
+                          : "text-[var(--color-muted)] hover:text-white"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <MultiSelect
+                label="Sector"
+                selected={selectedSectors}
+                onChange={setSelectedSectors}
+                options={sectors.map((s) => ({ value: s, label: s }))}
+                allLabel="All sectors"
+              />
+
+              <MultiSelect
+                label="Market cap"
+                selected={selectedCaps}
+                onChange={setSelectedCaps}
+                options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
+                allLabel="Any size"
+              />
+
+              <MultiSelect
+                label="Conviction"
+                selected={selectedConvictions}
+                onChange={setSelectedConvictions}
+                options={CONVICTION_BUCKETS.map((b) => ({
+                  value: b.key,
+                  label: b.label,
+                }))}
+                allLabel="Any conviction"
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {!loading && !error ? (
@@ -944,7 +965,7 @@ function ThemeChip({
     <button
       type="button"
       onClick={onClick}
-      className={`px-3.5 py-2 rounded-full text-sm font-medium border transition-colors ${
+      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
         active
           ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
           : "border-[var(--color-edge)] text-[var(--color-muted)] hover:text-white hover:border-[var(--color-muted)]"

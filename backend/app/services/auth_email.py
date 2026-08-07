@@ -65,18 +65,76 @@ def _app_url(settings: Settings) -> str:
     return (settings.public_app_url or "http://localhost:3000").rstrip("/")
 
 
-def send_magic_link(settings: Settings, *, email: str, token: str) -> bool:
+def send_magic_link(
+    settings: Settings,
+    *,
+    email: str,
+    token: str,
+    welcome_new_user: bool = False,
+) -> bool:
     link = f"{_app_url(settings)}/login/magic?token={token}"
+    calendar = f"{_app_url(settings)}/calendar"
+    welcome_text = ""
+    welcome_html = ""
+    if welcome_new_user:
+        welcome_text = (
+            "Welcome — your account is ready. The earnings calendar is free "
+            f"({calendar}). Pro unlocks Drift and Waves boards when you're ready.\n\n"
+        )
+        welcome_html = (
+            "<p>Welcome — your account is ready. The earnings calendar is free. "
+            "Pro unlocks Drift and Waves boards when you&apos;re ready.</p>"
+        )
     return send_email(
         settings,
         to=email,
         subject="Your Earnings Follower sign-in link",
-        text=f"Sign in to Earnings Follower:\n\n{link}\n\nThis link expires in 15 minutes.",
+        text=(
+            f"{welcome_text}"
+            f"Sign in to Earnings Follower:\n\n{link}\n\n"
+            "This link expires in 15 minutes."
+        ),
         html=(
+            f"{welcome_html}"
             "<p>Sign in to Earnings Follower:</p>"
             f'<p><a href="{link}">Continue to Earnings Follower</a></p>'
             "<p style='color:#666;font-size:13px'>This link expires in 15 minutes. "
             "If you didn't request it, you can ignore this email.</p>"
+        ),
+    )
+
+
+def send_welcome(
+    settings: Settings,
+    *,
+    email: str,
+    name: str | None = None,
+) -> bool:
+    """Short onboarding email after password / Google account creation."""
+    calendar = f"{_app_url(settings)}/calendar"
+    boards = f"{_app_url(settings)}/boards"
+    greeting = f"Hi {name}," if name and name.strip() else "Hi,"
+    return send_email(
+        settings,
+        to=email,
+        subject="Welcome to Earnings Follower",
+        text=(
+            f"{greeting}\n\n"
+            "Your account is ready. The earnings calendar is free — who reports "
+            "and what's priced in:\n\n"
+            f"{calendar}\n\n"
+            "When you want live Drift and Waves boards, Pro unlocks them:\n\n"
+            f"{boards}\n\n"
+            "— Earnings Follower"
+        ),
+        html=(
+            f"<p>{greeting}</p>"
+            "<p>Your account is ready. The earnings calendar is free — who reports "
+            "and what&apos;s priced in.</p>"
+            f'<p><a href="{calendar}">Open the calendar</a></p>'
+            "<p>When you want live Drift and Waves boards, Pro unlocks them.</p>"
+            f'<p><a href="{boards}">Preview the boards</a></p>'
+            "<p style='color:#666;font-size:13px'>— Earnings Follower</p>"
         ),
     )
 

@@ -198,6 +198,8 @@ def upsert_user(
 
     db.commit()
     db.refresh(user)
+    if created and auth_email.resend_configured(settings):
+        auth_email.send_welcome(settings, email=user.email, name=user.name)
     payload = _user_payload(user, settings)
     payload["created"] = created
     return payload
@@ -291,6 +293,8 @@ def register(
         }
 
     sent = auth_email.send_verify_email(settings, email=user.email, token=raw)
+    if created:
+        auth_email.send_welcome(settings, email=user.email, name=user.name)
     return {
         "ok": True,
         "email": user.email,
@@ -350,7 +354,12 @@ def magic_request(
             debounce_s=0,
         )
     db.commit()
-    sent = auth_email.send_magic_link(settings, email=user.email, token=raw)
+    sent = auth_email.send_magic_link(
+        settings,
+        email=user.email,
+        token=raw,
+        welcome_new_user=created,
+    )
     if not sent:
         raise HTTPException(
             status_code=502,

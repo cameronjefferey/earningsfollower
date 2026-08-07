@@ -26,10 +26,10 @@ export default function MarketingLayout({
             <Link href="/pricing" className="m-nav-link">
               Pricing
             </Link>
-            <MarketingAuth />
-            <Link href="/calendar" className="m-nav-cta">
-              Launch calendar
+            <Link href="/calendar" className="m-nav-link hidden sm:inline">
+              Calendar
             </Link>
+            <MarketingAuth />
           </nav>
         </div>
       </header>

@@ -38,6 +38,7 @@ export function AuthMenu() {
   }
 
   if (!session) {
+    const next = encodeURIComponent(pathname || "/");
     return (
       <div className="flex items-center gap-1 ml-1 pl-1 border-l border-[var(--color-edge)]">
         <NavLink
@@ -46,10 +47,16 @@ export function AuthMenu() {
           active={pathname.startsWith("/pricing")}
         />
         <Link
-          href={`/login?next=${encodeURIComponent(pathname || "/")}`}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--color-accent)]/15 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
+          href={`/login?next=${next}`}
+          className="px-3 py-1.5 rounded-lg text-sm font-medium text-[var(--color-muted)] hover:text-white hover:bg-[var(--color-panel-2)]"
         >
           Sign in
+        </Link>
+        <Link
+          href={`/login?mode=signup&next=${next}`}
+          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--color-accent)]/15 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25"
+        >
+          Sign up
         </Link>
       </div>
     );

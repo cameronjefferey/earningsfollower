@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
-/** Sign in / Account for the marketing chrome. */
+/** Sign in / Sign up / Account for the marketing chrome. */
 export function MarketingAuth({
   variant = "nav",
 }: {
@@ -12,7 +12,9 @@ export function MarketingAuth({
 }) {
   const { data: session, status } = useSession();
   const pathname = usePathname();
-  const loginHref = `/login?next=${encodeURIComponent(pathname || "/")}`;
+  const next = encodeURIComponent(pathname || "/");
+  const loginHref = `/login?next=${next}`;
+  const signupHref = `/login?mode=signup&next=${next}`;
 
   if (status === "loading") {
     if (variant === "footer") {
@@ -28,15 +30,25 @@ export function MarketingAuth({
   if (!session) {
     if (variant === "footer") {
       return (
-        <Link href={loginHref} className="hover:text-white transition-colors">
-          Sign in
-        </Link>
+        <>
+          <Link href={signupHref} className="hover:text-white transition-colors">
+            Sign up
+          </Link>
+          <Link href={loginHref} className="hover:text-white transition-colors">
+            Sign in
+          </Link>
+        </>
       );
     }
     return (
-      <Link href={loginHref} className="m-nav-link">
-        Sign in
-      </Link>
+      <>
+        <Link href={loginHref} className="m-nav-link">
+          Sign in
+        </Link>
+        <Link href={signupHref} className="m-nav-cta">
+          Sign up
+        </Link>
+      </>
     );
   }
 

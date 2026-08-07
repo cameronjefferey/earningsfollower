@@ -68,11 +68,11 @@ export default function MarketingHomePage() {
             trade the follow-through.
           </p>
           <div className="m-hero-line m-hero-line-3 mt-9 flex flex-wrap items-center gap-3">
-            <Link href="/calendar" className="m-btn-primary">
-              Open the priced-in map
+            <Link href="/login?mode=signup&next=/calendar" className="m-btn-primary">
+              Sign up
             </Link>
-            <Link href="/boards" className="m-btn-ghost">
-              Open boards
+            <Link href="/calendar" className="m-btn-ghost">
+              Open the calendar
             </Link>
           </div>
           <p className="m-hero-line m-hero-line-3 mt-10 text-[11px] uppercase tracking-[0.18em] text-[var(--m-muted)]">
@@ -233,11 +233,11 @@ export default function MarketingHomePage() {
               Drift and Waves.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/calendar" className="m-btn-primary">
-                Live calendar
+              <Link href="/login?mode=signup&next=/calendar" className="m-btn-primary">
+                Create account
               </Link>
-              <Link href="/boards" className="m-btn-ghost">
-                Boards
+              <Link href="/calendar" className="m-btn-ghost">
+                Live calendar
               </Link>
             </div>
           </Reveal>

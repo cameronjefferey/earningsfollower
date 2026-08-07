@@ -406,14 +406,14 @@ def _demo_preview_setup(row: dict[str, Any], index: int) -> dict[str, Any]:
     r["sample_tier"] = "ok"
     r["conviction"] = 72 if i == 0 else 58
     r["conviction_label"] = "Medium"
-    r["headline"] = "Sample setup — unlock Pro for today's live lean."
-    r["why"] = ["Sample historical pattern (not today's live book)."]
-    r["action"] = "Unlock Pro for the full action / watch note."
-    r["invalidation"] = "Unlock Pro for invalidation framing."
+    r["headline"] = "Demo example — not today's live book."
+    r["why"] = ["Placeholder pattern for layout only (not live)."]
+    r["action"] = "Pro unlocks today's live action / watch note."
+    r["invalidation"] = "Pro unlocks live invalidation framing."
     r.pop("cluster_peers", None)
     r["plan"] = {
-        "thesis": "Sample thesis for layout — not today's live lean.",
-        "trigger_status": "Sample trigger already printed",
+        "thesis": "Demo thesis for layout — not today's live lean.",
+        "trigger_status": "Demo trigger (sample)",
         "target": "Pro",
         "window": "a few sessions",
         "invalidation": "Pro",
@@ -477,8 +477,8 @@ def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dic
         # fixed demo placeholders (UI also blurs them).
         picked = [_demo_preview_setup(r, i) for i, r in enumerate(picked[:2])]
         note = (
-            "Preview — layout of today's brief. Numbers and the live lean are "
-            "sample data. Pro unlocks the real focus, plan, and board."
+            "Sample brief — demo data only, not today's live lean. "
+            "Pro unlocks the real focus, plan, and boards."
         )
 
     updated = waves.get("updated_at") or drift.get("updated_at")

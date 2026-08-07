@@ -197,10 +197,34 @@ function PricingInner() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pricing</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1">
-          Calendar is free — who reports and what the market has priced in. Pro unlocks
-          live Waves and Drift boards: peer-wave setups and post-earnings continuation.
+          Start free on the calendar. Upgrade when you want live Drift and Waves boards.
         </p>
       </div>
+
+      <Card className="p-5 space-y-3">
+        <div className="flex items-baseline justify-between gap-4">
+          <div>
+            <div className="text-lg font-semibold">Free</div>
+            <div className="text-sm text-[var(--color-muted)] mt-1">
+              Earnings calendar — who reports and what&apos;s priced in
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-semibold tabular">$0</div>
+          </div>
+        </div>
+        <ul className="text-sm space-y-1.5 text-[var(--color-muted)]">
+          <li>Full earnings calendar with implied moves</li>
+          <li>Company pages (reaction history; some detail blurred until Pro)</li>
+          <li>Sample board layout so you can see what Pro unlocks</li>
+        </ul>
+        <Link
+          href="/calendar"
+          className="inline-flex text-sm font-medium text-[var(--color-accent)] hover:underline"
+        >
+          Open the free calendar →
+        </Link>
+      </Card>
 
       <Card className="p-6 space-y-4">
         <div className="flex items-baseline justify-between gap-4">

@@ -143,6 +143,12 @@ def get_company(
         raise HTTPException(404, f"No data for {ticker.upper()}")
     if access == "preview":
         return preview_company(detail)
+    # Live last trade for the headline Price (Alpaca → Yahoo). Kept out of
+    # company_detail so paper/research callers don't pay the vendor round-trip.
+    detail = {
+        **detail,
+        **dashboard.live_quote(ticker, detail.get("price_history") or []),
+    }
     if not _is_admin(caller, settings):
         detail = {**detail, "playbook": None}
     return {**detail, "preview": False}

@@ -6,31 +6,34 @@ import { useSession } from "next-auth/react";
 
 export function PaywallBanner({
   note,
-  title = "Preview",
+  title = "Sample preview",
   ctaLabel,
+  badge = "Sample",
 }: {
   note?: string | null;
   title?: string;
   ctaLabel?: string;
+  /** Shown in the corner chip — "Sample" for demo boards, not "Pro". */
+  badge?: string;
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const next = pathname && pathname !== "/" ? pathname : "/boards";
   const pricingHref = `/pricing?next=${encodeURIComponent(next)}`;
   const ctaHref = session ? pricingHref : `/login?next=${encodeURIComponent(pricingHref)}`;
-  const label = ctaLabel ?? (session ? "Get Pro" : "Sign in to unlock");
+  const label = ctaLabel ?? (session ? "Get Pro" : "Sign in for Pro");
 
   return (
     <div className="mb-6 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
       <div className="min-w-0 flex items-start gap-3">
         <span className="shrink-0 mt-0.5 rounded-md bg-[var(--color-accent)]/20 text-[var(--color-accent)] text-[10px] font-bold uppercase tracking-wider px-2 py-1">
-          Pro
+          {badge}
         </span>
         <div>
           <div className="text-sm font-semibold tracking-tight">{title}</div>
           <p className="text-sm text-[var(--color-muted)] mt-1 leading-relaxed">
             {note ||
-              "Subscribe for live Waves and Drift boards — the setups you actually trade from."}
+              "This is demo data so you can see the layout — not today's live book. Pro unlocks live Waves and Drift."}
           </p>
         </div>
       </div>
@@ -45,7 +48,11 @@ export function PaywallBanner({
 }
 
 /** Soft lock strip at the bottom of a preview section. */
-export function PaywallFade({ label = "Unlock the live board with Pro" }: { label?: string }) {
+export function PaywallFade({
+  label = "Unlock the live board with Pro",
+}: {
+  label?: string;
+}) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const next = pathname && pathname !== "/" ? pathname : "/boards";

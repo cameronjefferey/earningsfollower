@@ -10,7 +10,11 @@ function MagicInner() {
   const params = useSearchParams();
   const router = useRouter();
   const token = params.get("token") || "";
-  const next = params.get("next") || "/";
+  const rawNext = params.get("next");
+  const next =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : "/calendar";
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
 

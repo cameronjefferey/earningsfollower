@@ -10,11 +10,19 @@ import { trackRedditSignUp } from "@/lib/reddit-pixel";
 
 type Mode = "signin" | "signup";
 
+function safeNextPath(raw: string | null): string {
+  // Free users land on the calendar by default — never force Pricing after login.
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw === "/") {
+    return "/calendar";
+  }
+  return raw;
+}
+
 function LoginInner() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  const next = safeNextPath(params.get("next"));
   const initialMode: Mode =
     params.get("mode") === "signup" ? "signup" : "signin";
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -28,12 +36,7 @@ function LoginInner() {
 
   useEffect(() => {
     if (status === "authenticated" && session) {
-      if (session.subscribed) {
-        router.replace(next);
-        return;
-      }
-      const pricing = `/pricing?next=${encodeURIComponent(next)}`;
-      router.replace(pricing);
+      router.replace(next);
     }
   }, [status, session, router, next]);
 

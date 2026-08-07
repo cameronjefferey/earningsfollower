@@ -6,7 +6,8 @@ import { api, RankedSetup } from "@/lib/api";
 import { signedPct } from "@/lib/format";
 import { useAuthReady } from "@/lib/useAuthReady";
 
-function boardsHref(focus: RankedSetup | null): string {
+function boardsHref(focus: RankedSetup | null, isPreview: boolean): string {
+  if (isPreview) return "/pricing?next=/boards";
   if (focus?.board_href?.startsWith("/")) {
     if (focus.board_href.includes("wave")) return "/boards?tab=waves";
     if (focus.board_href.includes("drift")) return "/boards?tab=drift";
@@ -17,9 +18,10 @@ function boardsHref(focus: RankedSetup | null): string {
 
 /** One-line Today lead on Calendar — stays out of the way of the card grid. */
 export function DigestStrip() {
-  const { ready, accessToken } = useAuthReady();
+  const { ready, accessToken, subscribed } = useAuthReady();
   const [focus, setFocus] = useState<RankedSetup | null>(null);
   const [changeLine, setChangeLine] = useState<string | null>(null);
+  const [isPreview, setIsPreview] = useState(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -28,6 +30,7 @@ export function DigestStrip() {
       .then(([r, d]) => {
         if (cancelled) return;
         setFocus(r.focus ?? r.setups?.[0] ?? null);
+        setIsPreview(Boolean(r.preview) || !subscribed);
         const bullet = d.bullets?.find((b) => b.kind !== "none") ?? d.bullets?.[0];
         setChangeLine(bullet?.text ?? null);
       })
@@ -37,18 +40,23 @@ export function DigestStrip() {
     return () => {
       cancelled = true;
     };
-  }, [ready, accessToken]);
+  }, [ready, accessToken, subscribed]);
 
   if (!focus && !changeLine) return null;
 
-  const href = boardsHref(focus);
-  const cta =
-    focus?.kind === "wave" ? "Waves →" : focus ? "Drift →" : "Boards →";
+  const href = boardsHref(focus, isPreview);
+  const cta = isPreview
+    ? "See Pro →"
+    : focus?.kind === "wave"
+      ? "Waves →"
+      : focus
+        ? "Drift →"
+        : "Boards →";
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-accent)]">
-        Today
+        {isPreview ? "Sample" : "Today"}
       </span>
       {focus ? (
         <p className="min-w-0 flex-1 truncate text-[var(--color-muted)]">
@@ -57,7 +65,7 @@ export function DigestStrip() {
           {focus.edge_pct != null ? (
             <span> ({signedPct(focus.edge_pct, 1)})</span>
           ) : null}
-          {changeLine ? (
+          {!isPreview && changeLine ? (
             <span className="hidden sm:inline"> · {changeLine}</span>
           ) : null}
         </p>

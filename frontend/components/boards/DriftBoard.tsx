@@ -103,7 +103,11 @@ export function DriftBoard({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {isPreview ? (
-        <PaywallBanner note={data?.preview_note} title="Post-earnings drift — demo board" />
+        <PaywallBanner
+          note={data?.preview_note}
+          title="Post-earnings drift — sample board"
+          badge="Sample"
+        />
       ) : null}
 
       {isAdmin && !isPreview ? <Playbook /> : null}

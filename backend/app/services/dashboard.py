@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import asdict
 from datetime import date, timedelta
@@ -18,6 +19,8 @@ from app.services.reactions import reaction_payload, summarize, compute_reaction
 from app.services.waves import peers_lead_lag
 from app.universe import load_universe
 
+logger = logging.getLogger(__name__)
+
 
 def recent_prices(db: Session, ticker: str, days: int = 130) -> list[dict]:
     """Most recent ~`days` trading days of closing prices for a quick chart."""
@@ -27,6 +30,55 @@ def recent_prices(db: Session, ticker: str, days: int = 130) -> list[dict]:
         if c is not None:
             out.append({"date": d.isoformat(), "close": c})
     return out[-days:]
+
+
+def live_quote(
+    ticker: str, price_history: list[dict] | None = None
+) -> dict[str, float | None]:
+    """Best-effort last trade + day change for the company detail UI.
+
+    Prefers Alpaca (same feed as paper trading), then Yahoo. Never raises —
+    missing credentials or vendor blips just omit the live fields so the page
+    can fall back to the cached EOD close.
+    """
+    last_price: float | None = None
+    try:
+        from app.clients.alpaca import AlpacaClient
+
+        with AlpacaClient(timeout=8.0) as client:
+            if client.enabled:
+                last_price = client.stock_price(ticker)
+    except Exception as exc:
+        logger.warning("Alpaca last price failed for %s: %s", ticker, exc)
+
+    if last_price is None:
+        try:
+            from app.clients import yahoo
+
+            last_price = yahoo.current_price(ticker)
+        except Exception as exc:
+            logger.warning("Yahoo last price failed for %s: %s", ticker, exc)
+
+    day_change_pct: float | None = None
+    hist = price_history or []
+    if last_price is not None and hist:
+        today = date.today().isoformat()
+        if len(hist) >= 2 and hist[-1].get("date") == today:
+            prev = hist[-2].get("close")
+        else:
+            prev = hist[-1].get("close")
+        try:
+            if prev:
+                day_change_pct = float(last_price) / float(prev) - 1.0
+        except (TypeError, ValueError, ZeroDivisionError):
+            day_change_pct = None
+
+    return {
+        "last_price": round(float(last_price), 4) if last_price is not None else None,
+        "day_change_pct": (
+            round(day_change_pct, 6) if day_change_pct is not None else None
+        ),
+    }
 
 
 def date_range_for_window(window: str) -> tuple[date, date]:

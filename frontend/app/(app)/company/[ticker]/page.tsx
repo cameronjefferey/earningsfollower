@@ -77,10 +77,14 @@ export default function CompanyPage() {
 
   const prices = data.price_history ?? [];
   const lastClose = prices.length ? prices[prices.length - 1].close : null;
-  const priceChange =
+  const displayPrice = data.last_price ?? lastClose;
+  const dayChange = data.day_change_pct ?? null;
+  const windowChange =
     prices.length > 1 && prices[0].close
       ? prices[prices.length - 1].close / prices[0].close - 1
       : null;
+  const priceChange = dayChange ?? windowChange;
+  const priceChangeLabel = dayChange !== null ? "today" : `${prices.length}d`;
   const earningsDates = data.reactions.events
     .map((e) => e.date)
     .filter((d): d is string => Boolean(d));
@@ -99,10 +103,11 @@ export default function CompanyPage() {
 
       {isPreview ? (
         <PaywallBanner
-          title={`${data.ticker} — demo company brief`}
+          title={`${data.ticker} — sample company brief`}
+          badge="Sample"
           note={
             data.preview_note ||
-            "Company shell is real; key stats and charts are blurred sample data. Subscribe for the live brief."
+            "Sample data for layout — key stats and charts are not the live brief. Pro unlocks the real numbers."
           }
         />
       ) : null}
@@ -172,9 +177,11 @@ export default function CompanyPage() {
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
             <div className="flex items-baseline gap-3">
               <h2 className="font-semibold">Price</h2>
-              {lastClose !== null ? (
+              {displayPrice !== null ? (
                 <span className="text-2xl font-bold">
-                  <BlurValue active={isPreview}>${lastClose.toFixed(2)}</BlurValue>
+                  <BlurValue active={isPreview}>
+                    ${Number(displayPrice).toFixed(2)}
+                  </BlurValue>
                 </span>
               ) : null}
               {priceChange !== null ? (
@@ -182,7 +189,7 @@ export default function CompanyPage() {
                   <BlurValue active={isPreview}>
                     {signedPct(priceChange)}{" "}
                     <span className="text-[var(--color-muted)] font-normal">
-                      · {prices.length}d
+                      · {priceChangeLabel}
                     </span>
                   </BlurValue>
                 </span>

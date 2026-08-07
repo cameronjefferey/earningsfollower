@@ -196,6 +196,15 @@ def _parse_expiry(value: str) -> date | None:
         return None
 
 
+def current_price(symbol: str) -> float | None:
+    """Best-effort last/regular-market price from Yahoo (free, may be delayed)."""
+    try:
+        return _current_price(yf.Ticker(symbol))
+    except Exception as exc:
+        logger.warning("Yahoo current_price(%s) failed: %s", symbol, exc)
+        return None
+
+
 def _current_price(tk: "yf.Ticker") -> float | None:
     try:
         fi = tk.fast_info

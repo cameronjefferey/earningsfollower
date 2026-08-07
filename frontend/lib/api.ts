@@ -182,6 +182,10 @@ export interface CompanyDetail {
   analyst: Analyst | null;
   playbook: EarningsPlay | null;
   price_history: PricePoint[];
+  /** Live/last trade when available (Alpaca → Yahoo); else omit and use EOD. */
+  last_price?: number | null;
+  /** Change vs prior session close when last_price is present. */
+  day_change_pct?: number | null;
   reactions: { summary: ReactionSummary; events: ReactionEvent[] };
   peers: LeadLag[];
   preview?: boolean;

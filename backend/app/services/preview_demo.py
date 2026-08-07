@@ -15,8 +15,8 @@ _THEME_AI = {"key": "ai_tech", "label": "AI / Tech"}
 _THEME_SEMI = {"key": "semis_hardware", "label": "Semis / Hardware"}
 
 PREVIEW_NOTE = (
-    "Demo preview — layout and features are real; key numbers are sample data. "
-    "Subscribe for the live board."
+    "Sample board — this is demo data so you can see the layout. "
+    "Tickers and numbers are not today's live book. Pro unlocks the real board."
 )
 
 
@@ -459,8 +459,13 @@ def preview_company(detail: dict) -> dict:
             px *= 1 + _fake_pct(seed + 60 + i, -0.025, 0.028)
             fake_prices.append({"date": p.get("date"), "close": round(px, 2)})
         out["price_history"] = fake_prices
+        # Demo headline price — never echo a live quote into the guest payload.
+        out["last_price"] = fake_prices[-1]["close"]
+        out["day_change_pct"] = _fake_pct(seed + 70, -0.04, 0.05)
     else:
         out["price_history"] = []
+        out["last_price"] = None
+        out["day_change_pct"] = None
 
     # Never echo the live peer graph — use opaque demo tickers only.
     peer_labels = ["PEER", "RIVAL", "ALLY"]

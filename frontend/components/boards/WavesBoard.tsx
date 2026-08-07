@@ -158,7 +158,11 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {isPreview ? (
-        <PaywallBanner note={data?.preview_note} title="Peer waves — demo board" />
+        <PaywallBanner
+          note={data?.preview_note}
+          title="Peer waves — sample board"
+          badge="Sample"
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">

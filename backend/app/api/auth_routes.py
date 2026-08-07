@@ -348,8 +348,16 @@ def magic_request(
             debounce_s=0,
         )
     db.commit()
-    auth_email.send_magic_link(settings, email=user.email, token=raw)
-    return _OK_CHECK_INBOX
+    sent = auth_email.send_magic_link(settings, email=user.email, token=raw)
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not send the sign-in email. Try again, or use Google / password.",
+        )
+    return {
+        "ok": True,
+        "message": f"Check {user.email} for a sign-in link (and Spam / Promotions).",
+    }
 
 
 @router.post("/magic/consume")

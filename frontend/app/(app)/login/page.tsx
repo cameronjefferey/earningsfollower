@@ -91,7 +91,10 @@ function LoginInner() {
         setError(res.error);
         return;
       }
-      setNote(res.data.message || "Check your inbox for a sign-in link.");
+      setNote(
+        res.data.message ||
+          `Check ${email.trim()} for a sign-in link (and Spam / Promotions).`
+      );
     } finally {
       setMagicBusy(false);
     }

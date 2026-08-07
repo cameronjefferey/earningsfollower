@@ -33,6 +33,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link href="/contact" className="text-[var(--color-accent)] hover:underline shrink-0">
             Contact
           </Link>
+          <Link href="/terms" className="text-[var(--color-accent)] hover:underline shrink-0">
+            Terms
+          </Link>
+          <Link href="/privacy" className="text-[var(--color-accent)] hover:underline shrink-0">
+            Privacy
+          </Link>
         </div>
       </footer>
     </div>

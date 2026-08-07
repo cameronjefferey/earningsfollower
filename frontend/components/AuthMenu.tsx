@@ -62,6 +62,11 @@ export function AuthMenu() {
       {session.isAdmin ? (
         <>
           <NavLink
+            href="/admin"
+            label="Ops"
+            active={pathname.startsWith("/admin")}
+          />
+          <NavLink
             href="/paper"
             label="Paper"
             active={pathname.startsWith("/paper")}

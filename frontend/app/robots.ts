@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/account", "/login", "/paper", "/learning", "/api/"],
+      disallow: ["/account", "/login", "/paper", "/learning", "/admin", "/api/"],
     },
     sitemap: "https://www.earningsfollower.com/sitemap.xml",
     host: "https://www.earningsfollower.com",

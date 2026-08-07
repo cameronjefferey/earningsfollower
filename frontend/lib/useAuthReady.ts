@@ -11,5 +11,6 @@ export function useAuthReady() {
     session,
     accessToken: session?.accessToken as string | undefined,
     subscribed: Boolean(session?.subscribed || session?.isAdmin),
+    isAdmin: Boolean(session?.isAdmin),
   };
 }

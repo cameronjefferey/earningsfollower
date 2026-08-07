@@ -55,9 +55,19 @@ services:
       - key: STRIPE_PRICE_ID
         sync: false
       - key: PUBLIC_APP_URL
-        value: https://earningsfollower.com
+        value: https://www.earningsfollower.com
       - key: CORS_ORIGINS
         value: https://earningsfollower.com,https://www.earningsfollower.com
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: CONTACT_INBOX
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
 
   # Daily data refresh (earnings, prices, implied move, analyst)
   - type: cron

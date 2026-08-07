@@ -106,9 +106,21 @@ verify / reset emails use [Resend](https://resend.com) on the API.
    - backend: `PAYWALL_ENABLED=true`, `PUBLIC_APP_URL=http://localhost:3000`
    - frontend: `NEXT_PUBLIC_PAYWALL_ENABLED=true`
 
-**Freemium split:** Calendar (`/`, `/themes`, `/earnings`) stays public. Waves, Drift,
-Reddit, Paper, Learning, and company detail require sign-in + active (or trialing)
-subscription. Pricing UI: `/pricing`.
+**Freemium split:** Calendar (`/calendar`, `/themes`, `/earnings`) stays public. Live
+Waves/Drift boards and full company detail are soft-gated (guests see demos/previews;
+Pro unlocks live data). Paper, Learning, and Ops are admin-only. Pricing UI: `/pricing`.
+
+### Production launch checklist
+
+1. `PAYWALL_ENABLED=true` on the API; `PUBLIC_APP_URL=https://www.earningsfollower.com`
+2. Live Stripe keys + price id; webhook to the API `/billing/webhook` for
+   `checkout.session.*`, `customer.subscription.*`, `invoice.paid`,
+   `invoice.payment_succeeded`, `invoice.payment_failed`
+3. Google OAuth redirect: `https://www.earningsfollower.com/api/auth/callback/google`
+4. Resend domain + `RESEND_API_KEY` / `RESEND_FROM` / `CONTACT_INBOX`
+5. Telegram bot for signup/Stripe alerts (`TELEGRAM_*`, `TELEGRAM_NOTIFY_SIGNUP=true`)
+6. `ADMIN_EMAILS` includes your email (Paper / Learning / Ops dashboard)
+7. Smoke: sign up → Checkout → Pro boards → cancel in portal → Contact form
 
 ## Editing the universe
 

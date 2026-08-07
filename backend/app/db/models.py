@@ -459,3 +459,18 @@ class AuthToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AppEvent(Base):
+    """Ops timeline for the admin dashboard (signups, Stripe, contact, etc.)."""
+
+    __tablename__ = "app_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(64), index=True)
+    email: Mapped[str | None] = mapped_column(String(320), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    meta_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )

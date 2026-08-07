@@ -7,9 +7,12 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db.session import get_db
 from app.services import auth_email, auth_rate_limit
+from app.services.admin_events import log_event
 
 router = APIRouter(prefix="/contact", tags=["contact"])
 
@@ -62,6 +65,7 @@ def submit_contact(
     body: ContactBody,
     request: Request,
     settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
 ) -> dict:
     # Silent success for honeypot fills so scrapers don't learn.
     if (body.website or "").strip():
@@ -111,4 +115,13 @@ def submit_contact(
             status_code=502,
             detail="Could not send your message. Please try again shortly.",
         )
+    log_event(
+        db,
+        kind="contact_message",
+        email=body.email,
+        message=f"Contact form: {body.name} <{body.email}> — {body.message[:120]}",
+        meta={"name": body.name},
+        debounce_s=0,
+    )
+    db.commit()
     return {"ok": True, "message": "Thanks — we’ll get back to you by email."}

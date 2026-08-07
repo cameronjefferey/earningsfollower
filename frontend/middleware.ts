@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest, NextFetchEvent } from "next/server";
 import { auth } from "@/auth";
 
-const ADMIN_PREFIXES = ["/paper", "/learning"];
+const ADMIN_PREFIXES = ["/paper", "/learning", "/admin"];
 
 // Auth.js is configured for the www host (AUTH_URL). Google redirects the OAuth
 // callback there, so the PKCE/state cookie must also be set there. If sign-in

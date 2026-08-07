@@ -13,6 +13,7 @@ from app.api.deps import AuthUser, OptionalAuth, subscription_is_active
 from app.config import Settings, get_settings
 from app.db.models import User
 from app.db.session import get_db
+from app.services.admin_events import log_event
 from app.services.signup_alerts import notify_signup
 
 logger = logging.getLogger("earningsfollower.billing")
@@ -301,23 +302,40 @@ def create_checkout_session(
             metadata={"user_id": str(user.id), "email": user.email},
             allow_promotion_codes=True,
         )
+        log_event(
+            db,
+            kind="stripe_checkout_started",
+            email=user.email,
+            message=f"Checkout started: {user.email}",
+            meta={"session_id": session.get("id")},
+            debounce_s=0,
+        )
+        db.commit()
     except stripe.InvalidRequestError as exc:
         logger.exception("Stripe checkout invalid request")
         detail = str(exc.user_message or exc) or "Stripe rejected checkout"
-        notify_signup(
-            "checkout_fail",
-            f"Checkout failed for {user.email}: {detail}",
+        log_event(
+            db,
+            kind="stripe_checkout_fail",
+            email=user.email,
+            message=f"Checkout failed for {user.email}: {detail}",
             debounce_key=f"checkout_fail:{user.email}",
+            debounce_s=60,
         )
+        db.commit()
         raise HTTPException(status_code=400, detail=detail) from exc
     except stripe.StripeError as exc:
         logger.exception("Stripe checkout failed")
         detail = str(exc.user_message or exc) or "Stripe checkout failed"
-        notify_signup(
-            "checkout_fail",
-            f"Checkout failed for {user.email}: {detail}",
+        log_event(
+            db,
+            kind="stripe_checkout_fail",
+            email=user.email,
+            message=f"Checkout failed for {user.email}: {detail}",
             debounce_key=f"checkout_fail:{user.email}",
+            debounce_s=60,
         )
+        db.commit()
         raise HTTPException(status_code=502, detail=detail) from exc
     return {"url": session["url"], "id": session["id"], "already_subscribed": False}
 
@@ -427,15 +445,26 @@ async def stripe_webhook(
             "customer.subscription.updated",
             "customer.subscription.deleted",
         }:
-            _handle_subscription_event(db, data)
+            _handle_subscription_event(db, data, etype=etype)
         elif etype in {"invoice.paid", "invoice.payment_succeeded"}:
-            # Keep status fresh after renewals.
-            sub_id = _field(data, "subscription")
-            if isinstance(sub_id, dict):
-                sub_id = sub_id.get("id")
-            if sub_id:
-                sub = stripe.Subscription.retrieve(str(sub_id))
-                _handle_subscription_event(db, sub)
+            _handle_invoice_event(db, data, etype=etype)
+        elif etype == "invoice.payment_failed":
+            _handle_invoice_event(db, data, etype=etype)
+        elif etype == "checkout.session.expired":
+            _handle_checkout_expired(db, data)
+        else:
+            # Still record unknown-but-delivered Stripe events so the admin
+            # dashboard / Telegram catch anything we haven't specialized yet.
+            user = _user_from_stripe(db, data)
+            log_event(
+                db,
+                kind=f"stripe_{etype.replace('.', '_')}",
+                email=user.email if user else None,
+                message=f"Stripe {etype}"
+                + (f" — {user.email}" if user else ""),
+                meta={"event": etype, "object_id": data.get("id")},
+                debounce_s=0,
+            )
         db.commit()
         logger.info("Stripe webhook ok: %s", etype)
     except Exception as exc:
@@ -505,16 +534,21 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
     if sub_id:
         sub = stripe.Subscription.retrieve(str(sub_id))
         _apply_subscription(user, sub)
-    notify_signup(
-        "new_sub",
-        f"New Pro: {user.email}"
+    log_event(
+        db,
+        kind="stripe_checkout_completed",
+        email=user.email,
+        message=f"New Pro checkout: {user.email}"
         + (f" (sub={sub_id})" if sub_id else ""),
+        meta={"session_id": data.get("id"), "subscription_id": sub_id},
         debounce_key=f"new_sub:{user.email}:{sub_id or data.get('id')}",
         debounce_s=0,
     )
 
 
-def _handle_subscription_event(db: Session, sub: object) -> None:
+def _handle_subscription_event(
+    db: Session, sub: object, *, etype: str = "customer.subscription.updated"
+) -> None:
     data = _as_dict(sub)
     user = _user_from_stripe(db, data)
     if user is None and data.get("id"):
@@ -523,10 +557,107 @@ def _handle_subscription_event(db: Session, sub: object) -> None:
         ).first()
     if user is None:
         logger.warning("subscription event with no matching user: %s", data.get("id"))
+        log_event(
+            db,
+            kind=f"stripe_{etype.replace('.', '_')}",
+            message=f"Stripe {etype} with no matching user (sub={data.get('id')})",
+            meta={"subscription_id": data.get("id")},
+            debounce_s=0,
+        )
         return
+    prev_status = user.subscription_status or "none"
     customer = data.get("customer")
     if isinstance(customer, dict):
         customer = customer.get("id")
     if customer:
         user.stripe_customer_id = customer
     _apply_subscription(user, data)
+    status = user.subscription_status or "none"
+    kind = {
+        "customer.subscription.created": "stripe_subscription_created",
+        "customer.subscription.updated": "stripe_subscription_updated",
+        "customer.subscription.deleted": "stripe_subscription_canceled",
+    }.get(etype, f"stripe_{etype.replace('.', '_')}")
+    log_event(
+        db,
+        kind=kind,
+        email=user.email,
+        message=(
+            f"Stripe {etype.split('.')[-1]}: {user.email} "
+            f"{prev_status} → {status}"
+        ),
+        meta={
+            "subscription_id": data.get("id"),
+            "status": status,
+            "prev_status": prev_status,
+        },
+        debounce_s=0,
+    )
+
+
+def _handle_invoice_event(db: Session, invoice: object, *, etype: str) -> None:
+    data = _as_dict(invoice)
+    sub_id = _field(data, "subscription")
+    if isinstance(sub_id, dict):
+        sub_id = sub_id.get("id")
+    user = _user_from_stripe(db, data)
+    amount = data.get("amount_paid")
+    if amount is None:
+        amount = data.get("amount_due")
+    dollars = None
+    try:
+        if amount is not None:
+            dollars = f"${int(amount) / 100:.2f}"
+    except (TypeError, ValueError):
+        dollars = None
+
+    if sub_id and etype in {"invoice.paid", "invoice.payment_succeeded"}:
+        try:
+            sub = stripe.Subscription.retrieve(str(sub_id))
+            _handle_subscription_event(db, sub, etype="customer.subscription.updated")
+        except stripe.StripeError:
+            logger.exception("Failed to refresh sub after %s", etype)
+
+    email = user.email if user else (
+        (data.get("customer_email") or "").strip().lower() or None
+    )
+    paid_ok = etype in {"invoice.paid", "invoice.payment_succeeded"}
+    kind = "stripe_invoice_paid" if paid_ok else "stripe_invoice_failed"
+    log_event(
+        db,
+        kind=kind,
+        email=email,
+        message=(
+            f"Stripe invoice {'paid' if paid_ok else 'FAILED'}: "
+            f"{email or 'unknown'}"
+            + (f" ({dollars})" if dollars else "")
+        ),
+        meta={
+            "invoice_id": data.get("id"),
+            "subscription_id": sub_id,
+            "amount": amount,
+        },
+        debounce_s=0,
+    )
+
+
+def _handle_checkout_expired(db: Session, session: object) -> None:
+    data = _as_dict(session)
+    user = _user_from_stripe(db, data)
+    meta = _as_dict(data.get("metadata"))
+    email = (
+        (user.email if user else None)
+        or meta.get("email")
+        or data.get("customer_email")
+        or None
+    )
+    if isinstance(email, str):
+        email = email.strip().lower() or None
+    log_event(
+        db,
+        kind="stripe_checkout_expired",
+        email=email,
+        message=f"Checkout expired: {email or 'unknown'}",
+        meta={"session_id": data.get("id")},
+        debounce_s=0,
+    )

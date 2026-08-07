@@ -64,6 +64,12 @@ export default function MarketingLayout({
             <Link href="/contact" className="hover:text-white transition-colors">
               Contact
             </Link>
+            <Link href="/terms" className="hover:text-white transition-colors">
+              Terms
+            </Link>
+            <Link href="/privacy" className="hover:text-white transition-colors">
+              Privacy
+            </Link>
           </div>
         </div>
       </footer>

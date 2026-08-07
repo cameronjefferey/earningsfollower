@@ -12,6 +12,7 @@ from app.config import Settings, get_settings
 from app.db.models import User
 from app.db.session import get_db
 from app.services import auth_email, auth_rate_limit, auth_tokens
+from app.services.admin_events import log_event
 from app.services.passwords import MIN_PASSWORD_LEN, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -168,9 +169,11 @@ def upsert_user(
     if user is None and body.google_sub:
         user = db.scalars(select(User).where(User.google_sub == body.google_sub)).first()
 
+    created = False
     if user is None:
         user = User(email=email)
         db.add(user)
+        created = True
 
     user.email = email
     if body.name is not None:
@@ -181,6 +184,17 @@ def upsert_user(
         user.google_sub = body.google_sub
         if user.email_verified_at is None:
             user.email_verified_at = datetime.utcnow()
+
+    if created:
+        via = "google" if body.google_sub else "sign-in"
+        log_event(
+            db,
+            kind="user_created",
+            email=email,
+            message=f"New account: {email} ({via})",
+            meta={"via": via},
+            debounce_s=0,
+        )
 
     db.commit()
     db.refresh(user)
@@ -232,9 +246,11 @@ def register(
             detail="An account with this email already exists. Sign in or reset your password.",
         )
 
+    created = False
     if user is None:
         user = User(email=body.email)
         db.add(user)
+        created = True
 
     user.password_hash = hash_password(body.password)
     if body.name:
@@ -243,6 +259,24 @@ def register(
     raw = auth_tokens.mint_token(
         db, email=user.email, purpose=auth_tokens.PURPOSE_VERIFY
     )
+    if created:
+        log_event(
+            db,
+            kind="user_created",
+            email=user.email,
+            message=f"New account: {user.email} (password)",
+            meta={"via": "password"},
+            debounce_s=0,
+        )
+    else:
+        log_event(
+            db,
+            kind="password_set",
+            email=user.email,
+            message=f"Password set on existing account: {user.email}",
+            meta={"via": "register"},
+            debounce_s=0,
+        )
     db.commit()
 
     if not auth_email.resend_configured(settings):
@@ -298,10 +332,21 @@ def magic_request(
             detail="Email sign-in is not configured yet. Use Google or a password.",
         )
 
-    user = _ensure_user(db, body.email)
+    existing = db.scalars(select(User).where(User.email == body.email)).first()
+    user = existing or _ensure_user(db, body.email)
+    created = existing is None
     raw = auth_tokens.mint_token(
         db, email=user.email, purpose=auth_tokens.PURPOSE_MAGIC
     )
+    if created:
+        log_event(
+            db,
+            kind="user_created",
+            email=user.email,
+            message=f"New account: {user.email} (magic link)",
+            meta={"via": "magic"},
+            debounce_s=0,
+        )
     db.commit()
     auth_email.send_magic_link(settings, email=user.email, token=raw)
     return _OK_CHECK_INBOX

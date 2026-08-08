@@ -83,6 +83,8 @@ def post_ops_alert(
 
 class PurgeUsersBody(BaseModel):
     emails: list[str] = Field(..., min_length=1, max_length=50)
+    # Allow deleting emails that are also listed in ADMIN_EMAILS (test admins).
+    force: bool = False
 
     @field_validator("emails")
     @classmethod
@@ -109,10 +111,10 @@ def post_ops_purge_users(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    """Delete test/junk accounts by email. Refuses to delete configured admins."""
+    """Delete test/junk accounts by email. Refuses to delete configured admins unless force."""
     admin_set = {e.lower() for e in settings.admin_email_set}
-    blocked = [e for e in body.emails if e in admin_set]
-    targets = [e for e in body.emails if e not in admin_set]
+    blocked = [] if body.force else [e for e in body.emails if e in admin_set]
+    targets = body.emails if body.force else [e for e in body.emails if e not in admin_set]
 
     found = db.scalars(select(User).where(User.email.in_(targets))).all()
     deleted = [u.email for u in found]

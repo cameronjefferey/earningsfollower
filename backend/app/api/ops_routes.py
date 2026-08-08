@@ -6,10 +6,12 @@ import hmac
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db.models import AuthToken, User
 from app.db.session import get_db
 from app.services import auth_rate_limit
 from app.services.admin_events import log_event
@@ -77,6 +79,67 @@ def post_ops_alert(
         settings=settings,
     )
     return {"ok": True, "sent": sent}
+
+
+class PurgeUsersBody(BaseModel):
+    emails: list[str] = Field(..., min_length=1, max_length=50)
+
+    @field_validator("emails")
+    @classmethod
+    def _emails(cls, values: list[str]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            email = (raw or "").strip().lower()
+            if not email or "@" not in email or email in seen:
+                continue
+            if len(email) > 320:
+                continue
+            seen.add(email)
+            out.append(email)
+        if not out:
+            raise ValueError("no valid emails")
+        return out
+
+
+@router.post("/purge-users")
+def post_ops_purge_users(
+    body: PurgeUsersBody,
+    _: None = Depends(_require_ops_secret),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Delete test/junk accounts by email. Refuses to delete configured admins."""
+    admin_set = {e.lower() for e in settings.admin_email_set}
+    blocked = [e for e in body.emails if e in admin_set]
+    targets = [e for e in body.emails if e not in admin_set]
+
+    found = db.scalars(select(User).where(User.email.in_(targets))).all()
+    deleted = [u.email for u in found]
+    missing = [e for e in targets if e not in set(deleted)]
+
+    if found:
+        emails = deleted
+        db.execute(delete(AuthToken).where(AuthToken.email.in_(emails)))
+        for u in found:
+            db.delete(u)
+        log_event(
+            db,
+            kind="users_purged",
+            message=f"Purged {len(deleted)} user(s): {', '.join(deleted)}",
+            meta={"emails": deleted, "blocked_admins": blocked, "missing": missing},
+            telegram=True,
+            debounce_s=0,
+            debounce_key=f"users_purged:{','.join(sorted(deleted))}",
+        )
+        db.commit()
+
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "missing": missing,
+        "blocked_admins": blocked,
+    }
 
 
 @router.post("/traffic")

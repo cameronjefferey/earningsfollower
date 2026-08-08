@@ -2,6 +2,8 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { SignJWT } from "jose";
+import { readAuthRequestContext } from "@/lib/auth-request-context";
+import { isBotSuspect, scoreBot } from "@/lib/bot";
 
 // Server-side jwt callbacks need an absolute API URL. Prefer AUTH_API_BASE so
 // Render isn't dependent on NEXT_PUBLIC_* inlining for Auth.js.
@@ -119,6 +121,34 @@ function authErrorType(error: Error): string {
   return typed.type || error.name || "Error";
 }
 
+function authErrorCause(error: Error): string | undefined {
+  const withCause = error as Error & {
+    cause?: unknown;
+    [key: string]: unknown;
+  };
+  const cause = withCause.cause;
+  if (!cause) return undefined;
+  if (cause instanceof Error) {
+    return `${cause.name}: ${cause.message}`.slice(0, 400);
+  }
+  if (typeof cause === "object" && cause && "err" in cause) {
+    const inner = (cause as { err?: unknown }).err;
+    if (inner instanceof Error) {
+      return `${inner.name}: ${inner.message}`.slice(0, 400);
+    }
+    try {
+      return JSON.stringify(inner).slice(0, 400);
+    } catch {
+      return String(inner).slice(0, 400);
+    }
+  }
+  try {
+    return JSON.stringify(cause).slice(0, 400);
+  } catch {
+    return String(cause).slice(0, 400);
+  }
+}
+
 function reportAuthFailure(error: Error): void {
   const type = authErrorType(error);
   if (!SIGNUP_AUTH_ALERT_TYPES.has(type)) return;
@@ -126,21 +156,31 @@ function reportAuthFailure(error: Error): void {
   const secret = process.env.AUTH_SECRET;
   if (!secret) return;
 
-  const message =
-    `Auth fail: ${type}` +
-    (error.message ? ` — ${error.message.slice(0, 280)}` : "");
+  const ctx = readAuthRequestContext();
+  const ua = ctx?.ua || "";
+  const { score } = scoreBot(ua);
+  const bot = isBotSuspect(score);
+  const cause = authErrorCause(error);
 
   // Fire-and-forget; never block the Auth.js response path.
-  void fetch(`${API_BASE}/ops/alert`, {
+  void fetch(`${API_BASE}/ops/traffic`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${secret}`,
+      ...(ua ? { "User-Agent": ua } : {}),
+      ...(ctx?.ip ? { "X-Forwarded-For": ctx.ip } : {}),
     },
     body: JSON.stringify({
       kind: "auth_fail",
-      message,
-      debounce_key: `auth_fail:${type}`,
+      path: ctx?.path,
+      ua,
+      auth_error: type,
+      auth_cause: cause,
+      message:
+        `${bot ? "[BOT] " : ""}Auth fail: ${type}` +
+        (cause ? ` · ${cause.slice(0, 180)}` : "") +
+        (error.message && !cause ? ` — ${error.message.slice(0, 180)}` : ""),
     }),
     cache: "no-store",
   }).catch(() => {

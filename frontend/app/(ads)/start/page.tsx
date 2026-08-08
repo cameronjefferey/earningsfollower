@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AdSignupCard } from "@/components/marketing/AdSignupCard";
 import { CaptureAdAttrs } from "@/components/marketing/CaptureAdAttrs";
+import { TrackAdLanding } from "@/components/marketing/TrackAdLanding";
 import { MarketingDataProvider } from "@/components/marketing/MarketingData";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
 
@@ -24,6 +25,7 @@ export default function AdStartPage() {
     <MarketingDataProvider>
       <Suspense fallback={null}>
         <CaptureAdAttrs />
+        <TrackAdLanding />
       </Suspense>
 
       <section className="border-b border-[var(--m-line)]">

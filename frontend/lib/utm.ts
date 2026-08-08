@@ -9,6 +9,7 @@ const UTM_KEYS = [
   "gclid",
   "fbclid",
   "ttclid",
+  "rdt_cid",
 ] as const;
 
 const STORAGE_KEY = "ef_ad_attrs";

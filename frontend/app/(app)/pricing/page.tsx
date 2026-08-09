@@ -215,7 +215,10 @@ function PricingInner() {
         </div>
         <ul className="text-sm space-y-1.5 text-[var(--color-muted)]">
           <li>Full earnings calendar with implied moves</li>
-          <li>Company pages (reaction history; some detail blurred until Pro)</li>
+          <li>
+            Unlimited company pages — full reaction history and implied move context
+          </li>
+          <li>Live headline price on company pages</li>
           <li>Sample board layout so you can see what Pro unlocks</li>
         </ul>
         <Link

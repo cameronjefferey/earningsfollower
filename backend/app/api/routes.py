@@ -33,7 +33,6 @@ from app.services.preview_demo import (
     demo_drift,
     demo_reddit,
     demo_waves,
-    preview_company,
 )
 from app.services import track_record as track_record_svc
 
@@ -133,22 +132,26 @@ def get_earnings(
 @router.get("/company/{ticker}", tags=["company"])
 def get_company(
     ticker: str,
-    access: PaidAccess,
     caller: OptionalAuth,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
+    """Company pages are the free taste of the product: real data for everyone.
+
+    Guests are metered client-side (a few pages, then a signup gate); accounts
+    get unlimited pages plus a live headline quote. The live boards
+    (waves/drift/ranked) remain the Pro unlock.
+    """
     detail = dashboard.company_detail(db, ticker)
     if detail is None:
         raise HTTPException(404, f"No data for {ticker.upper()}")
-    if access == "preview":
-        return preview_company(detail)
-    # Live last trade for the headline Price (Alpaca → Yahoo). Kept out of
-    # company_detail so paper/research callers don't pay the vendor round-trip.
-    detail = {
-        **detail,
-        **dashboard.live_quote(ticker, detail.get("price_history") or []),
-    }
+    if caller is not None:
+        # Signed-in perk: live last trade (Alpaca → Yahoo) for the headline
+        # price. Guests get EOD only so anonymous traffic can't burn vendor calls.
+        detail = {
+            **detail,
+            **dashboard.live_quote(ticker, detail.get("price_history") or []),
+        }
     if not _is_admin(caller, settings):
         detail = {**detail, "playbook": None}
     return {**detail, "preview": False}

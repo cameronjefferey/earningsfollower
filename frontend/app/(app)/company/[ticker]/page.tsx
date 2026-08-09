@@ -29,18 +29,73 @@ import {
   timingLabel,
 } from "@/lib/format";
 import { useAuthReady } from "@/lib/useAuthReady";
+import { FREE_COMPANY_LIMIT, recordCompanyView } from "@/lib/companyMeter";
+
+/** Full-screen soft gate once a guest has spent their free company pages. */
+function GuestGate({ ticker }: { ticker: string }) {
+  const signupHref = `/login?mode=signup&next=${encodeURIComponent(`/company/${ticker}`)}`;
+  const signinHref = `/login?next=${encodeURIComponent(`/company/${ticker}`)}`;
+  return (
+    <div className="max-w-md mx-auto mt-12">
+      <Card className="p-6 space-y-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">
+            That&apos;s your {FREE_COMPANY_LIMIT} free company pages
+          </h1>
+          <p className="text-sm text-[var(--color-muted)] mt-2 leading-relaxed">
+            Create a free account for unlimited company pages — full reaction
+            history, implied move context, and a live headline price. The
+            calendar stays free either way.
+          </p>
+        </div>
+        <Link
+          href={signupHref}
+          className="block w-full rounded-lg bg-[var(--color-accent)] text-white text-center font-medium py-2.5 hover:opacity-90"
+        >
+          Create free account
+        </Link>
+        <p className="text-xs text-[var(--color-muted)] text-center">
+          Already have one?{" "}
+          <Link href={signinHref} className="text-[var(--color-accent)] hover:underline">
+            Sign in
+          </Link>
+          {" · "}
+          <Link href="/calendar" className="text-[var(--color-accent)] hover:underline">
+            Back to the calendar
+          </Link>
+        </p>
+      </Card>
+    </div>
+  );
+}
 
 export default function CompanyPage() {
-  const { ready, accessToken, session } = useAuthReady();
+  const { ready, accessToken, session, status } = useAuthReady();
   const isAdmin = Boolean(session?.isAdmin);
   const params = useParams<{ ticker: string }>();
   const ticker = (params.ticker ?? "").toUpperCase();
   const [data, setData] = useState<CompanyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gated, setGated] = useState(false);
+  const [freeViewsLeft, setFreeViewsLeft] = useState<number | null>(null);
+
+  const isGuest = ready && status === "unauthenticated";
 
   useEffect(() => {
     if (!ticker || !ready) return;
+
+    if (isGuest) {
+      const meter = recordCompanyView(ticker);
+      if (!meter.allowed) {
+        setGated(true);
+        setLoading(false);
+        return;
+      }
+      setFreeViewsLeft(meter.remaining);
+    }
+    setGated(false);
+
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -61,8 +116,9 @@ export default function CompanyPage() {
     return () => {
       cancelled = true;
     };
-  }, [ticker, ready, accessToken]);
+  }, [ticker, ready, accessToken, isGuest]);
 
+  if (gated) return <GuestGate ticker={ticker} />;
   if (!ready || loading) return <Spinner label={`Loading ${ticker}…`} />;
   if (error || !data)
     return (
@@ -110,6 +166,27 @@ export default function CompanyPage() {
             "Sample data for layout — key stats and charts are not the live brief. Pro unlocks the real numbers."
           }
         />
+      ) : null}
+
+      {isGuest && freeViewsLeft !== null ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-[var(--color-edge)]/60 bg-[var(--color-panel)]/40 px-3 py-2 text-sm">
+          <p className="min-w-0 text-[var(--color-muted)]">
+            {freeViewsLeft > 0 ? (
+              <>
+                Guest view — {freeViewsLeft} of {FREE_COMPANY_LIMIT} free company{" "}
+                {freeViewsLeft === 1 ? "page" : "pages"} left.
+              </>
+            ) : (
+              <>Guest view — this is your last free company page.</>
+            )}
+          </p>
+          <Link
+            href={`/login?mode=signup&next=${encodeURIComponent(`/company/${ticker}`)}`}
+            className="shrink-0 text-[var(--color-accent)] hover:underline"
+          >
+            Free account = unlimited
+          </Link>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">

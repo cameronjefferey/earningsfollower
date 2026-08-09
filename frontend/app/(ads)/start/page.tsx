@@ -1,24 +1,39 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { AdSignupCard } from "@/components/marketing/AdSignupCard";
+import { AdCtas } from "@/components/marketing/AdCtas";
 import { CaptureAdAttrs } from "@/components/marketing/CaptureAdAttrs";
 import { TrackAdLanding } from "@/components/marketing/TrackAdLanding";
 import { MarketingDataProvider } from "@/components/marketing/MarketingData";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
 
 export const metadata: Metadata = {
-  title: "Start free — priced-in earnings calendar",
+  title: "Free earnings calendar — see what's priced in",
   description:
-    "Create a free earningsfollower account. See what’s priced into this week’s reports — then unlock Drift and Waves boards when you’re ready.",
+    "Who reports this week and what the options market expects. Browse free — no account needed. Company pages, reaction history, and Pro boards when you're ready.",
   alternates: { canonical: "https://www.earningsfollower.com/start" },
   openGraph: {
-    title: "earningsfollower — start free",
+    title: "earningsfollower — what's already priced into earnings",
     description:
-      "Free priced-in earnings calendar. Pro boards for post-report drift and peer waves.",
+      "Free earnings calendar with options-implied moves. Browse without an account.",
     url: "https://www.earningsfollower.com/start",
   },
 };
+
+const STEPS = [
+  {
+    title: "Browse free",
+    body: "The full earnings calendar — who reports, when, and the options-implied move. No account needed.",
+  },
+  {
+    title: "Go deeper",
+    body: "Open any company for its reaction history: how it actually moved vs. what was priced in, quarter by quarter.",
+  },
+  {
+    title: "Level up when ready",
+    body: "A free account unlocks unlimited company pages and live prices. Pro adds the live Drift and Waves boards.",
+  },
+];
 
 export default function AdStartPage() {
   return (
@@ -34,52 +49,58 @@ export default function AdStartPage() {
             earnings<span>follower</span>
           </p>
           <h1 className="m-hero-line mt-5 max-w-2xl text-lg sm:text-xl text-white/90 leading-snug font-medium">
-            See what&apos;s already priced into earnings — before you trade the print.
+            See what&apos;s already priced into this week&apos;s earnings.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-3 max-w-lg text-sm text-[var(--m-muted)] leading-relaxed">
-            Free calendar with options-implied moves. Pro boards when you want the
-            follow-through.
+            Free calendar with options-implied moves and reaction history. Browse it
+            right now — no account needed.
           </p>
 
-          <div className="m-hero-line m-hero-line-3 mt-10 grid lg:grid-cols-12 gap-8 lg:gap-10 items-start">
-            <div className="lg:col-span-7 order-2 lg:order-1 min-w-0">
-              <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
-                <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">
-                  What&apos;s already priced in
-                </h2>
-                <Link
-                  href="/calendar"
-                  className="text-sm text-[var(--m-accent)] hover:underline"
-                >
-                  Full calendar →
-                </Link>
-              </div>
-              <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-6">
-                Top names this week by options-implied move — with date, history, and
-                theme on each card.
-              </p>
-              <div className="m-board-frame m-ad-priced">
-                <WeekHeat limit={4} />
-              </div>
-            </div>
+          <div className="m-hero-line m-hero-line-3 mt-7">
+            <AdCtas />
+          </div>
 
-            <div className="lg:col-span-5 order-1 lg:order-2 w-full max-w-md lg:max-w-none lg:sticky lg:top-20">
-              <AdSignupCard next="/calendar" />
-              <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-[var(--m-muted)] text-center lg:text-left">
-                $0 to start · not financial advice
-              </p>
+          <div className="mt-12">
+            <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
+              <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">
+                This week, ranked by implied move
+              </h2>
+              <Link
+                href="/calendar"
+                className="text-sm text-[var(--m-accent)] hover:underline"
+              >
+                Full calendar →
+              </Link>
+            </div>
+            <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-6">
+              Real data, live now. Click any card for that company&apos;s full earnings
+              story.
+            </p>
+            <div className="m-board-frame m-ad-priced">
+              <WeekHeat limit={6} />
             </div>
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-14">
-        <h2 className="m-display text-2xl text-white tracking-tight max-w-lg">
-          Built for earnings week — not another signal feed
-        </h2>
-        <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
-          We map the field (what&apos;s priced), then the follow-through after a print or
-          a peer print. You decide what to do with it.
+        <div className="grid sm:grid-cols-3 gap-6">
+          {STEPS.map((s, i) => (
+            <div key={s.title}>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--m-accent)] mb-2">
+                Step {i + 1}
+              </div>
+              <h3 className="text-base font-semibold text-white tracking-tight">
+                {s.title}
+              </h3>
+              <p className="mt-2 text-sm text-[var(--m-muted)] leading-relaxed">
+                {s.body}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-10 text-[11px] uppercase tracking-[0.14em] text-[var(--m-muted)]">
+          $0 to start · not financial advice
         </p>
       </section>
     </MarketingDataProvider>

@@ -15,7 +15,7 @@ const faqs: { q: string; a: string }[] = [
   },
   {
     q: "What’s free vs paid?",
-    a: "The earnings calendar stays free. Live Drift and Waves boards are Pro. Company pages show a preview when you’re not subscribed — full reaction history unlocks with Pro. Details on Pricing.",
+    a: "The earnings calendar is free with no account. Company pages — full reaction history and implied move context — are free too: a few pages as a guest, unlimited with a free account. Live Drift and Waves boards are Pro. Details on Pricing.",
   },
   {
     q: "What’s on the boards?",

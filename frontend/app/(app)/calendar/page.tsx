@@ -122,6 +122,8 @@ export default function DashboardPage() {
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [selectedConvictions, setSelectedConvictions] = useState<string[]>([]);
+  // Keep Narrow results collapsed so earnings cards stay above the fold.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // Gate data fetching until we've read the inbound deep-link params, so we
   // fetch once with the right state instead of flashing the default view.
   const [paramsReady, setParamsReady] = useState(false);
@@ -403,6 +405,13 @@ export default function DashboardPage() {
     selectedConvictions,
   ]);
 
+  const activeFilterCount =
+    (focusSymbol ? 1 : 0) +
+    selectedSectors.length +
+    selectedCaps.length +
+    selectedConvictions.length +
+    (sortKey !== "date" ? 1 : 0);
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -416,9 +425,8 @@ export default function DashboardPage() {
 
       <DigestStrip />
 
-      <div className="mb-4 space-y-4">
-        <div>
-          <div className="text-sm font-medium text-white mb-2">When</div>
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex flex-wrap rounded-lg bg-[var(--color-panel)]/70 p-1 gap-0.5">
             {WINDOWS.map((w) => (
               <button
@@ -435,34 +443,47 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((o) => !o)}
+            aria-expanded={filtersOpen}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+              filtersOpen || activeFilterCount > 0
+                ? "border-[var(--color-accent)]/50 text-white"
+                : "border-[var(--color-edge)]/70 text-[var(--color-muted)] hover:text-white"
+            }`}
+          >
+            Filters
+            {activeFilterCount > 0 ? (
+              <span className="rounded-md bg-[var(--color-accent)]/20 px-1.5 text-xs text-[var(--color-accent)] tabular">
+                {activeFilterCount}
+              </span>
+            ) : null}
+          </button>
         </div>
 
-        <div>
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-            <div className="text-sm font-medium text-white">Themes you follow</div>
-            <ThemePinPicker
-              allThemes={themes}
-              pinnedKeys={pinnedThemeKeys}
-              onChange={persistPinnedThemes}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <ThemeChip
+            active={theme === null}
+            onClick={() => selectTheme(null)}
+            label="All themes"
+          />
+          {pinnedThemes.map((t) => (
             <ThemeChip
-              active={theme === null}
-              onClick={() => selectTheme(null)}
-              label="All themes"
+              key={t.key}
+              active={theme === t.key}
+              onClick={() => selectTheme(t.key)}
+              label={t.label}
             />
-            {pinnedThemes.map((t) => (
-              <ThemeChip
-                key={t.key}
-                active={theme === t.key}
-                onClick={() => selectTheme(t.key)}
-                label={t.label}
-              />
-            ))}
-          </div>
+          ))}
+          <ThemePinPicker
+            allThemes={themes}
+            pinnedKeys={pinnedThemeKeys}
+            onChange={persistPinnedThemes}
+          />
         </div>
 
+        {filtersOpen ? (
         <div className="rounded-xl bg-[var(--color-panel)]/35 p-3 sm:p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
             <div className="text-sm font-medium text-white">Narrow results</div>
@@ -579,6 +600,7 @@ export default function DashboardPage() {
             />
           </div>
         </div>
+        ) : null}
       </div>
 
       {!loading && !error ? (

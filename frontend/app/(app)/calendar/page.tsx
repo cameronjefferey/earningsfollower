@@ -122,8 +122,22 @@ export default function DashboardPage() {
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [selectedConvictions, setSelectedConvictions] = useState<string[]>([]);
-  // Keep Narrow results collapsed so earnings cards stay above the fold.
+  // Filters live in a slide-over drawer so earnings cards stay above the fold.
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFiltersOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [filtersOpen]);
   // Gate data fetching until we've read the inbound deep-link params, so we
   // fetch once with the right state instead of flashing the default view.
   const [paramsReady, setParamsReady] = useState(false);
@@ -405,8 +419,8 @@ export default function DashboardPage() {
     selectedConvictions,
   ]);
 
+  // Search has its own visible box in the toolbar, so it isn't part of the badge.
   const activeFilterCount =
-    (focusSymbol ? 1 : 0) +
     selectedSectors.length +
     selectedCaps.length +
     selectedConvictions.length +
@@ -443,23 +457,87 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((o) => !o)}
-            aria-expanded={filtersOpen}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-              filtersOpen || activeFilterCount > 0
-                ? "border-[var(--color-accent)]/50 text-white"
-                : "border-[var(--color-edge)]/70 text-[var(--color-muted)] hover:text-white"
-            }`}
-          >
-            Filters
-            {activeFilterCount > 0 ? (
-              <span className="rounded-md bg-[var(--color-accent)]/20 px-1.5 text-xs text-[var(--color-accent)] tabular">
-                {activeFilterCount}
-              </span>
-            ) : null}
-          </button>
+
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <svg
+                viewBox="0 0 16 16"
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-muted)]"
+                fill="none"
+                aria-hidden
+              >
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+                <path
+                  d="m10.5 10.5 3 3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                type="text"
+                value={focusSymbol ?? ""}
+                onChange={(e) =>
+                  setFocusSymbol(
+                    e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
+                  )
+                }
+                placeholder="Ticker"
+                spellCheck={false}
+                autoCapitalize="characters"
+                aria-label="Search ticker"
+                className={`w-28 rounded-lg border bg-transparent py-1.5 pl-8 pr-7 text-sm font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] sm:w-36 ${
+                  focusSymbol
+                    ? "border-[var(--color-accent)]"
+                    : "border-[var(--color-edge)]/70"
+                }`}
+              />
+              {focusSymbol ? (
+                <button
+                  type="button"
+                  onClick={() => setFocusSymbol(null)}
+                  aria-label="Clear symbol search"
+                  className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
+                >
+                  <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden>
+                    <path
+                      d="M2 2 8 8 M8 2 2 8"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={filtersOpen}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-1.5 text-sm font-semibold transition-colors ${
+                activeFilterCount > 0
+                  ? "border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+                  : "border-[var(--color-edge)] bg-[var(--color-panel)]/70 text-white hover:border-[var(--color-muted)]"
+              }`}
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                <path
+                  d="M1.5 3h13L9.75 8.75v4.5l-3.5 1.5V8.75L1.5 3Z"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Filters
+              {activeFilterCount > 0 ? (
+                <span className="rounded-md bg-[var(--color-accent)]/25 px-1.5 text-xs tabular">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -483,125 +561,196 @@ export default function DashboardPage() {
           />
         </div>
 
-        {filtersOpen ? (
-        <div className="rounded-xl bg-[var(--color-panel)]/35 p-3 sm:p-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-            <div className="text-sm font-medium text-white">Narrow results</div>
-            {(theme ||
-              focusSymbol ||
-              selectedSectors.length > 0 ||
-              selectedCaps.length > 0 ||
-              selectedConvictions.length > 0 ||
-              sortKey !== "date") && (
+        {activeFilterCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedSectors.map((s) => (
+              <ActiveFilterChip
+                key={`sector-${s}`}
+                label={s}
+                onRemove={() =>
+                  setSelectedSectors(selectedSectors.filter((v) => v !== s))
+                }
+              />
+            ))}
+            {selectedCaps.map((c) => (
+              <ActiveFilterChip
+                key={`cap-${c}`}
+                label={CAP_BUCKETS.find((b) => b.key === c)?.label ?? c}
+                onRemove={() => setSelectedCaps(selectedCaps.filter((v) => v !== c))}
+              />
+            ))}
+            {selectedConvictions.map((c) => (
+              <ActiveFilterChip
+                key={`conviction-${c}`}
+                label={`${CONVICTION_BUCKETS.find((b) => b.key === c)?.label ?? c} conviction`}
+                onRemove={() =>
+                  setSelectedConvictions(selectedConvictions.filter((v) => v !== c))
+                }
+              />
+            ))}
+            {sortKey !== "date" ? (
+              <ActiveFilterChip
+                label={`Sorted: ${SORTS.find((s) => s.key === sortKey)?.label ?? sortKey}`}
+                onRemove={() => setSortKey("date")}
+              />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedSectors([]);
+                setSelectedCaps([]);
+                setSelectedConvictions([]);
+                setSortKey("date");
+              }}
+              className="text-sm text-[var(--color-accent)] hover:underline"
+            >
+              Clear all
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {filtersOpen ? (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/60"
+            onClick={() => setFiltersOpen(false)}
+            aria-hidden
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Filters"
+            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-[var(--color-edge)]/70 bg-[var(--color-bg)] shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-[var(--color-edge)]/60 px-4 py-3">
+              <div className="text-base font-semibold text-white">Filters</div>
               <button
                 type="button"
-                onClick={() => {
-                  selectTheme(null);
-                  setFocusSymbol(null);
-                  setSelectedSectors([]);
-                  setSelectedCaps([]);
-                  setSelectedConvictions([]);
-                  setSortKey("date");
-                }}
-                className="text-sm text-[var(--color-accent)] hover:underline"
+                onClick={() => setFiltersOpen(false)}
+                aria-label="Close filters"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-panel)]/70 hover:text-white"
               >
-                Clear all
+                <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden>
+                  <path
+                    d="M2 2 10 10 M10 2 2 10"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-[var(--color-muted)]">
-                Search ticker
-              </span>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={focusSymbol ?? ""}
-                  onChange={(e) =>
-                    setFocusSymbol(
-                      e.target.value.toUpperCase().replace(/[^A-Z.]/g, "") || null
-                    )
-                  }
-                  placeholder="e.g. NVDA"
-                  spellCheck={false}
-                  autoCapitalize="characters"
-                  className={`w-full rounded-lg border bg-transparent py-2 pl-3 pr-8 text-sm font-medium text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] ${
-                    focusSymbol
-                      ? "border-[var(--color-accent)]"
-                      : "border-[var(--color-edge)]/70"
-                  }`}
-                />
-                {focusSymbol ? (
-                  <button
-                    type="button"
-                    onClick={() => setFocusSymbol(null)}
-                    aria-label="Clear symbol search"
-                    className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:text-white"
-                  >
-                    <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden>
-                      <path
-                        d="M2 2 8 8 M8 2 2 8"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                ) : null}
-              </div>
-            </label>
+            </div>
 
-            <div className="space-y-1.5">
-              <div className="text-xs font-medium text-[var(--color-muted)]">Sort by</div>
-              <div className="inline-flex w-full rounded-lg border border-[var(--color-edge)]/70 bg-transparent p-1">
-                {SORTS.map((s) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    onClick={() => setSortKey(s.key)}
-                    className={`flex-1 px-2 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                      sortKey === s.key
-                        ? "bg-[var(--color-accent)] text-white"
-                        : "text-[var(--color-muted)] hover:text-white"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+            <div className="flex-1 space-y-6 overflow-y-auto px-4 py-4">
+              <div>
+                <div className="mb-2 text-sm font-medium text-white">Sort by</div>
+                <div className="inline-flex w-full rounded-lg border border-[var(--color-edge)]/70 bg-transparent p-1">
+                  {SORTS.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => setSortKey(s.key)}
+                      className={`flex-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+                        sortKey === s.key
+                          ? "bg-[var(--color-accent)] text-white"
+                          : "text-[var(--color-muted)] hover:text-white"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-sm font-medium text-white">Sector</div>
+                <div className="flex flex-wrap gap-2">
+                  {sectors.map((s) => (
+                    <ThemeChip
+                      key={s}
+                      active={selectedSectors.includes(s)}
+                      onClick={() =>
+                        setSelectedSectors(
+                          selectedSectors.includes(s)
+                            ? selectedSectors.filter((v) => v !== s)
+                            : [...selectedSectors, s]
+                        )
+                      }
+                      label={s}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-sm font-medium text-white">Market cap</div>
+                <div className="flex flex-wrap gap-2">
+                  {CAP_BUCKETS.map((b) => (
+                    <ThemeChip
+                      key={b.key}
+                      active={selectedCaps.includes(b.key)}
+                      onClick={() =>
+                        setSelectedCaps(
+                          selectedCaps.includes(b.key)
+                            ? selectedCaps.filter((v) => v !== b.key)
+                            : [...selectedCaps, b.key]
+                        )
+                      }
+                      label={b.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-sm font-medium text-white">Conviction</div>
+                <div className="flex flex-wrap gap-2">
+                  {CONVICTION_BUCKETS.map((b) => (
+                    <ThemeChip
+                      key={b.key}
+                      active={selectedConvictions.includes(b.key)}
+                      onClick={() =>
+                        setSelectedConvictions(
+                          selectedConvictions.includes(b.key)
+                            ? selectedConvictions.filter((v) => v !== b.key)
+                            : [...selectedConvictions, b.key]
+                        )
+                      }
+                      label={b.label}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
 
-            <MultiSelect
-              label="Sector"
-              selected={selectedSectors}
-              onChange={setSelectedSectors}
-              options={sectors.map((s) => ({ value: s, label: s }))}
-              allLabel="All sectors"
-            />
-
-            <MultiSelect
-              label="Market cap"
-              selected={selectedCaps}
-              onChange={setSelectedCaps}
-              options={CAP_BUCKETS.map((b) => ({ value: b.key, label: b.label }))}
-              allLabel="Any size"
-            />
-
-            <MultiSelect
-              label="Conviction"
-              selected={selectedConvictions}
-              onChange={setSelectedConvictions}
-              options={CONVICTION_BUCKETS.map((b) => ({
-                value: b.key,
-                label: b.label,
-              }))}
-              allLabel="Any conviction"
-            />
+            <div className="flex items-center gap-3 border-t border-[var(--color-edge)]/60 px-4 py-3">
+              {activeFilterCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSectors([]);
+                    setSelectedCaps([]);
+                    setSelectedConvictions([]);
+                    setSortKey("date");
+                  }}
+                  className="text-sm text-[var(--color-muted)] hover:text-white"
+                >
+                  Clear all
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(false)}
+                className="ml-auto rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Show {filteredCards.length}{" "}
+                {filteredCards.length === 1 ? "company" : "companies"}
+              </button>
+            </div>
           </div>
-        </div>
-        ) : null}
-      </div>
+        </>
+      ) : null}
 
       {!loading && !error ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--color-muted)]">
@@ -827,128 +976,31 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function MultiSelect({
+/** A removable pill showing one applied filter, so hidden drawer state stays visible. */
+function ActiveFilterChip({
   label,
-  selected,
-  onChange,
-  options,
-  allLabel,
+  onRemove,
 }: {
   label: string;
-  selected: string[];
-  onChange: (values: string[]) => void;
-  options: { value: string; label: string }[];
-  allLabel: string;
+  onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on outside click / Escape so the panel behaves like a native menu.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const toggle = (value: string) =>
-    onChange(
-      selected.includes(value)
-        ? selected.filter((v) => v !== value)
-        : [...selected, value]
-    );
-
-  const count = selected.length;
-  const summary =
-    count === 0
-      ? allLabel
-      : count === 1
-      ? options.find((o) => o.value === selected[0])?.label ?? `${count} selected`
-      : `${count} selected`;
-
   return (
-    <div className="space-y-1.5">
-      <div className="text-xs font-medium text-[var(--color-muted)]">{label}</div>
-      <div className="relative" ref={ref}>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className={`inline-flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors bg-transparent hover:text-white focus:outline-none focus:border-[var(--color-accent)] ${
-            count > 0
-              ? "border-[var(--color-accent)] text-white"
-              : "border-[var(--color-edge)]/70 text-[var(--color-muted)]"
-          }`}
-        >
-          <span className="truncate">{summary}</span>
-          <svg
-            className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-            viewBox="0 0 12 12"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        {open && (
-          <div className="absolute left-0 z-20 mt-1.5 max-h-72 w-full min-w-[14rem] overflow-auto rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-1.5 shadow-lg">
-            {options.length === 0 ? (
-              <div className="px-2.5 py-2 text-sm text-[var(--color-muted)]">
-                Nothing to filter
-              </div>
-            ) : (
-              <>
-                {count > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onChange([])}
-                    className="w-full rounded-md px-2.5 py-2 text-left text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-panel-2)]"
-                  >
-                    Clear {label.toLowerCase()}
-                  </button>
-                )}
-                {options.map((o) => {
-                  const checked = selected.includes(o.value);
-                  return (
-                    <button
-                      key={o.value}
-                      type="button"
-                      onClick={() => toggle(o.value)}
-                      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-[var(--color-panel-2)]"
-                    >
-                      <span
-                        className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                          checked
-                            ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
-                            : "border-[var(--color-edge)]"
-                        }`}
-                      >
-                        {checked && (
-                          <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
-                            <path d="M2 5 4 7 8 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className={checked ? "text-white" : "text-[var(--color-muted)]"}>
-                        {o.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onRemove}
+      aria-label={`Remove filter: ${label}`}
+      className="group inline-flex items-center gap-1.5 rounded-full border border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 px-3 py-1 text-sm font-medium text-[var(--color-accent)] transition-colors hover:border-[var(--color-accent)]"
+    >
+      {label}
+      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5 opacity-70 group-hover:opacity-100" fill="none" aria-hidden>
+        <path
+          d="M2 2 8 8 M8 2 2 8"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
   );
 }
 

@@ -9,14 +9,14 @@ import { Reveal } from "@/components/marketing/Reveal";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
 
 export const metadata: Metadata = {
-  title: "Free earnings calendar — see what's priced in",
+  title: "Trade earnings on data, not guesses — free calendar",
   description:
-    "Who reports this week and what the options market expects. Browse free — no account needed. Company pages, reaction history, and Pro boards when you're ready.",
+    "What the options market expects from every report this week, next to how the stock actually moved the last eight quarters. Browse free — no account needed.",
   alternates: { canonical: "https://www.earningsfollower.com/start" },
   openGraph: {
-    title: "earningsfollower — what's already priced into earnings",
+    title: "earningsfollower — trade earnings on data, not guesses",
     description:
-      "Free earnings calendar with options-implied moves. Browse without an account.",
+      "Free earnings calendar with options-implied moves and reaction history. Browse without an account.",
     url: "https://www.earningsfollower.com/start",
   },
 };
@@ -71,13 +71,14 @@ export default function AdStartPage() {
           <p className="m-hero-brand m-brand text-[clamp(2.2rem,6vw,3.4rem)] leading-[0.92]">
             earnings<span>follower</span>
           </p>
-          <h1 className="m-hero-line mt-5 max-w-2xl text-lg sm:text-xl text-white/90 leading-snug font-medium">
-            Before every earnings report, the options market names its price. We put
-            that number on every card — next to what actually happened last time.
+          <h1 className="m-hero-line mt-5 max-w-2xl text-2xl sm:text-3xl text-white leading-tight font-semibold tracking-tight">
+            Trade earnings on data, not guesses.
           </h1>
-          <p className="m-hero-line m-hero-line-2 mt-3 max-w-lg text-sm text-[var(--m-muted)] leading-relaxed">
-            A free earnings calendar built around one question: what&apos;s already
-            priced in? Browse it right now — no account needed.
+          <p className="m-hero-line m-hero-line-2 mt-4 max-w-xl text-sm sm:text-base text-[var(--m-muted)] leading-relaxed">
+            Every earnings card shows two numbers most traders never check: the move
+            the options market is pricing in, and how the stock actually moved the
+            last eight quarters. Compare them before you touch the trade. Free to
+            browse — no account needed.
           </p>
 
           <div className="m-hero-line m-hero-line-3 mt-7">
@@ -112,11 +113,11 @@ export default function AdStartPage() {
         <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16">
           <Reveal>
             <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-xl">
-              What you actually get
+              The data behind every earnings trade
             </h2>
             <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
-              No buy lists, no secret EPS calls. Three tools for reading earnings
-              season the way options traders do.
+              No buy lists, no secret EPS calls. Three tools that replace gut feel
+              with what the market is pricing and what history says about it.
             </p>
           </Reveal>
           <div className="mt-8 sm:mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -160,8 +161,12 @@ export default function AdStartPage() {
         <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16">
           <Reveal>
             <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-xl">
-              How it fits into your week
+              Guessing vs. checking
             </h2>
+            <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
+              Most people trade earnings on a headline and a hunch. This is the
+              three-minute version of doing it with data.
+            </p>
           </Reveal>
           <div className="mt-8 grid sm:grid-cols-3 gap-6">
             {STEPS.map((s, i) => (
@@ -192,12 +197,12 @@ export default function AdStartPage() {
         <div className="relative mx-auto max-w-6xl px-4 sm:px-5 py-14 sm:py-20">
           <Reveal>
             <h2 className="text-3xl sm:text-4xl font-semibold text-white tracking-tight max-w-lg">
-              Know what&apos;s priced in before the market opens.
+              Your next earnings trade doesn&apos;t have to be a guess.
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
-              The calendar is free to browse right now. A free account unlocks
-              unlimited company pages and live prices — Pro adds the live boards when
-              you&apos;re ready.
+              See what&apos;s priced in and what history says — free, right now. A
+              free account unlocks unlimited company pages and live prices; Pro adds
+              the live boards when you&apos;re ready.
             </p>
             <div className="mt-8">
               <AdCtas placement="bottom" primary="signup" />

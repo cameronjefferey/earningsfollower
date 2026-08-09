@@ -60,7 +60,7 @@ export default function AdStartPage() {
             <AdCtas />
           </div>
 
-          <div className="mt-12">
+          <div className="mt-8 sm:mt-12">
             <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
               <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">
                 This week, ranked by implied move
@@ -72,7 +72,7 @@ export default function AdStartPage() {
                 Full calendar →
               </Link>
             </div>
-            <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-6">
+            <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-4 sm:mb-6">
               Real data, live now. Click any card for that company&apos;s full earnings
               story.
             </p>

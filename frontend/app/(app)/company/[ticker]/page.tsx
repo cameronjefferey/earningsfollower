@@ -460,7 +460,7 @@ function RangeBar({ play }: { play: EarningsPlay }) {
 function LegsTable({ legs }: { legs: PlayLeg[] }) {
   if (!legs.length) return null;
   return (
-    <div className="rounded-lg border border-[var(--color-edge)] overflow-hidden">
+    <div className="rounded-lg border border-[var(--color-edge)] overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-[var(--color-muted)] text-[11px] uppercase tracking-wide bg-[var(--color-panel-2)]">

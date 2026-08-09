@@ -198,6 +198,18 @@ body {
   border-color: rgba(91, 255, 197, 0.55);
 }
 
+/* iOS Safari zooms the whole page when focusing an input under 16px.
+   Most of our ad traffic is iPhone, so force 16px on touch-size screens. */
+@media (max-width: 639px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  .m-ad-input {
+    font-size: 1rem;
+  }
+}
+
 /* Ad landing: keep priced-in cards readable beside the signup panel */
 .m-ad-priced .m-priced-grid {
   grid-template-columns: 1fr;

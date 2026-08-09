@@ -10,6 +10,7 @@ import {
   trackReddit,
   trackRedditSignUp,
 } from "@/lib/reddit-pixel";
+import { reportSignupOnce } from "@/lib/ad-traffic";
 
 /**
  * Loads the Reddit Pixel once and fires PageVisit on route changes.
@@ -35,6 +36,9 @@ function RedditPixelInner() {
     if (!isRedditPixelEnabled() || signedUp.current) return;
     if (!session?.trackSignUp) return;
     const email = (session.user?.email || "").trim().toLowerCase();
+    // Funnel beacon covers Google / magic-link signups (password flows report
+    // at registration time); localStorage-deduped so it fires once per browser.
+    reportSignupOnce(email, "auth_sync");
     const dedupeKey = email ? `ef_rdt_signup_${email}` : "ef_rdt_signup";
     try {
       if (sessionStorage.getItem(dedupeKey)) {

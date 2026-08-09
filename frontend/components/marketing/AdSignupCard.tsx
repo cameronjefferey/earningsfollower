@@ -5,6 +5,7 @@ import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { registerAccount, requestMagicLink } from "@/lib/authApi";
+import { reportSignupOnce } from "@/lib/ad-traffic";
 import { trackRedditSignUp } from "@/lib/reddit-pixel";
 import { withAdAttrs } from "@/lib/utm";
 
@@ -58,6 +59,7 @@ export function AdSignupCard({ next = "/calendar" }: { next?: string }) {
       } catch {
         trackRedditSignUp(email.trim());
       }
+      reportSignupOnce(email.trim(), "password");
       setNote(reg.data.message);
       const result = await signIn("credentials", {
         email: email.trim(),

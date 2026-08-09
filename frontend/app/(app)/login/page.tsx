@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { registerAccount, requestMagicLink } from "@/lib/authApi";
+import { reportSignupOnce } from "@/lib/ad-traffic";
 import { trackRedditSignUp } from "@/lib/reddit-pixel";
 
 type Mode = "signin" | "signup";
@@ -65,6 +66,7 @@ function LoginInner() {
         } catch {
           trackRedditSignUp(email.trim());
         }
+        reportSignupOnce(email.trim(), "password");
         setNote(reg.data.message);
       }
 

@@ -30,6 +30,7 @@ import {
 } from "@/lib/format";
 import { useAuthReady } from "@/lib/useAuthReady";
 import { FREE_COMPANY_LIMIT, recordCompanyView } from "@/lib/companyMeter";
+import { reportFunnel } from "@/lib/ad-traffic";
 
 /** Full-screen soft gate once a guest has spent their free company pages. */
 function GuestGate({ ticker }: { ticker: string }) {
@@ -88,10 +89,20 @@ export default function CompanyPage() {
     if (isGuest) {
       const meter = recordCompanyView(ticker);
       if (!meter.allowed) {
+        reportFunnel("guest_gate", {
+          path: `/company/${ticker}`,
+          target: ticker,
+          once: "gate",
+        });
         setGated(true);
         setLoading(false);
         return;
       }
+      reportFunnel("company_view", {
+        path: `/company/${ticker}`,
+        target: ticker,
+        once: `co_${ticker}`,
+      });
       setFreeViewsLeft(meter.remaining);
     }
     setGated(false);

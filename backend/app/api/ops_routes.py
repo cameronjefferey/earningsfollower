@@ -20,7 +20,17 @@ from app.services.signup_alerts import notify_signup
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
-TrafficKind = Literal["ad_landing", "ad_engage", "auth_fail"]
+TrafficKind = Literal[
+    "ad_landing",
+    "ad_engage",
+    "auth_fail",
+    # Funnel beacons: what ad visitors do after landing.
+    "cta_click",
+    "calendar_view",
+    "company_view",
+    "guest_gate",
+    "signup",
+]
 
 
 class OpsAlertBody(BaseModel):
@@ -32,6 +42,8 @@ class OpsAlertBody(BaseModel):
 class TrafficBody(BaseModel):
     kind: TrafficKind
     path: str | None = Field(default=None, max_length=256)
+    # What was clicked / viewed (CTA name, ticker, auth method).
+    target: str | None = Field(default=None, max_length=64)
     rdt_cid: str | None = Field(default=None, max_length=128)
     utm_source: str | None = Field(default=None, max_length=64)
     utm_medium: str | None = Field(default=None, max_length=64)
@@ -162,6 +174,7 @@ def post_ops_traffic(
 
     meta: dict[str, Any] = {
         "path": body.path,
+        "target": body.target,
         "rdt_cid": body.rdt_cid,
         "utm_source": body.utm_source,
         "utm_medium": body.utm_medium,
@@ -215,10 +228,24 @@ def _traffic_message(
         ms = body.engaged_ms if body.engaged_ms is not None else "?"
         cid = body.rdt_cid or "—"
         return f"Ad engage {ms}ms · rdt_cid={cid} · {body.utm_campaign or body.utm_source or '—'}"
-    # ad_landing
     cid = body.rdt_cid or "—"
     camp = body.utm_campaign or "—"
     src = body.utm_source or "—"
+    if body.kind in ("cta_click", "calendar_view", "company_view", "guest_gate", "signup"):
+        label = {
+            "cta_click": "CTA click",
+            "calendar_view": "Calendar view",
+            "company_view": "Company view",
+            "guest_gate": "Guest gate hit",
+            "signup": "Signup",
+        }[body.kind]
+        tgt = f" · {body.target}" if body.target else ""
+        attributed = "yes" if (body.rdt_cid or body.utm_source) else "no"
+        return (
+            f"{tag}{label}{tgt} · attributed={attributed} · source={src} "
+            f"· campaign={camp} · rdt_cid={cid} · ip={ip}"
+        )
+    # ad_landing
     return (
         f"{tag}Ad landing · source={src} · campaign={camp} · rdt_cid={cid} "
         f"· score={score} · ip={ip} · ua={ua_short or '—'}"

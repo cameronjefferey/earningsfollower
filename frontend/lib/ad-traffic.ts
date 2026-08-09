@@ -1,10 +1,21 @@
 /** Fire-and-forget ad / auth traffic beacons via the Next.js ops proxy. */
 
-export type TrafficKind = "ad_landing" | "ad_engage" | "auth_fail";
+import { readAdAttrs } from "@/lib/utm";
+
+export type TrafficKind =
+  | "ad_landing"
+  | "ad_engage"
+  | "auth_fail"
+  | "cta_click"
+  | "calendar_view"
+  | "company_view"
+  | "guest_gate"
+  | "signup";
 
 export type TrafficPayload = {
   kind: TrafficKind;
   path?: string;
+  target?: string;
   rdt_cid?: string;
   utm_source?: string;
   utm_medium?: string;
@@ -14,6 +25,55 @@ export type TrafficPayload = {
   auth_cause?: string;
   message?: string;
 };
+
+/**
+ * Log one step of the visitor funnel (CTA click, calendar/company view, gate,
+ * signup). Attaches stored ad attribution automatically; `once` dedupes per
+ * browser session so refreshes don't inflate counts.
+ */
+export function reportFunnel(
+  kind: Exclude<TrafficKind, "ad_landing" | "ad_engage" | "auth_fail">,
+  opts: { path?: string; target?: string; once?: string } = {}
+): void {
+  if (typeof window === "undefined") return;
+  if (opts.once) {
+    const key = `ef_funnel_${kind}_${opts.once}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      /* private mode — fire anyway */
+    }
+  }
+  const attrs = readAdAttrs();
+  reportTraffic({
+    kind,
+    path: opts.path,
+    target: opts.target,
+    rdt_cid: attrs.rdt_cid,
+    utm_source: attrs.utm_source,
+    utm_medium: attrs.utm_medium,
+    utm_campaign: attrs.utm_campaign,
+  });
+}
+
+/**
+ * Signup beacon deduped per browser (localStorage, keyed by email) because the
+ * session's trackSignUp flag lives in the JWT and can resurface across visits.
+ */
+export function reportSignupOnce(email: string | undefined, method: string): void {
+  if (typeof window === "undefined") return;
+  const key = email
+    ? `ef_funnel_signup_${email.trim().toLowerCase()}`
+    : "ef_funnel_signup";
+  try {
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+  } catch {
+    /* private mode — fire anyway */
+  }
+  reportFunnel("signup", { target: method });
+}
 
 export function reportTraffic(payload: TrafficPayload): void {
   if (typeof window === "undefined") return;

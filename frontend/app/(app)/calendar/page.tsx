@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, EarningsCard, Theme } from "@/lib/api";
 import { CalendarWelcome } from "@/components/CalendarWelcome";
+import { TrackCalendarView } from "@/components/TrackCalendarView";
 import { DigestStrip } from "@/components/DigestStrip";
 import {
   EarningsCardItem,
@@ -435,6 +436,7 @@ export default function DashboardPage() {
         <UpdatedAt value={updatedAt} />
       </div>
 
+      <TrackCalendarView />
       <CalendarWelcome />
 
       <DigestStrip />

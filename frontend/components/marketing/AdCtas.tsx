@@ -8,8 +8,16 @@ import { withAdAttrs } from "@/lib/utm";
 /**
  * CTA pair for the ad landing page. Hrefs pick up stored UTMs after mount so
  * attribution survives the click without a server/client hydration mismatch.
+ * `placement` tags the funnel beacon so we can compare hero vs mid vs bottom.
  */
-export function AdCtas() {
+export function AdCtas({
+  placement = "hero",
+  primary = "signup",
+}: {
+  placement?: string;
+  /** Which action gets the filled button. */
+  primary?: "signup" | "browse";
+}) {
   const [calendarHref, setCalendarHref] = useState("/calendar");
   const [signupHref, setSignupHref] = useState("/login?mode=signup&next=/calendar");
 
@@ -18,26 +26,40 @@ export function AdCtas() {
     setSignupHref(withAdAttrs("/login?mode=signup&next=/calendar"));
   }, []);
 
+  const signup = (
+    <Link
+      key="signup"
+      href={signupHref}
+      className={primary === "signup" ? "m-btn-primary" : "m-btn-ghost"}
+      onClick={() =>
+        reportFunnel("cta_click", {
+          path: "/start",
+          target: `create_account_${placement}`,
+        })
+      }
+    >
+      Create free account
+    </Link>
+  );
+  const browse = (
+    <Link
+      key="browse"
+      href={calendarHref}
+      className={primary === "browse" ? "m-btn-primary" : "m-btn-ghost"}
+      onClick={() =>
+        reportFunnel("cta_click", {
+          path: "/start",
+          target: `browse_calendar_${placement}`,
+        })
+      }
+    >
+      Browse the free calendar →
+    </Link>
+  );
+
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Link
-        href={calendarHref}
-        className="m-btn-primary"
-        onClick={() =>
-          reportFunnel("cta_click", { path: "/start", target: "browse_calendar" })
-        }
-      >
-        Browse the free calendar →
-      </Link>
-      <Link
-        href={signupHref}
-        className="m-btn-ghost"
-        onClick={() =>
-          reportFunnel("cta_click", { path: "/start", target: "create_account" })
-        }
-      >
-        Create free account
-      </Link>
+      {primary === "browse" ? [browse, signup] : [signup, browse]}
     </div>
   );
 }

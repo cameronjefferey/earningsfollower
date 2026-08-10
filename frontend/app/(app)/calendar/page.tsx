@@ -7,6 +7,7 @@ import { TrackCalendarView } from "@/components/TrackCalendarView";
 import { DigestStrip } from "@/components/DigestStrip";
 import { WaveWatch } from "@/components/WaveWatch";
 import { WeekDayCalendar } from "@/components/WeekDayCalendar";
+import { WeekOverviewMatrix } from "@/components/WeekOverviewMatrix";
 import {
   EarningsCardItem,
   EarningsCardSkeleton,
@@ -809,7 +810,13 @@ export default function DashboardPage() {
         />
       ) : !focusSymbol &&
         (windowKey === "week" || windowKey === "last_week") ? (
-        <WeekDayCalendar cards={sortedCards} />
+        <>
+          <WeekOverviewMatrix
+            cards={sortedCards}
+            windowKey={windowKey}
+          />
+          <WeekDayCalendar cards={sortedCards} />
+        </>
       ) : weekGroups ? (
         <div className="space-y-10">
           {weekGroups.map((g) => (

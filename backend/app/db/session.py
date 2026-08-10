@@ -84,6 +84,7 @@ def _ensure_paper_trade_columns() -> None:
 _USER_ADDED_COLUMNS = {
     "password_hash": "VARCHAR(255)",
     "email_verified_at": "TIMESTAMP",
+    "wave_alerts": "BOOLEAN DEFAULT TRUE",
 }
 
 

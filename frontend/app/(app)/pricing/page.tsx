@@ -251,6 +251,10 @@ function PricingInner() {
             waves into every upcoming report, with history and sample size
           </li>
           <li>
+            <span className="text-white font-medium">Wave alerts</span> - an email
+            when a new wave forms, so you catch the setup without watching the board
+          </li>
+          <li>
             <span className="text-white font-medium">Drift board</span> - live
             post-earnings continuation setups with history and stops
           </li>

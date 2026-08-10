@@ -211,6 +211,22 @@ export interface WaveSignal {
   win_rate_ci_low?: number | null;
 }
 
+export interface WaveWatchItem {
+  target: string;
+  target_name: string | null;
+  target_report_date: string | null;
+  peer_count: number;
+  ripped_count: number;
+  peers: { ticker: string; move_pct: number | null }[];
+  themes: string[];
+}
+
+export interface WaveWatchResponse {
+  count: number;
+  waves: WaveWatchItem[];
+  updated_at?: string | null;
+}
+
 export interface WavesResponse {
   recent_days: number;
   upcoming_days: number;
@@ -887,6 +903,7 @@ export const api = {
       `/waves?recent_days=${recentDays}&upcoming_days=${upcomingDays}&limit=${limit}`,
       accessToken
     ),
+  waveWatch: () => getJSON<WaveWatchResponse>("/waves/watch"),
   drift: (lookbackDays = 12, limit = 30, accessToken?: string | null) =>
     getJSON<DriftResponse>(
       `/drift?lookback_days=${lookbackDays}&limit=${limit}`,

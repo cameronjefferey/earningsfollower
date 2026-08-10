@@ -135,6 +135,8 @@ def _user_payload(user: User, settings: Settings) -> dict:
         "is_admin": is_admin,
         "email_verified": user.email_verified_at is not None,
         "has_password": bool(user.password_hash),
+        # NULL (pre-migration rows) means the default: alerts on.
+        "wave_alerts": user.wave_alerts is not False,
     }
 
 
@@ -228,8 +230,30 @@ def me(
             "is_admin": is_admin,
             "email_verified": False,
             "has_password": False,
+            "wave_alerts": True,
         }
     return _user_payload(caller.db_user, settings)
+
+
+class PrefsBody(BaseModel):
+    wave_alerts: bool
+
+
+@router.post("/prefs")
+def update_prefs(
+    body: PrefsBody,
+    caller: OptionalAuth,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Update notification preferences for the signed-in user."""
+    if caller is None:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    user = caller.db_user or _ensure_user(db, caller.email.lower())
+    user.wave_alerts = body.wave_alerts
+    db.commit()
+    db.refresh(user)
+    return _user_payload(user, settings)
 
 
 @router.post("/register")

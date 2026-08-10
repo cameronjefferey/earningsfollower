@@ -17,6 +17,10 @@ from app.services.sample_stats import annotate_history
 # Window during which a peer's report can plausibly influence a target's
 # pre-earnings drift (a target reports within ~1 quarter of the peer).
 MAX_GAP_DAYS = 100
+# A peer counts as having "ripped" (MDB/SNOW before the founder's ORCL trade)
+# when its post-report move clears this. Shared by wave watch, alert emails,
+# and the board UI so "ripping" means one thing everywhere.
+RIP_MOVE_PCT = 0.03
 MIN_SAMPLE = 3
 # A single peer printing (e.g. ABBV) used to surface every themed name
 # reporting soon - noisy industry fan-out. Require breadth before a target

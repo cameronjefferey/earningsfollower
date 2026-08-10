@@ -21,6 +21,7 @@ type AccountProfile = {
   subscriptionStatus: string;
   isAdmin: boolean;
   periodEnd: string | null;
+  waveAlerts: boolean;
 };
 
 function formatPeriodEnd(iso: string | null | undefined): string | null {
@@ -52,12 +53,13 @@ export default function AccountPage() {
       try {
         if (opts?.fromStripe) {
           const sync = await postBilling("/billing/sync", session.accessToken);
-          setProfile({
+          setProfile((prev) => ({
             subscribed: Boolean(sync.subscribed),
             subscriptionStatus: sync.subscription_status || "none",
             isAdmin: Boolean(session.isAdmin),
             periodEnd: sync.current_period_end ?? null,
-          });
+            waveAlerts: prev?.waveAlerts ?? true,
+          }));
           await update();
           setNote(
             sync.subscribed
@@ -79,12 +81,14 @@ export default function AccountPage() {
           subscription_status: string;
           is_admin: boolean;
           current_period_end?: string | null;
+          wave_alerts?: boolean;
         };
         setProfile({
           subscribed: Boolean(data.subscribed),
           subscriptionStatus: data.subscription_status || "none",
           isAdmin: Boolean(data.is_admin),
           periodEnd: data.current_period_end ?? null,
+          waveAlerts: data.wave_alerts !== false,
         });
         // If DB still says free, pull from Stripe once - covers webhook misses.
         if (!data.subscribed) {
@@ -94,6 +98,7 @@ export default function AccountPage() {
             subscriptionStatus: sync.subscription_status || "none",
             isAdmin: Boolean(data.is_admin),
             periodEnd: sync.current_period_end ?? null,
+            waveAlerts: data.wave_alerts !== false,
           });
         }
         await update();
@@ -112,6 +117,28 @@ export default function AccountPage() {
     syncedForToken.current = session.accessToken;
     void refreshProfile();
   }, [status, session?.accessToken, refreshProfile]);
+
+  const toggleWaveAlerts = useCallback(
+    async (next: boolean) => {
+      if (!session?.accessToken) return;
+      setProfile((prev) => (prev ? { ...prev, waveAlerts: next } : prev));
+      try {
+        const res = await fetch(`${API_BASE}/auth/prefs`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ wave_alerts: next }),
+        });
+        if (!res.ok) throw new Error(`Could not save (${res.status})`);
+      } catch (e) {
+        setProfile((prev) => (prev ? { ...prev, waveAlerts: !next } : prev));
+        setError(e instanceof Error ? e.message : "Could not save preference");
+      }
+    },
+    [session?.accessToken]
+  );
 
   const openPortal = useCallback(async () => {
     setError(null);
@@ -288,6 +315,28 @@ export default function AccountPage() {
             {refreshing ? "Syncing…" : "Sync from Stripe"}
           </button>
         </div>
+      </Card>
+
+      <Card className="p-6 space-y-3">
+        <div className="text-sm text-[var(--color-muted)]">Email alerts</div>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={profile?.waveAlerts ?? true}
+            onChange={(e) => void toggleWaveAlerts(e.target.checked)}
+            className="mt-1 accent-[var(--color-accent)]"
+          />
+          <span>
+            <span className="block font-medium">Wave alerts</span>
+            <span className="block text-sm text-[var(--color-muted)] mt-0.5">
+              Email me when a new wave forms: peers just reported and a name in
+              the group reports soon.
+              {subscribed
+                ? ""
+                : " Alerts send while Pro is active."}
+            </span>
+          </span>
+        </label>
       </Card>
 
       <Card className="p-6 space-y-3">

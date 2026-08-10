@@ -246,20 +246,33 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
+/** Mirrors backend waves.RIP_MOVE_PCT - a peer "ripped" when it moved this much. */
+const RIP_MOVE_PCT = 0.03;
+
 function TargetGroupCard({ group, blur }: { group: TargetGroup; blur: boolean }) {
   const bullish = (group.avgExpected ?? 0) >= 0;
+  const rippedCount = group.peers.filter(
+    (p) => (p.trigger_move_pct ?? 0) >= RIP_MOVE_PCT
+  ).length;
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <Link
-            href={`/company/${group.target}`}
-            className="text-xl font-bold hover:text-[var(--color-accent)]"
-          >
-            {group.target}
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/company/${group.target}`}
+              className="text-xl font-bold hover:text-[var(--color-accent)]"
+            >
+              {group.target}
+            </Link>
+            {rippedCount >= 2 ? (
+              <span className="inline-flex items-center rounded-full border border-[var(--color-up)]/40 bg-[var(--color-up)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-up)]">
+                Peers ripping
+              </span>
+            ) : null}
+          </div>
           {group.targetName ? (
-            <span className="text-sm text-[var(--color-muted)] ml-2">
+            <span className="text-sm text-[var(--color-muted)]">
               {group.targetName}
             </span>
           ) : null}
@@ -290,6 +303,36 @@ function TargetGroupCard({ group, blur }: { group: TargetGroup; blur: boolean })
             </BlurValue>
           </div>
         </div>
+      </div>
+
+      {/* The wave at a glance: who already printed, who's still waiting. */}
+      <div className="mt-3 flex flex-wrap items-center gap-y-1.5 text-xs">
+        {group.peers.slice(0, 4).map((p) => {
+          const rip = (p.trigger_move_pct ?? 0) >= RIP_MOVE_PCT;
+          return (
+            <span key={p.trigger} className="flex items-center">
+              <span
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium ${
+                  rip
+                    ? "border-[var(--color-up)]/40 bg-[var(--color-up)]/10 text-white"
+                    : "border-[var(--color-edge)] bg-[var(--color-panel-2)] text-[var(--color-muted)]"
+                }`}
+              >
+                {p.trigger}
+                <BlurValue active={blur}>
+                  <span className={moveClass(p.trigger_move_pct)}>
+                    {signedPct(p.trigger_move_pct)}
+                  </span>
+                </BlurValue>
+                {rip ? <span className="text-[var(--color-up)]">✓</span> : null}
+              </span>
+              <span className="px-1 text-[var(--color-muted)]">→</span>
+            </span>
+          );
+        })}
+        <span className="inline-flex items-center gap-1 rounded-md border border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 px-2 py-1 font-semibold text-[var(--color-accent)]">
+          {group.target} reports {fmtDate(group.targetReportDate)}
+        </span>
       </div>
 
       <div className="mt-4 overflow-x-auto">

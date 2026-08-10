@@ -5,6 +5,7 @@ import { api, EarningsCard, Theme } from "@/lib/api";
 import { CalendarWelcome } from "@/components/CalendarWelcome";
 import { TrackCalendarView } from "@/components/TrackCalendarView";
 import { DigestStrip } from "@/components/DigestStrip";
+import { WaveWatch } from "@/components/WaveWatch";
 import {
   EarningsCardItem,
   EarningsCardSkeleton,
@@ -440,6 +441,7 @@ export default function DashboardPage() {
       <CalendarWelcome />
 
       <DigestStrip />
+      <WaveWatch />
 
       <div className="mb-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">

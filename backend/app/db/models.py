@@ -440,6 +440,8 @@ class User(Base):
     # none | active | trialing | past_due | canceled | unpaid | incomplete | ...
     subscription_status: Mapped[str] = mapped_column(String(32), default="none", index=True)
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime)
+    # Email me when a new wave forms (Pro). Default on; account page can opt out.
+    wave_alerts: Mapped[bool | None] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

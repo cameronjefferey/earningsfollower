@@ -56,6 +56,8 @@ services:
         sync: false
       - key: PUBLIC_APP_URL
         value: https://www.earningsfollower.com
+      - key: API_PUBLIC_URL
+        value: https://api.earningsfollower.com
       - key: CORS_ORIGINS
         value: https://earningsfollower.com,https://www.earningsfollower.com
       - key: RESEND_API_KEY
@@ -86,6 +88,24 @@ services:
           property: connectionString
       - key: FMP_API_KEY
         sync: false # set in the dashboard
+      # The refresh sends the post-refresh notifications: Telegram setup alerts
+      # and wave alert emails to Pro users, so it needs the same channels.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: AUTH_SECRET
+        sync: false # signs one-click unsubscribe links in wave alert emails
+      - key: AUTH_BYPASS_EMAILS
+        sync: false # bypass accounts count as Pro for wave alert emails
+      - key: PUBLIC_APP_URL
+        value: https://www.earningsfollower.com
+      - key: API_PUBLIC_URL
+        value: https://api.earningsfollower.com
 
   # Autonomous paper earnings trader (places & manages Alpaca paper trades)
   - type: cron

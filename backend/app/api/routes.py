@@ -157,6 +157,82 @@ def get_company(
     return {**detail, "preview": False}
 
 
+@router.get("/waves/watch", tags=["waves"])
+def get_wave_watch(db: Session = Depends(get_db)) -> dict:
+    """Public teaser: which waves are forming right now, without the Pro stats.
+
+    Free surfaces (calendar strip, /start) show real targets, report dates, and
+    which peers already reported/ripped. Expected run-up, win rates, and history
+    stay on the Pro board.
+    """
+    cached = response_cache.get("waves:watch")
+    if cached is not None:
+        return cached
+
+    recent, upcoming = board_snapshots.DEFAULT_WAVES
+    snap = board_snapshots.get_snapshot(db, "waves", f"{recent}:{upcoming}")
+    from app.services.wave_alerts import summarize_wave_targets
+
+    items = []
+    for w in summarize_wave_targets(snap)[:6]:
+        items.append(
+            {
+                "target": w["target"],
+                "target_name": w["target_name"],
+                "target_report_date": w["target_report_date"],
+                "peer_count": w["peer_count"],
+                "ripped_count": w["ripped_count"],
+                "peers": [
+                    {"ticker": p["ticker"], "move_pct": p["move_pct"]}
+                    for p in w["peers"][:4]
+                ],
+                "themes": w["themes"][:2],
+            }
+        )
+    payload = {
+        "count": len(items),
+        "waves": items,
+        "updated_at": (snap or {}).get("updated_at"),
+    }
+    response_cache.set("waves:watch", payload)
+    return payload
+
+
+@router.get("/waves/alerts/unsubscribe", tags=["waves"])
+def wave_alerts_unsubscribe(
+    email: str = Query(..., max_length=320),
+    sig: str = Query(..., max_length=128),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """One-click unsubscribe target for wave alert emails (signed link)."""
+    import hmac as _hmac
+
+    from fastapi.responses import HTMLResponse
+
+    from app.db.models import User
+    from app.services.wave_alerts import unsubscribe_sig
+
+    email = email.strip().lower()
+    if not settings.auth_secret or not _hmac.compare_digest(
+        unsubscribe_sig(email, settings.auth_secret), sig
+    ):
+        raise HTTPException(status_code=403, detail="Invalid unsubscribe link")
+    user = db.scalars(select(User).where(User.email == email)).first()
+    if user is not None:
+        user.wave_alerts = False
+        db.commit()
+    base = (settings.public_app_url or "").rstrip("/") or "https://www.earningsfollower.com"
+    return HTMLResponse(
+        "<html><body style='font-family:system-ui;max-width:480px;margin:80px auto;"
+        "text-align:center;color:#333'>"
+        "<h2>Wave alerts are off</h2>"
+        f"<p>{email} won't get wave alert emails anymore.</p>"
+        f"<p>Changed your mind? Turn them back on in <a href='{base}/account'>your account</a>.</p>"
+        "</body></html>"
+    )
+
+
 @router.get("/waves", tags=["waves"])
 def get_waves(
     access: PaidAccess,

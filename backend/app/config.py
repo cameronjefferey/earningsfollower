@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # Public site origin used to build Checkout success/cancel URLs when the
     # client doesn't pass them (e.g. https://earningsfollower-web.onrender.com).
     public_app_url: str = "http://localhost:3000"
+    # This API's own public origin (e.g. https://api.earningsfollower.com), used
+    # for links that must hit the API directly such as one-click email
+    # unsubscribe. Empty = fall back to the account page for pref changes.
+    api_public_url: str = ""
 
     # --- Transactional email (Resend) -----------------------------------------
     # Used for magic-link login, email verification, password reset, and contact.
@@ -94,6 +98,11 @@ class Settings(BaseSettings):
     # Ping on signup-funnel events: auth failures, checkout/webhook failures,
     # and successful new paid subscriptions (same Telegram chat).
     telegram_notify_signup: bool = True
+
+    # --- Wave alert emails (Pro) ----------------------------------------------
+    # After the daily refresh, email subscribers when new wave targets appear on
+    # the board (peers reported; a themed name reports soon). Requires Resend.
+    email_wave_alerts: bool = True
 
     # --- Calendar-driven universe --------------------------------------------
     # Beyond the curated themes, screen the whole market: each refresh pulls the

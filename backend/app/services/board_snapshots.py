@@ -122,6 +122,15 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - alerts must never break refresh
         logger.warning("Setup alerts failed: %s", exc)
 
+    try:
+        from app.services.wave_alerts import send_wave_alert_emails
+
+        send_wave_alert_emails(
+            db, prev_waves=prev_waves, new_waves=wave_payload
+        )
+    except Exception as exc:  # noqa: BLE001 - alerts must never break refresh
+        logger.warning("Wave alert emails failed: %s", exc)
+
     return {
         "waves": len(wave_signals),
         "drift": len(drift_setups),

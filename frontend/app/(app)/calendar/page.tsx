@@ -6,6 +6,7 @@ import { CalendarWelcome } from "@/components/CalendarWelcome";
 import { TrackCalendarView } from "@/components/TrackCalendarView";
 import { DigestStrip } from "@/components/DigestStrip";
 import { WaveWatch } from "@/components/WaveWatch";
+import { WeekDayCalendar } from "@/components/WeekDayCalendar";
 import {
   EarningsCardItem,
   EarningsCardSkeleton,
@@ -83,6 +84,8 @@ const DEFAULT_WINDOW = "upcoming";
 // local/dev doesn't choke rendering hundreds of cards at once.
 const FIRST_BATCH = 18;
 const FULL_BATCH = 60;
+/** Week tabs need the full book so later days aren't truncated. */
+const WEEK_BATCH = 400;
 
 const THEME_PIN_KEY = "ef.calendar.pinnedThemes";
 const DEFAULT_PINNED_THEMES = [
@@ -225,6 +228,8 @@ export default function DashboardPage() {
     }
 
     const gen = ++fetchGen.current;
+    const isWeekTab = windowKey === "week" || windowKey === "last_week";
+    const expandTo = isWeekTab ? WEEK_BATCH : FULL_BATCH;
     setLoading(true);
     setLoadingMore(false);
     setError(null);
@@ -252,15 +257,15 @@ export default function DashboardPage() {
 
         setLoadingMore(true);
         try {
-          const full = await api.earnings(windowKey, undefined, FULL_BATCH);
+          const full = await api.earnings(windowKey, undefined, expandTo);
           if (gen !== fetchGen.current) return;
           setCards(full.cards);
           setHasMore(Boolean(full.has_more));
-          setLoadedLimit(full.limit ?? FULL_BATCH);
+          setLoadedLimit(full.limit ?? expandTo);
           setUpdatedAt(full.updated_at ?? null);
           cacheRef.current[windowKey] = {
             cards: full.cards,
-            limit: full.limit ?? FULL_BATCH,
+            limit: full.limit ?? expandTo,
             hasMore: Boolean(full.has_more),
             updatedAt: full.updated_at ?? null,
           };
@@ -802,6 +807,9 @@ export default function DashboardPage() {
           title="No earnings match these filters."
           hint="Try clearing sector, market cap, conviction, or theme."
         />
+      ) : !focusSymbol &&
+        (windowKey === "week" || windowKey === "last_week") ? (
+        <WeekDayCalendar cards={sortedCards} />
       ) : weekGroups ? (
         <div className="space-y-10">
           {weekGroups.map((g) => (

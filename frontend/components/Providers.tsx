@@ -1,6 +1,7 @@
 "use client";
 
 import { SessionProvider } from "next-auth/react";
+import { PageTracker } from "@/components/PageTracker";
 import { RedditPixel } from "@/components/RedditPixel";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -9,6 +10,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider refetchInterval={0} refetchOnWindowFocus={false}>
       <RedditPixel />
+      <PageTracker />
       {children}
     </SessionProvider>
   );

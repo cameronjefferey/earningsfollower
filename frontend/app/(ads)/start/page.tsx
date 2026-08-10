@@ -7,53 +7,33 @@ import { TrackAdLanding } from "@/components/marketing/TrackAdLanding";
 import { MarketingDataProvider } from "@/components/marketing/MarketingData";
 import { Reveal } from "@/components/marketing/Reveal";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
+import { WeekPulse } from "@/components/marketing/WeekPulse";
 
 export const metadata: Metadata = {
-  title: "Trade earnings on data, not guesses — free calendar",
+  title: "Find the mispriced earnings moves — free calendar",
   description:
-    "What the options market expects from every report this week, next to how the stock actually moved the last eight quarters. Browse free — no account needed.",
+    "The options market names a price for every earnings report. Some of those prices are wrong. See where — free, no account needed.",
   alternates: { canonical: "https://www.earningsfollower.com/start" },
   openGraph: {
-    title: "earningsfollower — trade earnings on data, not guesses",
+    title: "earningsfollower — find the mispriced earnings moves",
     description:
-      "Free earnings calendar with options-implied moves and reaction history. Browse without an account.",
+      "What options price in vs. what actually happens, for every report this week. Free to browse.",
     url: "https://www.earningsfollower.com/start",
   },
 };
 
-const FEATURES = [
+const VALUE = [
   {
-    n: "01",
-    tag: "Free",
-    title: "The priced-in calendar",
-    body: "Every name reporting this week with its options-implied move — the size of the move traders are actually paying for. Scan the field in one screen instead of digging through option chains ticker by ticker.",
+    title: "Find the gap",
+    body: "When options price a ±5% move on a name that averages ±12%, that gap is the trade. The calendar puts both numbers on every card so mispricings jump out instead of hiding in an option chain.",
   },
   {
-    n: "02",
-    tag: "Free",
-    title: "Company reaction pages",
-    body: "Open any name for its earnings history: what was priced in vs. how the stock actually moved, quarter by quarter, with up rate and average move. That's the context for whether this quarter's expected move looks rich or cheap.",
+    title: "Skip the coin flips",
+    body: "Half the edge is knowing when there isn't one. If a name does exactly what options price, quarter after quarter, you pass — and keep your capital for the setups with a real gap.",
   },
   {
-    n: "03",
-    tag: "Pro",
-    title: "Drift & Waves boards",
-    body: "After reports land: post-earnings drift (does a strong report keep going?) and peer waves (a rival just moved — history on whether it transmits). Live boards with sample size attached, so thin history gets called thin.",
-  },
-];
-
-const STEPS = [
-  {
-    title: "Scan the week",
-    body: "The calendar ranks who reports by implied move. A ±9% print on the card means the market is braced for a big one.",
-  },
-  {
-    title: "Open the name",
-    body: "The company page shows the last eight-plus quarters: expected move vs. actual move. You see instantly if this name routinely blows through what options price.",
-  },
-  {
-    title: "Make the call",
-    body: "Now you know what's priced in and how it usually resolves. Trade it, fade it, or skip it — with context instead of a headline.",
+    title: "Three minutes, not three hours",
+    body: "One screen replaces Finviz, a chain-by-chain straddle check, and the spreadsheet where you track how names actually react. Scan the week over coffee, go deep only where it's worth it.",
   },
 ];
 
@@ -65,30 +45,38 @@ export default function AdStartPage() {
         <TrackAdLanding />
       </Suspense>
 
-      {/* Hero: what the product is, in one breath, then proof right below. */}
+      {/* Hero: the payoff, not the product. */}
       <section className="border-b border-[var(--m-line)]">
         <div className="mx-auto max-w-6xl px-4 sm:px-5 pt-10 sm:pt-14 pb-12 sm:pb-16">
           <p className="m-hero-brand m-brand text-[clamp(2.2rem,6vw,3.4rem)] leading-[0.92]">
             earnings<span>follower</span>
           </p>
           <h1 className="m-hero-line mt-5 max-w-2xl text-2xl sm:text-3xl text-white leading-tight font-semibold tracking-tight">
-            Trade earnings on data, not guesses.
+            Some earnings moves are mispriced. Find them before the print.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-xl text-sm sm:text-base text-[var(--m-muted)] leading-relaxed">
-            Every earnings card shows two numbers most traders never check: the move
-            the options market is pricing in, and how the stock actually moved the
-            last eight quarters. Compare them before you touch the trade. Free to
-            browse — no account needed.
+            Before every report, the options market names its price for the move.
+            History says how that name actually behaves. When those two disagree,
+            you have a trade — and that comparison is on every card, free.
           </p>
 
           <div className="m-hero-line m-hero-line-3 mt-7">
-            <AdCtas placement="hero" primary="browse" />
+            <AdCtas placement="hero" primary="signup" />
           </div>
 
-          <div className="mt-8 sm:mt-12">
+          <div className="m-hero-line m-hero-line-3 mt-8">
+            <WeekPulse />
+          </div>
+        </div>
+      </section>
+
+      {/* Live proof: the actual board, then a browse CTA. */}
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16">
+          <Reveal>
             <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
               <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">
-                This week, ranked by implied move
+                Live right now: this week, ranked by implied move
               </h2>
               <Link
                 href="/calendar"
@@ -98,47 +86,41 @@ export default function AdStartPage() {
               </Link>
             </div>
             <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-4 sm:mb-6">
-              Real data, live now. Click any card for that company&apos;s full earnings
-              story.
+              Not a screenshot — this is the real board. Every card opens that
+              company&apos;s full earnings story: what was priced, what happened.
             </p>
+          </Reveal>
+          <Reveal delayMs={40}>
             <div className="m-board-frame m-ad-priced">
               <WeekHeat limit={6} />
             </div>
-          </div>
+          </Reveal>
+          <Reveal delayMs={80}>
+            <div className="mt-6">
+              <AdCtas placement="board" primary="browse" />
+            </div>
+          </Reveal>
         </div>
       </section>
 
-      {/* What you actually get — the product, explained. */}
+      {/* The value: what you walk away with each week. */}
       <section className="border-b border-[var(--m-line)]">
         <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16">
           <Reveal>
             <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-xl">
-              The data behind every earnings trade
+              What this is worth to you
             </h2>
             <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
-              No buy lists, no secret EPS calls. Three tools that replace gut feel
-              with what the market is pricing and what history says about it.
+              Not another feed to check — an edge you take into every earnings week.
             </p>
           </Reveal>
           <div className="mt-8 sm:mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
-            {FEATURES.map((f, i) => (
-              <Reveal key={f.title} delayMs={i * 50}>
+            {VALUE.map((v, i) => (
+              <Reveal key={v.title} delayMs={i * 50}>
                 <div className="m-step h-full">
-                  <div className="flex items-center justify-between">
-                    <div className="m-step-n tabular">{f.n}</div>
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                        f.tag === "Free"
-                          ? "bg-[var(--m-accent)]/15 text-[var(--m-accent)]"
-                          : "bg-white/10 text-white/80"
-                      }`}
-                    >
-                      {f.tag}
-                    </span>
-                  </div>
-                  <h3 className="mt-4 text-lg font-semibold text-white">{f.title}</h3>
+                  <h3 className="text-lg font-semibold text-white">{v.title}</h3>
                   <p className="mt-2 text-sm text-[var(--m-muted)] leading-relaxed">
-                    {f.body}
+                    {v.body}
                   </p>
                 </div>
               </Reveal>
@@ -146,44 +128,46 @@ export default function AdStartPage() {
           </div>
           <Reveal delayMs={120}>
             <div className="mt-8 sm:mt-10">
-              <AdCtas placement="features" primary="signup" />
+              <AdCtas placement="value" primary="signup" />
               <p className="mt-3 text-xs text-[var(--m-muted)]">
                 Free account = unlimited company pages and live prices. No card
-                required.
+                required, cancel nothing — it&apos;s free.
               </p>
             </div>
           </Reveal>
         </div>
       </section>
 
-      {/* How a trader actually uses it — concrete, not feature-speak. */}
+      {/* Objection handling: who this is for, in one honest breath. */}
       <section className="border-b border-[var(--m-line)]">
-        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16">
-          <Reveal>
-            <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-xl">
-              Guessing vs. checking
-            </h2>
-            <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
-              Most people trade earnings on a headline and a hunch. This is the
-              three-minute version of doing it with data.
-            </p>
-          </Reveal>
-          <div className="mt-8 grid sm:grid-cols-3 gap-6">
-            {STEPS.map((s, i) => (
-              <Reveal key={s.title} delayMs={i * 50}>
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16 grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+          <div className="md:col-span-7">
+            <Reveal>
+              <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-lg">
+                No picks. No gurus. Just the two numbers that matter.
+              </h2>
+              <p className="mt-4 text-[var(--m-muted)] leading-relaxed max-w-md text-sm sm:text-base">
+                We won&apos;t tell you what to buy, and we don&apos;t pretend to know
+                the EPS. We show what the market is pricing and what history says
+                about it — the homework you&apos;d do yourself if you had the time.
+                The trade stays yours.
+              </p>
+            </Reveal>
+          </div>
+          <div className="md:col-span-5">
+            <Reveal delayMs={80}>
+              <div className="m-stat-row">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--m-accent)] mb-2">
-                    Step {i + 1}
-                  </div>
-                  <h3 className="text-base font-semibold text-white tracking-tight">
-                    {s.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-[var(--m-muted)] leading-relaxed">
-                    {s.body}
-                  </p>
+                  <div className="m-stat-label">Priced in</div>
+                  <div className="m-stat-value">On every card</div>
                 </div>
-              </Reveal>
-            ))}
+                <div className="m-stat-div" />
+                <div>
+                  <div className="m-stat-label">History</div>
+                  <div className="m-stat-value">8+ quarters</div>
+                </div>
+              </div>
+            </Reveal>
           </div>
         </div>
       </section>
@@ -197,12 +181,12 @@ export default function AdStartPage() {
         <div className="relative mx-auto max-w-6xl px-4 sm:px-5 py-14 sm:py-20">
           <Reveal>
             <h2 className="text-3xl sm:text-4xl font-semibold text-white tracking-tight max-w-lg">
-              Your next earnings trade doesn&apos;t have to be a guess.
+              The market already named its price. Go see if it&apos;s wrong.
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
-              See what&apos;s priced in and what history says — free, right now. A
-              free account unlocks unlimited company pages and live prices; Pro adds
-              the live boards when you&apos;re ready.
+              This week&apos;s calendar is live and free. Create a free account for
+              unlimited company pages and live prices — Pro adds the boards when
+              you&apos;re ready.
             </p>
             <div className="mt-8">
               <AdCtas placement="bottom" primary="signup" />

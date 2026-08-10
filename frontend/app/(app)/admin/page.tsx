@@ -6,6 +6,22 @@ import { API_BASE } from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
 import { useAuthReady } from "@/lib/useAuthReady";
 
+type AdminTraffic = {
+  generated_at: string;
+  days: number;
+  by_kind: Record<string, number>;
+  daily: Record<string, Record<string, number>>;
+  unique_sessions: number;
+  sessions_with_pageviews: number;
+  multi_page_sessions: number;
+  avg_pages_per_session: number;
+  top_paths: Array<{ path: string; views: number; sessions: number }>;
+  top_tickers: Array<{ ticker: string; views: number }>;
+  cta_clicks: Array<{ target: string; clicks: number }>;
+  viewers: Record<string, number>;
+  referrers: Array<{ referrer: string; count: number }>;
+};
+
 type AdminOverview = {
   generated_at: string;
   users: {
@@ -52,6 +68,7 @@ function fmtWhen(iso: string | null | undefined): string {
 export default function AdminPage() {
   const { ready, accessToken, isAdmin } = useAuthReady();
   const [data, setData] = useState<AdminOverview | null>(null);
+  const [traffic, setTraffic] = useState<AdminTraffic | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -67,15 +84,20 @@ export default function AdminPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/admin/overview`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          cache: "no-store",
-        });
+        const headers = { Authorization: `Bearer ${accessToken}` };
+        const [res, trafficRes] = await Promise.all([
+          fetch(`${API_BASE}/admin/overview`, { headers, cache: "no-store" }),
+          fetch(`${API_BASE}/admin/traffic?days=7`, { headers, cache: "no-store" }),
+        ]);
         if (!res.ok) {
           throw new Error(`Could not load admin overview (${res.status})`);
         }
         const json = (await res.json()) as AdminOverview;
         if (!cancelled) setData(json);
+        if (trafficRes.ok) {
+          const t = (await trafficRes.json()) as AdminTraffic;
+          if (!cancelled) setTraffic(t);
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Failed to load");
@@ -147,6 +169,156 @@ export default function AdminPage() {
             ))}
           </div>
         </Card>
+      ) : null}
+
+      {traffic ? (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">
+              Traffic — last {traffic.days} days
+            </h2>
+            <p className="text-sm text-[var(--color-muted)] mt-0.5">
+              What visitors are doing on the site (admin sessions excluded).
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Stat
+              label="Sessions"
+              value={String(traffic.unique_sessions)}
+            />
+            <Stat
+              label="Pageviews"
+              value={String(traffic.by_kind.pageview ?? 0)}
+            />
+            <Stat
+              label="Pages / session"
+              value={String(traffic.avg_pages_per_session)}
+            />
+            <Stat
+              label="Multi-page sessions"
+              value={String(traffic.multi_page_sessions)}
+            />
+          </div>
+
+          <Card className="p-5">
+            <div className="text-sm font-medium mb-3">Funnel (7d)</div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {[
+                ["ad_landing", "Ad landings"],
+                ["ad_engage", "Engaged"],
+                ["cta_click", "CTA clicks"],
+                ["calendar_view", "Calendar views"],
+                ["company_view", "Company views"],
+                ["guest_gate", "Gate hits"],
+                ["signup", "Signups"],
+              ].map(([k, label]) => (
+                <span
+                  key={k}
+                  className="rounded-md px-2.5 py-1 bg-[var(--color-panel-2)] border border-[var(--color-edge)]"
+                >
+                  {label}:{" "}
+                  <span className="tabular font-medium text-white">
+                    {traffic.by_kind[k] ?? 0}
+                  </span>
+                </span>
+              ))}
+              {Object.entries(traffic.viewers).map(([v, n]) => (
+                <span
+                  key={v}
+                  className="rounded-md px-2.5 py-1 bg-[var(--color-panel-2)] border border-[var(--color-edge)] text-[var(--color-muted)]"
+                >
+                  {v} views: <span className="tabular">{n}</span>
+                </span>
+              ))}
+            </div>
+          </Card>
+
+          <div className="grid lg:grid-cols-3 gap-6">
+            <Card className="p-5 overflow-hidden lg:col-span-1">
+              <div className="text-sm font-medium mb-3">Top pages</div>
+              <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1 text-sm">
+                {traffic.top_paths.map((p) => (
+                  <div
+                    key={p.path}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate text-[var(--color-muted)]">
+                      {p.path}
+                    </span>
+                    <span className="shrink-0 tabular text-white">
+                      {p.views}
+                      <span className="text-[var(--color-muted)] text-xs">
+                        {" "}
+                        · {p.sessions}s
+                      </span>
+                    </span>
+                  </div>
+                ))}
+                {!traffic.top_paths.length ? (
+                  <p className="text-[var(--color-muted)]">
+                    No pageviews yet — data starts with the next deploy.
+                  </p>
+                ) : null}
+              </div>
+            </Card>
+
+            <Card className="p-5 overflow-hidden lg:col-span-1">
+              <div className="text-sm font-medium mb-3">Top tickers opened</div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {traffic.top_tickers.map((t) => (
+                  <span
+                    key={t.ticker}
+                    className="rounded-md px-2.5 py-1 bg-[var(--color-panel-2)] border border-[var(--color-edge)]"
+                  >
+                    {t.ticker} <span className="tabular text-white">{t.views}</span>
+                  </span>
+                ))}
+                {!traffic.top_tickers.length ? (
+                  <p className="text-sm text-[var(--color-muted)]">
+                    No company views yet.
+                  </p>
+                ) : null}
+              </div>
+            </Card>
+
+            <Card className="p-5 overflow-hidden lg:col-span-1">
+              <div className="text-sm font-medium mb-3">CTA clicks by placement</div>
+              <div className="space-y-1.5 text-sm">
+                {traffic.cta_clicks.map((c) => (
+                  <div
+                    key={c.target}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate text-[var(--color-muted)]">
+                      {c.target.replace(/_/g, " ")}
+                    </span>
+                    <span className="shrink-0 tabular text-white">{c.clicks}</span>
+                  </div>
+                ))}
+                {!traffic.cta_clicks.length ? (
+                  <p className="text-[var(--color-muted)]">No CTA clicks yet.</p>
+                ) : null}
+              </div>
+              {traffic.referrers.length ? (
+                <>
+                  <div className="text-sm font-medium mt-5 mb-2">Referrers</div>
+                  <div className="space-y-1 text-xs text-[var(--color-muted)]">
+                    {traffic.referrers.map((r) => (
+                      <div
+                        key={r.referrer}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">{r.referrer}</span>
+                        <span className="shrink-0 tabular text-white">{r.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </Card>
+          </div>
+        </div>
       ) : null}
 
       <div className="grid lg:grid-cols-2 gap-6">

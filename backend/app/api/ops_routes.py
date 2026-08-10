@@ -30,6 +30,8 @@ TrafficKind = Literal[
     "company_view",
     "guest_gate",
     "signup",
+    # Site-wide behavior: every route change (non-admin visitors).
+    "pageview",
 ]
 
 
@@ -44,6 +46,11 @@ class TrafficBody(BaseModel):
     path: str | None = Field(default=None, max_length=256)
     # What was clicked / viewed (CTA name, ticker, auth method).
     target: str | None = Field(default=None, max_length=64)
+    # Anonymous per-browser-session id so events can be stitched into journeys.
+    sid: str | None = Field(default=None, max_length=64)
+    referrer: str | None = Field(default=None, max_length=512)
+    # "guest" | "member" | "pro" — coarse auth state at event time.
+    viewer: str | None = Field(default=None, max_length=16)
     rdt_cid: str | None = Field(default=None, max_length=128)
     utm_source: str | None = Field(default=None, max_length=64)
     utm_medium: str | None = Field(default=None, max_length=64)
@@ -175,6 +182,9 @@ def post_ops_traffic(
     meta: dict[str, Any] = {
         "path": body.path,
         "target": body.target,
+        "sid": body.sid,
+        "referrer": body.referrer,
+        "viewer": body.viewer,
         "rdt_cid": body.rdt_cid,
         "utm_source": body.utm_source,
         "utm_medium": body.utm_medium,
@@ -228,6 +238,9 @@ def _traffic_message(
         ms = body.engaged_ms if body.engaged_ms is not None else "?"
         cid = body.rdt_cid or "—"
         return f"Ad engage {ms}ms · rdt_cid={cid} · {body.utm_campaign or body.utm_source or '—'}"
+    if body.kind == "pageview":
+        who = body.viewer or "guest"
+        return f"Pageview {body.path or '—'} · {who} · sid={body.sid or '—'}"
     cid = body.rdt_cid or "—"
     camp = body.utm_campaign or "—"
     src = body.utm_source or "—"

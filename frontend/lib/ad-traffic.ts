@@ -10,12 +10,16 @@ export type TrafficKind =
   | "calendar_view"
   | "company_view"
   | "guest_gate"
-  | "signup";
+  | "signup"
+  | "pageview";
 
 export type TrafficPayload = {
   kind: TrafficKind;
   path?: string;
   target?: string;
+  sid?: string;
+  referrer?: string;
+  viewer?: string;
   rdt_cid?: string;
   utm_source?: string;
   utm_medium?: string;
@@ -25,6 +29,20 @@ export type TrafficPayload = {
   auth_cause?: string;
   message?: string;
 };
+
+/** Anonymous per-browser-session id so backend events stitch into journeys. */
+export function getSessionId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const existing = sessionStorage.getItem("ef_sid");
+    if (existing) return existing;
+    const sid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    sessionStorage.setItem("ef_sid", sid);
+    return sid;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Log one step of the visitor funnel (CTA click, calendar/company view, gate,
@@ -78,6 +96,7 @@ export function reportSignupOnce(email: string | undefined, method: string): voi
 export function reportTraffic(payload: TrafficPayload): void {
   if (typeof window === "undefined") return;
   try {
+    if (!payload.sid) payload.sid = getSessionId();
     const body = JSON.stringify(payload);
     // prefer sendBeacon so unloads still flush engage events
     if (navigator.sendBeacon) {

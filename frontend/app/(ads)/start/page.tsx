@@ -163,10 +163,10 @@ export default function AdStartPage() {
               </p>
               <p className="mt-3 text-[var(--m-muted)] leading-relaxed max-w-lg text-sm sm:text-base">
                 That&apos;s not theory. The founder watched MDB and SNOW rip, rode
-                the wave into Oracle&apos;s report, and turned $50k into $125k.
-                This site exists to find that same setup systematically, every
-                earnings season. The Pro Waves board tracks every group: who
-                reported, who ripped, and who&apos;s still waiting.
+                the wave into Oracle&apos;s report, and made +150%. This site
+                exists to find that same setup systematically, every earnings
+                season. The Pro Waves board tracks every group: who reported, who
+                ripped, and who&apos;s still waiting.
               </p>
               <p className="mt-3 text-xs text-[var(--m-muted)] leading-relaxed max-w-lg">
                 One trade, not a promise. Every wave on the board carries its
@@ -211,7 +211,7 @@ export default function AdStartPage() {
                 <div className="pt-2 text-center text-sm text-[var(--m-muted)]">
                   The trade behind this site:{" "}
                   <span className="font-semibold text-white tabular">
-                    $50k → $125k
+                    +150%
                   </span>
                 </div>
               </div>

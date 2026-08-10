@@ -176,8 +176,8 @@ export default function MarketingHomePage() {
             <Reveal delayMs={80}>
               <div className="rounded-lg border border-[var(--m-accent)]/30 bg-[var(--m-accent)]/5 p-4 text-sm text-[var(--m-muted)] leading-relaxed">
                 Waves are why this site exists. The founder watched MDB and SNOW
-                rip, rode the wave into Oracle&apos;s report, and turned{" "}
-                <span className="text-white font-medium tabular">$50k into $125k</span>.
+                rip, rode the wave into Oracle&apos;s report, and made{" "}
+                <span className="text-white font-medium tabular">+150%</span>.
                 One trade, not a promise - but it&apos;s the setup the Waves board
                 hunts every season.
               </div>

@@ -48,8 +48,8 @@ export default function HowItWorksPage() {
           </p>
           <p className="mt-3">
             The founder watched MDB and SNOW rip, rode the wave into Oracle&apos;s
-            report, and turned $50k into $125k. The Waves board exists to find that
-            setup systematically: every group, who reported, who ripped, and who&apos;s
+            report, and made +150%. The Waves board exists to find that setup
+            systematically: every group, who reported, who ripped, and who&apos;s
             still waiting. One trade, not a promise - every wave carries its history
             and sample size.
           </p>

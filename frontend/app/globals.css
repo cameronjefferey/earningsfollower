@@ -479,6 +479,48 @@ body {
   color: rgba(255, 255, 255, 0.88);
 }
 
+/* Implied-vs-history comparison: two equal numbers with a "vs" pivot. */
+.m-priced-compare {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.m-priced-vs {
+  padding-bottom: 0.3rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* One-line "so what" under the numbers. */
+.m-priced-verdict {
+  font-size: 0.8rem;
+  font-weight: 550;
+  line-height: 1.35;
+  padding-left: 0.6rem;
+  border-left: 2px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.m-priced-verdict-hot {
+  border-left-color: var(--m-warm);
+  color: var(--m-warm);
+}
+
+.m-priced-verdict-cool {
+  border-left-color: var(--m-accent);
+  color: var(--m-accent);
+}
+
+.m-priced-verdict-flat {
+  border-left-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .m-priced-foot {
   display: flex;
   align-items: center;

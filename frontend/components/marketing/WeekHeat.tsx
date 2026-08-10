@@ -29,6 +29,22 @@ function dedupeByTicker(cards: EarningsCard[]): EarningsCard[] {
   return [...best.values()];
 }
 
+/** The "so what": how this quarter's priced move compares to the name's history. */
+function verdict(
+  implied: number | null | undefined,
+  avg: number | null | undefined
+): { text: string; tone: "hot" | "cool" | "flat" } | null {
+  if (implied == null || avg == null || Math.abs(avg) < 0.001) return null;
+  const ratio = Math.abs(implied) / Math.abs(avg);
+  if (ratio >= 1.25) {
+    return { text: "Market expects a bigger move than usual", tone: "hot" };
+  }
+  if (ratio <= 0.8) {
+    return { text: "Priced below its usual earnings swing", tone: "cool" };
+  }
+  return { text: "Priced about in line with its history", tone: "flat" };
+}
+
 /** Ambient mini tiles for hero / CTA backdrop only. Never shows text states. */
 function AmbientHeat({ cards }: { cards: EarningsCard[] }) {
   return (
@@ -120,6 +136,7 @@ export function WeekHeat({
         const avg = c.avg_abs_move_pct;
         const theme = c.themes[0];
         const when = timingLabel(c.timing);
+        const v = verdict(implied, avg);
         return (
           <Link
             key={`${c.ticker}-${c.date}`}
@@ -139,23 +156,42 @@ export function WeekHeat({
               </div>
             </div>
 
-            <div className="m-priced-metrics">
-              <div>
-                <div className="m-priced-label">
-                  {implied != null ? "Implied" : "Avg move"}
+            {implied != null && avg != null ? (
+              <div className="m-priced-compare">
+                <div>
+                  <div className="m-priced-label">Market expects</div>
+                  <div className="m-priced-move tabular">±{pct(Math.abs(implied))}</div>
                 </div>
-                <div className="m-priced-move tabular">{pct(implied ?? avg)}</div>
+                <div className="m-priced-vs">vs</div>
+                <div className="text-right">
+                  <div className="m-priced-label">Usually moves</div>
+                  <div className="m-priced-move tabular">±{pct(Math.abs(avg))}</div>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="m-priced-label">Hist. avg</div>
-                <div className="m-priced-side tabular">{pct(avg)}</div>
-                <div className="m-priced-label mt-2">Up rate</div>
-                <div className="m-priced-side tabular">{pct(c.up_rate, 0)}</div>
+            ) : (
+              <div className="m-priced-compare">
+                <div>
+                  <div className="m-priced-label">
+                    {implied != null ? "Market expects" : "Usually moves"}
+                  </div>
+                  <div className="m-priced-move tabular">
+                    ±{pct(Math.abs((implied ?? avg) ?? 0))}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {v ? (
+              <div className={`m-priced-verdict m-priced-verdict-${v.tone}`}>
+                {v.text}
+              </div>
+            ) : null}
 
             <div className="m-priced-foot">
               <span className="tabular">{marketCap(c.market_cap)}</span>
+              <span className="tabular">
+                {c.up_rate != null ? `Up ${pct(c.up_rate, 0)} of qtrs` : null}
+              </span>
               {theme ? <span className="m-priced-theme">{theme.label}</span> : null}
             </div>
           </Link>

@@ -16,21 +16,22 @@ function boardsHref(focus: RankedSetup | null, isPreview: boolean): string {
   return "/boards?tab=waves";
 }
 
-/** One-line Today lead on Calendar - stays out of the way of the card grid. */
+/** Pro-only Today lead on Calendar. Guests already get real waves via WaveWatch;
+ * a demo ORCL strip with "See Pro" is just noise. */
 export function DigestStrip() {
   const { ready, accessToken, subscribed } = useAuthReady();
   const [focus, setFocus] = useState<RankedSetup | null>(null);
   const [changeLine, setChangeLine] = useState<string | null>(null);
-  const [isPreview, setIsPreview] = useState(false);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !subscribed) return;
     let cancelled = false;
     Promise.all([api.rankedSetups(1, accessToken), api.digestToday(accessToken)])
       .then(([r, d]) => {
         if (cancelled) return;
+        // Never show the demo board here - WaveWatch covers the free case.
+        if (r.preview) return;
         setFocus(r.focus ?? r.setups?.[0] ?? null);
-        setIsPreview(Boolean(r.preview) || !subscribed);
         const bullet = d.bullets?.find((b) => b.kind !== "none") ?? d.bullets?.[0];
         setChangeLine(bullet?.text ?? null);
       })
@@ -42,21 +43,17 @@ export function DigestStrip() {
     };
   }, [ready, accessToken, subscribed]);
 
+  if (!subscribed) return null;
   if (!focus && !changeLine) return null;
 
-  const href = boardsHref(focus, isPreview);
-  const cta = isPreview
-    ? "See Pro →"
-    : focus?.kind === "wave"
-      ? "Waves →"
-      : focus
-        ? "Drift →"
-        : "Boards →";
+  const href = boardsHref(focus, false);
+  const cta =
+    focus?.kind === "wave" ? "Waves →" : focus ? "Drift →" : "Boards →";
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-accent)]">
-        {isPreview ? "Sample" : "Today"}
+        Today
       </span>
       {focus ? (
         <p className="min-w-0 flex-1 truncate text-[var(--color-muted)]">
@@ -65,7 +62,7 @@ export function DigestStrip() {
           {focus.edge_pct != null ? (
             <span> ({signedPct(focus.edge_pct, 1)})</span>
           ) : null}
-          {!isPreview && changeLine ? (
+          {changeLine ? (
             <span className="hidden sm:inline"> · {changeLine}</span>
           ) : null}
         </p>

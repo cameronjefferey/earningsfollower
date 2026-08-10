@@ -10,12 +10,12 @@ import { WeekHeat } from "@/components/marketing/WeekHeat";
 import { WeekPulse } from "@/components/marketing/WeekPulse";
 
 export const metadata: Metadata = {
-  title: "Find the mispriced earnings moves | free calendar",
+  title: "The market already named its price. Go see if it's wrong.",
   description:
     "The options market names a price for every earnings report. Some of those prices are wrong. See where, free, with no account needed.",
   alternates: { canonical: "https://www.earningsfollower.com/start" },
   openGraph: {
-    title: "earningsfollower: find the mispriced earnings moves",
+    title: "The market already named its price. Go see if it's wrong.",
     description:
       "What options price in vs. what actually happens, for every report this week. Free to browse.",
     url: "https://www.earningsfollower.com/start",
@@ -51,18 +51,22 @@ export default function AdStartPage() {
           <p className="m-hero-brand m-brand text-[clamp(2.2rem,6vw,3.4rem)] leading-[0.92]">
             earnings<span>follower</span>
           </p>
-          <h1 className="m-hero-line mt-5 max-w-2xl text-2xl sm:text-3xl text-white leading-tight font-semibold tracking-tight">
-            Some earnings moves are mispriced. Find them before the print.
+          <h1 className="m-hero-line mt-5 max-w-2xl text-3xl sm:text-4xl text-white leading-tight font-semibold tracking-tight">
+            The market already named its price. Go see if it&apos;s wrong.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-xl text-sm sm:text-base text-[var(--m-muted)] leading-relaxed">
-            Before every report, the options market names its price for the move.
-            History says how that name actually behaves. When those two disagree,
-            you have a trade. That comparison is on every card, free.
+            This week&apos;s calendar is live and free. Create a free account for
+            unlimited company pages and live prices. Pro adds the boards when
+            you&apos;re ready.
           </p>
 
           <div className="m-hero-line m-hero-line-3 mt-7">
             <AdCtas placement="hero" primary="signup" />
           </div>
+
+          <p className="m-hero-line m-hero-line-3 mt-6 text-[11px] uppercase tracking-[0.14em] text-[var(--m-muted)]">
+            $0 to start · no card required · not financial advice
+          </p>
 
           <div className="m-hero-line m-hero-line-3 mt-8">
             <WeekPulse />
@@ -181,12 +185,12 @@ export default function AdStartPage() {
         <div className="relative mx-auto max-w-6xl px-4 sm:px-5 py-14 sm:py-20">
           <Reveal>
             <h2 className="text-3xl sm:text-4xl font-semibold text-white tracking-tight max-w-lg">
-              The market already named its price. Go see if it&apos;s wrong.
+              Some earnings moves are mispriced. Find them before the print.
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
-              This week&apos;s calendar is live and free. Create a free account for
-              unlimited company pages and live prices. Pro adds the boards when
-              you&apos;re ready.
+              Before every report, the options market names its price for the move.
+              History says how that name actually behaves. When those two disagree,
+              you have a trade. That comparison is on every card, free.
             </p>
             <div className="mt-8">
               <AdCtas placement="bottom" primary="signup" />

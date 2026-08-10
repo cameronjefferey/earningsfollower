@@ -125,6 +125,10 @@ export function WeekDayCalendar({ cards }: { cards: EarningsCard[] }) {
   );
 }
 
+/** Shared column template so headers and rows stay lined up. */
+const ROW_GRID =
+  "grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem_4.5rem_3.75rem] sm:grid-cols-[5rem_minmax(0,1fr)_5rem_5rem_4.25rem_6.5rem] gap-x-3 items-center";
+
 function TimingSection({
   label,
   cards,
@@ -139,6 +143,16 @@ function TimingSection({
         {label}
         <span className="ml-1.5 font-normal tabular">{cards.length}</span>
       </div>
+      <div
+        className={`${ROW_GRID} px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]`}
+      >
+        <span>Ticker</span>
+        <span>Name</span>
+        <span className="text-right">Implied</span>
+        <span className="text-right">Avg</span>
+        <span className="text-right">Cap</span>
+        <span className="hidden sm:block">Theme</span>
+      </div>
       <ul className="divide-y divide-[var(--color-edge)]/60">
         {cards.map((c) => (
           <CompanyRow key={`${c.ticker}-${c.date}`} card={c} />
@@ -148,9 +162,12 @@ function TimingSection({
   );
 }
 
+function moveCell(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  return `±${pct(Math.abs(value))}`;
+}
+
 function CompanyRow({ card }: { card: EarningsCard }) {
-  const move = card.implied_move_pct ?? card.avg_abs_move_pct;
-  const moveLabel = card.implied_move_pct != null ? "Implied" : "Avg";
   const theme = card.themes[0];
   const when = timingLabel(card.timing);
 
@@ -158,22 +175,24 @@ function CompanyRow({ card }: { card: EarningsCard }) {
     <li>
       <Link
         href={`/company/${card.ticker}`}
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2.5 rounded-lg hover:bg-[var(--color-panel-2)] transition-colors"
+        className={`${ROW_GRID} px-2 py-2.5 rounded-lg hover:bg-[var(--color-panel-2)] transition-colors`}
       >
-        <span className="min-w-[4.5rem] font-semibold text-white">
-          {card.ticker}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-muted)]">
+        <span className="font-semibold text-white truncate">{card.ticker}</span>
+        <span className="min-w-0 truncate text-sm text-[var(--color-muted)]">
           {card.name ?? card.sector ?? when ?? ""}
         </span>
-        <span className="text-sm tabular text-white">
-          <span className="text-[var(--color-muted)] text-xs mr-1">{moveLabel}</span>
-          ±{pct(move != null ? Math.abs(move) : null)}
+        <span className="text-sm tabular text-white text-right">
+          {moveCell(card.implied_move_pct)}
         </span>
-        <span className="text-xs text-[var(--color-muted)] tabular w-14 text-right">
+        <span className="text-sm tabular text-[var(--color-muted)] text-right">
+          {moveCell(card.avg_abs_move_pct)}
+        </span>
+        <span className="text-xs text-[var(--color-muted)] tabular text-right">
           {marketCap(card.market_cap)}
         </span>
-        {theme ? <ThemePill theme={theme} /> : null}
+        <span className="hidden sm:flex justify-end min-w-0">
+          {theme ? <ThemePill theme={theme} /> : null}
+        </span>
       </Link>
     </li>
   );

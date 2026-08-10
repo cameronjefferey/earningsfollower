@@ -3,26 +3,26 @@
 The signal-attribution report (``attribution.py``) grades *closed trades* on their
 realized P&L. That conflates three very different things into one number:
 
-  1. **Signal quality** — was the directional lean right at all?
-  2. **Entry timing** — did we get in before the move, or chase it late?
-  3. **Exit timing** — of the move that was actually there, how much did we keep?
+  1. **Signal quality** - was the directional lean right at all?
+  2. **Entry timing** - did we get in before the move, or chase it late?
+  3. **Exit timing** - of the move that was actually there, how much did we keep?
 
 This module decomposes them, so "the trade lost money" can be diagnosed as a bad
 signal vs. a good signal we entered late or exited badly. Nothing here needs new
 data: the decision store already carries direction-adjusted forward moves
-(``fav_move_1d/5d``) for *every* decision — opened and skipped — and the daily
+(``fav_move_1d/5d``) for *every* decision - opened and skipped - and the daily
 ``price_bars`` give an intraday high/low path to measure excursions against.
 
 Sections:
   - **signal_quality**: over ALL decisions (opened + skipped), the underlying's
-    direction-adjusted move at +1d/+5d — i.e. was the lean right, regardless of
+    direction-adjusted move at +1d/+5d - i.e. was the lean right, regardless of
     whether or how we traded it. Grouped overall / by strategy / by conviction,
     plus an opened-vs-skipped split (are we opening the good signals?).
   - **entry_timing**: for opened trades, the lag from decision to fill and how
     much of the favorable move had already happened before we got in (chasing).
   - **exit_capture**: for closed directional trades, the max favorable excursion
     (MFE) and max adverse excursion (MAE) of the underlying while we held, vs.
-    what we still had at exit — a capture ratio that isolates exit timing.
+    what we still had at exit - a capture ratio that isolates exit timing.
   - **signal_weeks**: signal hit-rate / avg +5d move by decision vintage (the week
     the signal fired), so slow-to-close strategies aren't hidden by close-date.
 
@@ -48,7 +48,7 @@ DEFAULT_MIN_SAMPLES = 5
 # read (below it, the equal-weight return is one or two names, i.e. noise).
 _MIN_BREADTH = 5
 
-# Strategies whose objective is to *ride* a directional move — the ones where an
+# Strategies whose objective is to *ride* a directional move - the ones where an
 # underlying capture ratio is a meaningful read of exit timing. Sell-vol earnings
 # trades win on IV crush / staying inside a range, so a directional capture ratio
 # doesn't apply to them; they're covered by adverse excursion instead.
@@ -72,7 +72,7 @@ def _fav(move: float | None, direction: str | None) -> float | None:
 # drift up and a bullish-tilted book inherits that beta for free. So we net out
 # a market baseline: an equal-weight index of EVERY covered name (the universe we
 # actually pick from), rebuilt from the same daily bars. Excess = the signal's
-# direction-adjusted move minus the index's move over the identical window —
+# direction-adjusted move minus the index's move over the identical window -
 # what's left after the market/earnings-season tailwind is removed. Using our own
 # universe (rather than SPY) also strips the earnings-season selection effect and
 # needs no extra data, so it works on the existing record immediately.
@@ -118,7 +118,7 @@ def _market_index(
 
 def _mkt_move(dates: list[date], levels: np.ndarray, ref: date, n: int) -> float | None:
     """Index return over the n trading days strictly after ``ref``, anchored on the
-    last level at/just before ``ref`` — mirroring how a signal's fav_move is taken
+    last level at/just before ``ref`` - mirroring how a signal's fav_move is taken
     from its entry to the n-th bar after."""
     if not dates:
         return None
@@ -262,7 +262,7 @@ def _entry_timing(pairs: list[tuple[TradeDecision, PaperTrade]]) -> dict:
             round(float(np.mean(pre_arr)), 4) if pre_arr is not None else None
         ),
         # Share where the underlying had already moved >2% our way before we
-        # filled — a plausible "chased it" flag.
+        # filled - a plausible "chased it" flag.
         "chased_rate": (
             round(float(np.mean(pre_arr > 0.02)), 3) if pre_arr is not None else None
         ),
@@ -274,7 +274,7 @@ def _entry_timing(pairs: list[tuple[TradeDecision, PaperTrade]]) -> dict:
 
 
 # A trade's thesis only "played out" if the underlying actually moved our way at
-# all — capture on trades that never went favorable measures signal quality, not
+# all - capture on trades that never went favorable measures signal quality, not
 # exit timing. Only trades whose MFE cleared this hurdle count toward the honest
 # capture read (isolating the exit decision).
 _MFE_HURDLE = 0.01
@@ -334,7 +334,7 @@ def _exit_capture(
     available while we held (MFE), how much did we still have at exit?
 
     Reported two ways: over ALL directional exits (contaminated by trades that
-    never worked), and — the honest read of exit *timing* — conditioned on trades
+    never worked), and - the honest read of exit *timing* - conditioned on trades
     whose MFE cleared the hurdle, so the signal actually played out and the only
     question left is whether we harvested it."""
     per: list[dict] = []
@@ -401,8 +401,8 @@ def _exit_capture(
 #
 # Counterfactual: replay each closed directional trade's real daily path under
 # candidate exit rules and measure what each would have captured vs. how we
-# actually exited. This isolates the ONE thing we fully control — when to get out
-# — and quantifies the P&L left on the table. Honest caveats: (1) it's the
+# actually exited. This isolates the ONE thing we fully control - when to get out
+# - and quantifies the P&L left on the table. Honest caveats: (1) it's the
 # underlying's path, an exact read for the equity books but a proxy for option
 # spreads (capped, path-dependent payoff); (2) rule params are chosen on this same
 # sample, so treat the "best" as an in-sample upper bound to confirm walk-forward,
@@ -520,7 +520,7 @@ def _signal_weeks(
 ) -> list[dict]:
     """Signal hit-rate + avg +5d move (raw and excess-of-market) by the week the
     decision fired (vintage), so a strategy that takes weeks to close isn't hidden
-    by close-date bucketing. Non-overlapping weeks — each is an independent cohort,
+    by close-date bucketing. Non-overlapping weeks - each is an independent cohort,
     not a cumulative snapshot."""
     now = datetime.utcnow().date()
     monday = now - timedelta(days=now.weekday())
@@ -590,7 +590,7 @@ def execution_report(
     baseline = None
     if overall and overall.get("avg_excess_move_5d") is not None:
         ci = overall.get("avg_excess_move_5d_ci")
-        # "Edge" only if the excess CI is entirely above zero — otherwise it's
+        # "Edge" only if the excess CI is entirely above zero - otherwise it's
         # indistinguishable from just owning the market.
         beats = bool(ci and ci[0] > 0)
         baseline = {
@@ -603,7 +603,7 @@ def execution_report(
 
     notes = [
         "Signal quality is the underlying's direction-adjusted move after the "
-        "decision — it grades the lean itself, independent of whether or how we "
+        "decision - it grades the lean itself, independent of whether or how we "
         "traded it (skips included). Entry/exit timing then explain how much of "
         "that available move our execution actually kept.",
         "Excess move nets out an equal-weight index of every covered name over the "
@@ -614,7 +614,7 @@ def execution_report(
     if graded_signals < 20:
         notes.insert(
             0,
-            f"Only {graded_signals} decisions have a resolved +5d move so far — "
+            f"Only {graded_signals} decisions have a resolved +5d move so far - "
             "directional, not conclusive. It tightens as more bars print.",
         )
 
@@ -633,7 +633,7 @@ def execution_report(
 
 
 def _print_report(report: dict) -> None:
-    print(f"\nExecution quality — {report['graded_signals']} graded signals\n" + "=" * 60)
+    print(f"\nExecution quality - {report['graded_signals']} graded signals\n" + "=" * 60)
     sq = report["signal_quality"]["overall"]
     if sq:
         print(

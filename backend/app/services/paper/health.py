@@ -19,7 +19,7 @@ from app.services.job_runs import (
 from app.services.notify import send_telegram, telegram_configured
 
 # Paper cron is every 30m in market hours. Alert if we haven't had a healthy
-# run in longer than that with buffer — cron may have been skipped or stuck.
+# run in longer than that with buffer - cron may have been skipped or stuck.
 PAPER_STALE_MINUTES = 90
 # Daily refresh should land every morning; alert if older than ~36h.
 REFRESH_STALE_MINUTES = 36 * 60
@@ -89,7 +89,7 @@ def notify_anomalies(
     skipped_n = len(result.get("skipped") or [])
     if skipped_n:
         lines.append(f"skipped: {skipped_n}")
-        # Surface a few concrete skip reasons — often the real "why empty book".
+        # Surface a few concrete skip reasons - often the real "why empty book".
         reasons: dict[str, int] = {}
         for s in result.get("skipped") or []:
             r = str((s or {}).get("reason") or "unknown")
@@ -112,7 +112,7 @@ def notify_paper_health(result: dict[str, Any], settings: Settings | None = None
     if not anomalies:
         return False
     return notify_anomalies(
-        title="earningsfollower — paper run unhealthy",
+        title="earningsfollower - paper run unhealthy",
         anomalies=anomalies,
         result=result,
         settings=settings,
@@ -123,7 +123,7 @@ def paper_heartbeat_anomalies(db: Session) -> list[str]:
     """Call at the *start* of a live paper run to catch missed prior crons."""
     healthy = latest_healthy_job_run(db, "paper")
     if healthy is None:
-        # First ever run after deploy — not an anomaly yet.
+        # First ever run after deploy - not an anomaly yet.
         prior = latest_job_run(db, "paper")
         if prior is None:
             return []
@@ -138,7 +138,7 @@ def refresh_is_unhealthy(result: dict[str, Any]) -> bool:
         return True
     if result.get("errors"):
         return True
-    # Board snapshots failing is worth knowing — empty Waves/Brief follow.
+    # Board snapshots failing is worth knowing - empty Waves/Brief follow.
     if result.get("boards_error"):
         return True
     return False
@@ -165,7 +165,7 @@ def notify_refresh_health(result: dict[str, Any], settings: Settings | None = No
     if not anomalies:
         return False
     return notify_anomalies(
-        title="earningsfollower — refresh unhealthy",
+        title="earningsfollower - refresh unhealthy",
         anomalies=anomalies,
         result=result,
         settings=settings,

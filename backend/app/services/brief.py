@@ -1,4 +1,4 @@
-"""Morning brief — the paid daily habit.
+"""Morning brief - the paid daily habit.
 
 One focus setup, a short board underneath, what changed, and who prints today.
 Not a directory of other pages.
@@ -16,7 +16,7 @@ from app.services import dashboard, digest as digest_svc, ranked_setups
 
 
 def _board_quality(setups: list[dict]) -> dict[str, Any]:
-    """An honest read on how strong today's board is — not fake P&L.
+    """An honest read on how strong today's board is - not fake P&L.
 
     Breadth (distinct drivers), sample strength (tier mix + median Wilson floor),
     and the best available edge. Lets the brief say 'quiet, thin day' vs 'broad,
@@ -80,7 +80,7 @@ def morning_brief(db: Session, *, preview: bool = False) -> dict[str, Any]:
             c["implied_move_pct"] = None
 
     bullets = list((dig.get("bullets") or []))
-    # Keep the change log short on the brief — this isn't the digest archive.
+    # Keep the change log short on the brief - this isn't the digest archive.
     if preview:
         bullets = bullets[:2]
     else:
@@ -89,7 +89,7 @@ def morning_brief(db: Session, *, preview: bool = False) -> dict[str, Any]:
     note = None
     if preview:
         note = (
-            "Calendar stays free. The ranked lean, conviction, and plan are Pro — "
+            "Calendar stays free. The ranked lean, conviction, and plan are Pro - "
             "preview numbers are sample data, not today's live book."
         )
 

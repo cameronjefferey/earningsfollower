@@ -170,7 +170,7 @@ def get_waves(
     ),
     db: Session = Depends(get_db),
 ) -> dict:
-    # Guests get a static demo board instantly — no live compute, no live book.
+    # Guests get a static demo board instantly - no live compute, no live book.
     if access == "preview":
         payload = demo_waves(recent_days=recent_days, upcoming_days=upcoming_days)
         return {**payload, "limit": limit, "has_more": False}
@@ -305,7 +305,7 @@ def get_track_record(
     access: PaidAccess,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Sanitized paper aggregates — freemium teaser, full detail for Pro."""
+    """Sanitized paper aggregates - freemium teaser, full detail for Pro."""
     return track_record_svc.track_record(db, preview=(access == "preview"))
 
 

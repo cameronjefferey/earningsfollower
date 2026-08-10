@@ -1,6 +1,6 @@
 """Lightweight bot heuristics for ad / auth traffic.
 
-Not a full bot manager — just enough to tag obvious scanners and generic
+Not a full bot manager - just enough to tag obvious scanners and generic
 datacenter probes so Telegram/ops events are actionable.
 """
 
@@ -50,7 +50,7 @@ def is_bot_suspect(score: int) -> bool:
 
 
 def _looks_like_aws_ecs_probe(ip: str) -> bool:
-    """Cheap hint only — not a blocklist. 23.20–23.22 / 52.x / 54.x are common AWS."""
+    """Cheap hint only - not a blocklist. 23.20–23.22 / 52.x / 54.x are common AWS."""
     parts = ip.split(".")
     if len(parts) != 4:
         return False

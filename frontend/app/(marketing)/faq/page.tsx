@@ -15,7 +15,7 @@ const faqs: { q: string; a: string }[] = [
   },
   {
     q: "What’s free vs paid?",
-    a: "The earnings calendar is free with no account. Company pages — full reaction history and implied move context — are free too: a few pages as a guest, unlimited with a free account. Live Drift and Waves boards are Pro. Details on Pricing.",
+    a: "The earnings calendar is free with no account. Company pages - full reaction history and implied move context - are free too: a few pages as a guest, unlimited with a free account. Live Drift and Waves boards are Pro. Details on Pricing.",
   },
   {
     q: "What’s on the boards?",
@@ -31,7 +31,7 @@ const faqs: { q: string; a: string }[] = [
   },
   {
     q: "Peer waves and post-earnings drift?",
-    a: "Peer waves: a related company already reported; we look at how names in that theme have moved into their own reports. Drift: after a report, some stocks historically keep moving for a few sessions — we show that with sample size attached.",
+    a: "Peer waves: a related company already reported; we look at how names in that theme have moved into their own reports. Drift: after a report, some stocks historically keep moving for a few sessions - we show that with sample size attached.",
   },
   {
     q: "How do I cancel?",

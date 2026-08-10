@@ -10,12 +10,12 @@ import { WeekHeat } from "@/components/marketing/WeekHeat";
 import { WeekPulse } from "@/components/marketing/WeekPulse";
 
 export const metadata: Metadata = {
-  title: "Find the mispriced earnings moves — free calendar",
+  title: "Find the mispriced earnings moves | free calendar",
   description:
-    "The options market names a price for every earnings report. Some of those prices are wrong. See where — free, no account needed.",
+    "The options market names a price for every earnings report. Some of those prices are wrong. See where, free, with no account needed.",
   alternates: { canonical: "https://www.earningsfollower.com/start" },
   openGraph: {
-    title: "earningsfollower — find the mispriced earnings moves",
+    title: "earningsfollower: find the mispriced earnings moves",
     description:
       "What options price in vs. what actually happens, for every report this week. Free to browse.",
     url: "https://www.earningsfollower.com/start",
@@ -29,7 +29,7 @@ const VALUE = [
   },
   {
     title: "Skip the coin flips",
-    body: "Half the edge is knowing when there isn't one. If a name does exactly what options price, quarter after quarter, you pass — and keep your capital for the setups with a real gap.",
+    body: "Half the edge is knowing when there isn't one. If a name does exactly what options price, quarter after quarter, you pass and keep your capital for the setups with a real gap.",
   },
   {
     title: "Three minutes, not three hours",
@@ -57,7 +57,7 @@ export default function AdStartPage() {
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-xl text-sm sm:text-base text-[var(--m-muted)] leading-relaxed">
             Before every report, the options market names its price for the move.
             History says how that name actually behaves. When those two disagree,
-            you have a trade — and that comparison is on every card, free.
+            you have a trade. That comparison is on every card, free.
           </p>
 
           <div className="m-hero-line m-hero-line-3 mt-7">
@@ -86,7 +86,7 @@ export default function AdStartPage() {
               </Link>
             </div>
             <p className="max-w-xl text-sm text-[var(--m-muted)] leading-relaxed mb-4 sm:mb-6">
-              Not a screenshot — this is the real board. Every card opens that
+              Not a screenshot. This is the real board, and every card opens that
               company&apos;s full earnings story: what was priced, what happened.
             </p>
           </Reveal>
@@ -111,7 +111,7 @@ export default function AdStartPage() {
               What this is worth to you
             </h2>
             <p className="mt-3 max-w-xl text-sm text-[var(--m-muted)] leading-relaxed">
-              Not another feed to check — an edge you take into every earnings week.
+              Not another feed to check. An edge you take into every earnings week.
             </p>
           </Reveal>
           <div className="mt-8 sm:mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -131,7 +131,7 @@ export default function AdStartPage() {
               <AdCtas placement="value" primary="signup" />
               <p className="mt-3 text-xs text-[var(--m-muted)]">
                 Free account = unlimited company pages and live prices. No card
-                required, cancel nothing — it&apos;s free.
+                required, cancel nothing. It&apos;s free.
               </p>
             </div>
           </Reveal>
@@ -149,7 +149,7 @@ export default function AdStartPage() {
               <p className="mt-4 text-[var(--m-muted)] leading-relaxed max-w-md text-sm sm:text-base">
                 We won&apos;t tell you what to buy, and we don&apos;t pretend to know
                 the EPS. We show what the market is pricing and what history says
-                about it — the homework you&apos;d do yourself if you had the time.
+                about it: the homework you&apos;d do yourself if you had the time.
                 The trade stays yours.
               </p>
             </Reveal>
@@ -185,7 +185,7 @@ export default function AdStartPage() {
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
               This week&apos;s calendar is live and free. Create a free account for
-              unlimited company pages and live prices — Pro adds the boards when
+              unlimited company pages and live prices. Pro adds the boards when
               you&apos;re ready.
             </p>
             <div className="mt-8">

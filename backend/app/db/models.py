@@ -259,8 +259,8 @@ class RedditSignal(Base):
 class TradeDecision(Base):
     """A flat, append-only feature/label store for the paper trader's decisions.
 
-    One row per (strategy, ticker, event) decision the executor makes on a scan —
-    both trades it OPENED and setups it SKIPPED — so we can later learn which
+    One row per (strategy, ticker, event) decision the executor makes on a scan -
+    both trades it OPENED and setups it SKIPPED - so we can later learn which
     signals actually predict winners without survivorship bias (the skips are the
     counterfactuals). Unlike ``PaperTrade.thesis`` (a truncated JSON blob), every
     signal that drove the decision is promoted to a typed column so it can be
@@ -292,7 +292,7 @@ class TradeDecision(Base):
     earnings_date: Mapped[date | None] = mapped_column(Date)
     # "opened" (a trade was placed) or "skipped" (rejected on this scan).
     decision: Mapped[str] = mapped_column(String(16), index=True)
-    # Why it was skipped (None for opened) — the executor's own reason string.
+    # Why it was skipped (None for opened) - the executor's own reason string.
     skip_reason: Mapped[str | None] = mapped_column(String(256))
     # Links an "opened" decision to its PaperTrade (for label sync). Not unique:
     # a ticker can be skipped many times before it ever opens.

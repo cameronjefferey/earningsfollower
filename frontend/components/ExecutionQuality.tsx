@@ -19,18 +19,18 @@ const ACCENT = "#5b8cff";
 const WARN = "#f0a85b";
 
 function pct(v: number | null | undefined, digits = 0): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   return `${(v * 100).toFixed(digits)}%`;
 }
 
 function signed(v: number | null | undefined, digits = 1): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   const s = v > 0 ? "+" : "";
   return `${s}${(v * 100).toFixed(digits)}%`;
 }
 
 function ratio(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   return v.toFixed(2);
 }
 
@@ -89,7 +89,7 @@ function SignalRow({ c }: { c: SignalCohort }) {
         className="py-2 pr-3 tabular-nums font-semibold"
         style={{ color: moveColor(c.avg_excess_move_5d) }}
       >
-        {c.avg_excess_move_5d === null ? "—" : signed(c.avg_excess_move_5d)}
+        {c.avg_excess_move_5d === null ? "-" : signed(c.avg_excess_move_5d)}
       </td>
       <td className="py-2 tabular-nums text-[var(--color-muted)]">
         {signed(c.avg_fav_move_1d)}
@@ -102,7 +102,7 @@ function BaselineBanner({ base }: { base: MarketBaseline | null }) {
   if (!base) return null;
   const ci = base.avg_excess_move_5d_ci;
   const verdict = base.significant
-    ? "Edge — beats the market"
+    ? "Edge - beats the market"
     : base.avg_excess_move_5d > 0
     ? "Tracks the market (not yet distinguishable from beta)"
     : "Below the market baseline";
@@ -118,7 +118,7 @@ function BaselineBanner({ base }: { base: MarketBaseline | null }) {
     >
       <div className="flex items-center text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
         Excess vs. market (alpha, not beta)
-        <InfoTip text="The signals' average +5d move minus an equal-weight index of every covered name over the identical window. This nets out the market/earnings-season tailwind, so only a positive excess whose 95% CI clears zero counts as real edge. Built from our own universe — no index feed required." />
+        <InfoTip text="The signals' average +5d move minus an equal-weight index of every covered name over the identical window. This nets out the market/earnings-season tailwind, so only a positive excess whose 95% CI clears zero counts as real edge. Built from our own universe - no index feed required." />
       </div>
       <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-2xl font-semibold tabular-nums" style={{ color }}>
@@ -215,7 +215,7 @@ function LiveRiskPolicyBanners({
           {stop.enabled ? (
             <>
               {" "}
-              — cut at{" "}
+              - cut at{" "}
               <span className="font-semibold">{pct(stop.stop_loss_frac, 0)}</span> of
               max risk
               {stop.late_dte != null ? (
@@ -227,7 +227,7 @@ function LiveRiskPolicyBanners({
               . Checked each paper cron.
             </>
           ) : (
-            <> — losers can run to full defined risk while winners get clipped.</>
+            <> - losers can run to full defined risk while winners get clipped.</>
           )}
         </div>
       ) : null}
@@ -248,7 +248,7 @@ function LiveRiskPolicyBanners({
           >
             take-profit at {pct(exit.effective_pct, 1)}
           </span>{" "}
-          on the directional books —{" "}
+          on the directional books -{" "}
           {exit.learned?.applicable ? (
             <>
               auto-tuned from {exit.learned.n} graded trades (would have added{" "}
@@ -281,7 +281,7 @@ function ExitPolicyWhatIf({
     <div className="mt-5">
       <div className="flex items-center text-[11px] uppercase tracking-wide text-[var(--color-muted)] mb-2">
         What-if: exit rules (backtest on real paths, n={policy.n})
-        <InfoTip text="Each closed directional trade's actual daily price path replayed under a candidate exit rule, measuring the favorable move it would have captured vs. how we actually exited. Isolates the one thing we fully control. Caveats: it's the underlying's path (exact for equity, a proxy for option spreads), and rule params are picked on this same sample — treat 'best' as an in-sample upper bound to confirm walk-forward, not a promise." />
+        <InfoTip text="Each closed directional trade's actual daily price path replayed under a candidate exit rule, measuring the favorable move it would have captured vs. how we actually exited. Isolates the one thing we fully control. Caveats: it's the underlying's path (exact for equity, a proxy for option spreads), and rule params are picked on this same sample - treat 'best' as an in-sample upper bound to confirm walk-forward, not a promise." />
       </div>
 
       {best && actual ? (
@@ -297,7 +297,7 @@ function ExitPolicyWhatIf({
           <span className="font-semibold" style={{ color: moveColor(actual.avg_captured) }}>
             {signed(actual.avg_captured)}
           </span>{" "}
-          as traded —{" "}
+          as traded -{" "}
           <span className="font-semibold" style={{ color: PROFIT }}>
             {signed(best.lift_vs_actual)}
           </span>{" "}
@@ -350,7 +350,7 @@ function ExitPolicyWhatIf({
                   </td>
                   <td className="py-2 tabular-nums">
                     {isActual || p.lift_vs_actual === null ? (
-                      <span className="text-[var(--color-muted)]">—</span>
+                      <span className="text-[var(--color-muted)]">-</span>
                     ) : (
                       <span style={{ color: p.lift_vs_actual > 0 ? PROFIT : LOSS }}>
                         {signed(p.lift_vs_actual)}
@@ -378,7 +378,7 @@ function SignalVintage({ weeks }: { weeks: ExecutionResponse["signal_weeks"] }) 
     <div className="mt-4">
       <div className="flex items-center text-[11px] uppercase tracking-wide text-[var(--color-muted)] mb-2">
         Signal quality by vintage (+5d)
-        <InfoTip text="The average +5d favorable move of every signal that fired that week — keyed on when the signal was generated, not when the trade closed. This is the cleanest read of whether the signals themselves are getting better over time, without slow-closing strategies hiding in close-date buckets." />
+        <InfoTip text="The average +5d favorable move of every signal that fired that week - keyed on when the signal was generated, not when the trade closed. This is the cleanest read of whether the signals themselves are getting better over time, without slow-closing strategies hiding in close-date buckets." />
       </div>
       <div className="flex items-end gap-1.5 h-20">
         {weeks.map((w) => {
@@ -400,7 +400,7 @@ function SignalVintage({ weeks }: { weeks: ExecutionResponse["signal_weeks"] }) 
                       ? `${w.label}: no signals`
                       : `${w.label}: ${signed(v)} avg +5d · excess ${
                           w.avg_excess_move_5d === null
-                            ? "—"
+                            ? "-"
                             : signed(w.avg_excess_move_5d)
                         } (n=${w.n}, hit ${pct(w.hit_rate)})`
                   }
@@ -451,13 +451,13 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
             value={signed(sq.overall?.avg_fav_move_5d)}
             valueColor={moveColor(sq.overall?.avg_fav_move_5d)}
             sub={`${pct(sq.overall?.hit_rate)} hit · ${sq.overall?.n ?? 0} decisions · raw (see excess above)`}
-            info="Across ALL decisions (opened and skipped): the underlying's direction-adjusted move 5 trading days after the call. Measures the signal itself, independent of how we traded it. This is the RAW move — the excess-vs-market banner above is the one that separates edge from beta."
+            info="Across ALL decisions (opened and skipped): the underlying's direction-adjusted move 5 trading days after the call. Measures the signal itself, independent of how we traded it. This is the RAW move - the excess-vs-market banner above is the one that separates edge from beta."
           />
           <Metric
             label="Entry timing"
             value={
               et.avg_pre_entry_fav_move === null
-                ? "—"
+                ? "-"
                 : signed(et.avg_pre_entry_fav_move)
             }
             valueColor={
@@ -524,7 +524,7 @@ export function ExecutionQuality({ report }: { report: ExecutionResponse | null 
                   <th className="py-1 pr-3">Avg +5d</th>
                   <th className="py-1 pr-3">
                     Excess
-                    <InfoTip text="Avg +5d move net of the market baseline. This is the column that matters — positive raw moves that are just beta collapse to ~0 here." />
+                    <InfoTip text="Avg +5d move net of the market baseline. This is the column that matters - positive raw moves that are just beta collapse to ~0 here." />
                   </th>
                   <th className="py-1">Avg +1d</th>
                 </tr>

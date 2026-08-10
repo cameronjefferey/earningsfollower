@@ -53,7 +53,7 @@ export function ContactForm() {
     return (
       <div className="mt-10 space-y-4">
         <p className="text-[var(--m-ink)] leading-relaxed">
-          Thanks — your message is on its way. We&apos;ll reply by email.
+          Thanks - your message is on its way. We&apos;ll reply by email.
         </p>
         <Link href="/faq" className="m-btn-ghost inline-flex">
           Back to FAQ

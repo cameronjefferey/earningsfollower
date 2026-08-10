@@ -13,7 +13,7 @@ function kindLabel(kind: RankedSetup["kind"]): string {
 
 /**
  * Public teaser for Pro boards. Shows the shape of a live setup (kind, ticker,
- * why) but never the full plan — that's the Pro payoff, and this runs
+ * why) but never the full plan - that's the Pro payoff, and this runs
  * unauthenticated, so we lock those rows regardless of backend redaction.
  */
 export function BriefPeek() {

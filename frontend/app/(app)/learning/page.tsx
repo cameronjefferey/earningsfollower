@@ -60,7 +60,7 @@ export default function LearningPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Learning</h1>
         <p className="text-[var(--color-muted)] mt-1 max-w-2xl leading-relaxed">
-          What the paper trader is learning from closed trades — and how you can
+          What the paper trader is learning from closed trades - and how you can
           use the same lessons in your own book. Live positions stay on{" "}
           <Link href="/paper" className="text-[var(--color-accent)] hover:underline">
             Paper

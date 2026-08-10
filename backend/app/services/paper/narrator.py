@@ -1,11 +1,11 @@
-"""Narrator — turn the signal-attribution numbers into a plain-English read.
+"""Narrator - turn the signal-attribution numbers into a plain-English read.
 
 This is the *communication* half of the learning loop (phase 3): given the
 attribution report (and the current calibration state), produce a short, honest
-post-mortem — what's working, what isn't, whether the model is well-calibrated,
+post-mortem - what's working, what isn't, whether the model is well-calibrated,
 whether the gate is rejecting winners, and a few hypotheses to test next.
 
-An LLM is used only to *narrate* numbers it's handed — never to judge edge or
+An LLM is used only to *narrate* numbers it's handed - never to judge edge or
 invent statistics. If no LLM key is configured (``LLMClient.enabled`` is False)
 or the call fails, a deterministic heuristic writes the same-shaped narrative, so
 this always works without an LLM bill (mirroring the Reddit scorer's fallback).
@@ -25,7 +25,7 @@ _SYSTEM = (
     "You are a trading coach writing a weekly post-mortem a retail trader can "
     "actually use. You are handed pre-computed statistics (cohort win rates with "
     "confidence intervals, feature-vs-outcome correlations, calibration, and an "
-    "opened-vs-skipped entry-filter check). Explain ONLY what the numbers say — "
+    "opened-vs-skipped entry-filter check). Explain ONLY what the numbers say - "
     "never invent figures, never claim certainty a small sample can't support, "
     "and always respect confidence intervals and sample sizes (wide interval or "
     "tiny n = 'inconclusive'). Write in plain English a trader would say out loud: "
@@ -54,7 +54,7 @@ def build_narrative(
         return {
             "source": "empty",
             "generated_at": datetime.utcnow().isoformat(),
-            "headline": "No graded trades yet — nothing to narrate.",
+            "headline": "No graded trades yet - nothing to narrate.",
             "sections": [],
             "hypotheses": [],
             "caveats": [
@@ -90,7 +90,7 @@ def _attach_risk_caveats(
             )
         else:
             extras.append(
-                "Hard stops are OFF for earnings credit trades — losers can run "
+                "Hard stops are OFF for earnings credit trades - losers can run "
                 "to full defined risk while take-profits clip winners."
             )
     if exit_policy is not None and exit_policy.get("enabled"):
@@ -162,7 +162,7 @@ def _try_llm(
             "Write the post-mortem from these statistics. Prioritize the most "
             "decisive, best-sampled findings; call out anything with a tiny sample "
             "or a confidence interval spanning zero as inconclusive. Mention whether "
-            "hard stops and take-profits are currently armed — that changes how to "
+            "hard stops and take-profits are currently armed - that changes how to "
             "read win rate vs average win/loss.\n\n"
             + json.dumps(
                 _compact(report, calibration, stop_policy, exit_policy), default=str
@@ -196,12 +196,12 @@ def _try_llm(
 
 
 def _pct(v) -> str:
-    return "—" if v is None else f"{v * 100:.0f}%"
+    return "-" if v is None else f"{v * 100:.0f}%"
 
 
 def _money(v) -> str:
     if v is None:
-        return "—"
+        return "-"
     sign = "-" if v < 0 else "+" if v > 0 else ""
     return f"{sign}${abs(v):,.0f}"
 
@@ -216,7 +216,7 @@ def _best_worst_cohorts(report: dict) -> tuple[list[str], list[str]]:
         dim_label = labels.get(dim, dim)
         for r in rows:
             lo, hi = r["win_rate_ci"]
-            tag = " — small sample, take lightly" if r["n"] < 8 else ""
+            tag = " - small sample, take lightly" if r["n"] < 8 else ""
             line = (
                 f"{dim_label} · {r['key']}: about {_money(r['avg_pnl'])} per trade, "
                 f"{_pct(r['win_rate'])} wins (likely range {_pct(lo)}–{_pct(hi)}), "
@@ -240,7 +240,7 @@ def _feature_points(report: dict) -> list[str]:
             f"({f['n']} trades)."
         )
     return out[:5] or [
-        "No entry clue yet clearly lines up with winners — still early."
+        "No entry clue yet clearly lines up with winners - still early."
     ]
 
 
@@ -258,7 +258,7 @@ def _calibration_points(report: dict) -> list[str]:
         verdict = "winning less often than it expected"
     return [
         f"It figured about a {_pct(pred)} chance of winning and actually won "
-        f"{_pct(real)} of the time — {verdict} "
+        f"{_pct(real)} of the time - {verdict} "
         f"({c.get('n', 0)} closed trades)."
     ]
 
@@ -273,13 +273,13 @@ def _gate_points(report: dict) -> list[str]:
             out.append(
                 f"{c['strategy']}: setups we passed on still moved our way "
                 f"{_pct(skipped['up_rate'])} of the time vs {_pct(opened['up_rate'])} "
-                "for the ones we took — we may be skipping good trades."
+                "for the ones we took - we may be skipping good trades."
             )
         else:
             out.append(
                 f"{c['strategy']}: the trades we took moved our way "
                 f"{_pct(opened['up_rate'])} of the time vs {_pct(skipped['up_rate'])} "
-                "for skips — the filter is helping."
+                "for skips - the filter is helping."
             )
     return out
 
@@ -288,7 +288,7 @@ def _calibration_feedback_points(calibration: dict | None) -> list[str]:
     if not calibration:
         return []
     if not calibration.get("enabled"):
-        return ["Odds adjustment is off — new trades use the raw model odds."]
+        return ["Odds adjustment is off - new trades use the raw model odds."]
     out: list[str] = []
     for e in calibration.get("strategies", []):
         if not e.get("applicable"):
@@ -315,7 +315,7 @@ def _risk_points(
             )
         else:
             out.append(
-                "Hard stops OFF for earnings credits — that lets losers run while "
+                "Hard stops OFF for earnings credits - that lets losers run while "
                 "take-profits bank small wins (bad payoff shape at ~50% wins)."
             )
     if exit_policy is not None:
@@ -375,7 +375,7 @@ def _heuristic(
     hypotheses: list[str] = []
     if winners:
         hypotheses.append(
-            f"In your own book, lean toward setups like {winners[0].split(':')[0]} — "
+            f"In your own book, lean toward setups like {winners[0].split(':')[0]} - "
             "confirm it keeps working before you size up."
         )
     if losers:
@@ -386,7 +386,7 @@ def _heuristic(
     gate_concerns = [p for p in _gate_points(report) if "skipping good trades" in p]
     if gate_concerns:
         hypotheses.append(
-            "On the flagged strategy, consider taking a few more borderline setups — "
+            "On the flagged strategy, consider taking a few more borderline setups - "
             "we may be passing on winners."
         )
 

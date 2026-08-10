@@ -27,7 +27,7 @@ function SourceBadge({ source }: { source: NarrativeResponse["source"] }) {
   const meta: Record<string, { label: string; color: string }> = {
     llm: { label: "Written summary", color: ACCENT },
     heuristic: { label: "Auto summary", color: "#8a97b1" },
-    empty: { label: "—", color: "#8a97b1" },
+    empty: { label: "-", color: "#8a97b1" },
   };
   const m = meta[source] ?? meta.heuristic;
   return (
@@ -49,7 +49,7 @@ function CalibrationStatus({ report }: { report: NarrativeResponse }) {
       <span className="uppercase tracking-wide text-[var(--color-muted)]">
         Odds adjustment
       </span>
-      <InfoTip text="When on, each strategy gently nudges its win-odds using how that strategy has actually done — never a huge swing, just a reality check before new trades open." />
+      <InfoTip text="When on, each strategy gently nudges its win-odds using how that strategy has actually done - never a huge swing, just a reality check before new trades open." />
       <span
         className="ml-2 font-semibold"
         style={{ color: c.enabled ? PROFIT : "#8a97b1" }}
@@ -80,7 +80,7 @@ export function Narrative({ report }: { report: NarrativeResponse | null }) {
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold text-sm">This week&apos;s read</h3>
             <SourceBadge source={report.source} />
-            <InfoTip text="A short post-mortem from the closed-trade numbers. It only explains stats that already exist — it doesn't invent results." />
+            <InfoTip text="A short post-mortem from the closed-trade numbers. It only explains stats that already exist - it doesn't invent results." />
           </div>
           <p className="mt-1 text-sm text-white">{report.headline}</p>
         </div>

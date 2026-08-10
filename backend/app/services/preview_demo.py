@@ -1,7 +1,7 @@
 """Static demo payloads for unpaid / preview visitors.
 
 These skip expensive live computation so Waves/Drift/Reddit load instantly,
-and they never expose the live book — the UI blurs key numbers on top.
+and they never expose the live book - the UI blurs key numbers on top.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ _THEME_AI = {"key": "ai_tech", "label": "AI / Tech"}
 _THEME_SEMI = {"key": "semis_hardware", "label": "Semis / Hardware"}
 
 PREVIEW_NOTE = (
-    "Sample board — this is demo data so you can see the layout. "
+    "Sample board - this is demo data so you can see the layout. "
     "Tickers and numbers are not today's live book. Pro unlocks the real board."
 )
 
@@ -253,7 +253,7 @@ def demo_drift(lookback_days: int = 12) -> dict:
             "plan": None,
             "why": [
                 "Miss + down print with historically strong negative drift.",
-                "Fresh entry — day 0 of the window.",
+                "Fresh entry - day 0 of the window.",
             ],
         },
     ]
@@ -337,7 +337,7 @@ def demo_reddit() -> dict:
             "pump_risk": "high",
             "is_noise": True,
             "scored_by": "heuristic",
-            "rationale": "Noise flag — thin quality mentions despite velocity spike.",
+            "rationale": "Noise flag - thin quality mentions despite velocity spike.",
             "subreddits": ["wallstreetbets"],
             "samples": ["https://www.reddit.com/r/wallstreetbets/comments/demo5"],
         },
@@ -359,7 +359,7 @@ def _fake_pct(seed: int, lo: float, hi: float) -> float:
 
 
 def preview_company(detail: dict) -> dict:
-    """Company shell for guests — identity stays, paid alpha is invented.
+    """Company shell for guests - identity stays, paid alpha is invented.
 
     Important: never spread live research dicts (`**im`, `**analyst`, `**peer`).
     Unpaid clients can read the JSON; blur in the UI is not a security boundary.
@@ -459,7 +459,7 @@ def preview_company(detail: dict) -> dict:
             px *= 1 + _fake_pct(seed + 60 + i, -0.025, 0.028)
             fake_prices.append({"date": p.get("date"), "close": round(px, 2)})
         out["price_history"] = fake_prices
-        # Demo headline price — never echo a live quote into the guest payload.
+        # Demo headline price - never echo a live quote into the guest payload.
         out["last_price"] = fake_prices[-1]["close"]
         out["day_change_pct"] = _fake_pct(seed + 70, -0.04, 0.05)
     else:
@@ -467,7 +467,7 @@ def preview_company(detail: dict) -> dict:
         out["last_price"] = None
         out["day_change_pct"] = None
 
-    # Never echo the live peer graph — use opaque demo tickers only.
+    # Never echo the live peer graph - use opaque demo tickers only.
     peer_labels = ["PEER", "RIVAL", "ALLY"]
     n_peers = min(3, max(2, len(detail.get("peers") or [])))
     out["peers"] = []

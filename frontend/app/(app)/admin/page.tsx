@@ -54,7 +54,7 @@ type AdminOverview = {
 };
 
 function fmtWhen(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
@@ -175,7 +175,7 @@ export default function AdminPage() {
         <div className="space-y-6">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">
-              Traffic — last {traffic.days} days
+              Traffic - last {traffic.days} days
             </h2>
             <p className="text-sm text-[var(--color-muted)] mt-0.5">
               What visitors are doing on the site (admin sessions excluded).
@@ -257,7 +257,7 @@ export default function AdminPage() {
                 ))}
                 {!traffic.top_paths.length ? (
                   <p className="text-[var(--color-muted)]">
-                    No pageviews yet — data starts with the next deploy.
+                    No pageviews yet - data starts with the next deploy.
                   </p>
                 ) : null}
               </div>
@@ -378,7 +378,7 @@ export default function AdminPage() {
             ))}
             {!data.recent_events.length ? (
               <p className="text-sm text-[var(--color-muted)]">
-                No events yet — new signups and Stripe webhooks will show here.
+                No events yet - new signups and Stripe webhooks will show here.
               </p>
             ) : null}
           </div>

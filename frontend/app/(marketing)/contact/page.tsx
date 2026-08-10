@@ -15,7 +15,7 @@ export default function ContactPage() {
         Contact
       </h1>
       <p className="m-hero-line mt-4 text-[var(--m-muted)] leading-relaxed">
-        Questions about the product, billing, or data? Send a note — replies go to
+        Questions about the product, billing, or data? Send a note - replies go to
         the email you enter.
       </p>
       <ContactForm />

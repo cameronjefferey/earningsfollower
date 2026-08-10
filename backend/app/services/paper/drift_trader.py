@@ -55,7 +55,7 @@ def build_drift_spec(
 
     When ``risk_budget`` (dollars of max loss for one contract) is given and the
     full-width spread's debit would exceed it, the short leg is pulled in toward
-    the long leg to the widest spread whose debit fits — so high-priced names
+    the long leg to the widest spread whose debit fits - so high-priced names
     (where one target-width spread can cost thousands) still size to a contract
     instead of skipping."""
     ticker = setup["ticker"]

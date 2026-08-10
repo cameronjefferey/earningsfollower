@@ -38,7 +38,7 @@ def test_page_wave_signals_keeps_target_groups_intact():
         _sig("E", "T3", 1.0),
         _sig("F", "T3", 0.9),
     ]
-    # Limit 3 can't fit two groups of 2 without orphaning — keep first group only.
+    # Limit 3 can't fit two groups of 2 without orphaning - keep first group only.
     page, has_more = page_wave_signals(signals, limit=3)
     assert {s["target"] for s in page} == {"T1"}
     assert len(page) == 2

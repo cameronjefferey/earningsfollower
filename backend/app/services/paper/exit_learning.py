@@ -1,4 +1,4 @@
-"""Learned take-profit — the exit half of the learning loop acting on itself.
+"""Learned take-profit - the exit half of the learning loop acting on itself.
 
 The exit-quality backtest (``research/execution.py``) showed the directional books
 reach a favorable underlying move and then give most of it back. This turns that
@@ -8,7 +8,7 @@ move, clamp it to a sane band, and only adopt it once there's enough evidence an
 it actually beats how we exited. Guardrailed exactly like ``calibration``: opt-in,
 minimum sample, banded, and a no-op fallback to the static default otherwise.
 
-Recomputed every run from the append-only record, so it tightens as data grows —
+Recomputed every run from the append-only record, so it tightens as data grows -
 no persisted state that can drift from the truth.
 """
 
@@ -199,6 +199,6 @@ def stop_policy_state(settings) -> dict:
             "Cut sell-vol / earnings credits once unrealized loss hits this "
             "fraction of max risk; tighten near expiry. Checked each paper cron."
             if settings.paper_stops_enabled
-            else "Off — losers can run to full defined risk while winners get clipped."
+            else "Off - losers can run to full defined risk while winners get clipped."
         ),
     }

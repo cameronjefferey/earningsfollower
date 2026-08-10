@@ -68,7 +68,7 @@ export function AdSignupCard({ next = "/calendar" }: { next?: string }) {
         callbackUrl,
       });
       if (result?.error) {
-        setError("Account created — sign in to continue.");
+        setError("Account created - sign in to continue.");
         return;
       }
       router.replace(result?.url || callbackUrl);
@@ -103,7 +103,7 @@ export function AdSignupCard({ next = "/calendar" }: { next?: string }) {
   if (status === "authenticated") {
     return (
       <div className="m-ad-card">
-        <p className="text-sm text-[var(--m-muted)]">Signed in — opening the calendar…</p>
+        <p className="text-sm text-[var(--m-muted)]">Signed in - opening the calendar…</p>
       </div>
     );
   }

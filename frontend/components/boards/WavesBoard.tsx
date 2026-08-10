@@ -22,7 +22,7 @@ interface TargetGroup {
   avgExpected: number | null;
 }
 
-/** Match backend MIN_PEERS_PER_TARGET — one peer must not fan out an industry. */
+/** Match backend MIN_PEERS_PER_TARGET - one peer must not fan out an industry. */
 const MIN_PEERS_PER_TARGET = 2;
 
 function groupByTarget(signals: WaveSignal[]): TargetGroup[] {
@@ -140,7 +140,7 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
       {embedded ? (
         <div className="mb-4">
           <p className="text-sm text-[var(--color-muted)] max-w-2xl">
-            Grouped by the name reporting next — how closest peers historically moved
+            Grouped by the name reporting next - how closest peers historically moved
             this stock into its own print.
           </p>
           <UpdatedAt value={data?.updated_at} />
@@ -150,7 +150,7 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
           <h1 className="text-2xl font-bold tracking-tight">Ride the wave</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1 max-w-2xl">
             Grouped by the name reporting next. Only the closest comps of each print count,
-            and a card needs at least two of them — how this stock has historically drifted
+            and a card needs at least two of them - how this stock has historically drifted
             into its own print after each one.
           </p>
           <UpdatedAt value={data?.updated_at} />
@@ -160,7 +160,7 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
       {isPreview ? (
         <PaywallBanner
           note={data?.preview_note}
-          title="Peer waves — sample board"
+          title="Peer waves - sample board"
           badge="Sample"
         />
       ) : null}
@@ -221,7 +221,7 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
                     })
                     .catch(() => {
                       if (gen !== fetchGen.current) return;
-                      setMoreError("Couldn't load more — try again.");
+                      setMoreError("Couldn't load more - try again.");
                     })
                     .finally(() => {
                       if (gen === fetchGen.current) setLoadingMore(false);

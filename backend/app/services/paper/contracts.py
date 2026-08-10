@@ -60,7 +60,7 @@ def build_trade_spec(
 
     When ``risk_budget`` (dollars of max loss for one contract) is given and the
     playbook's full-width wings would put a single contract over budget, the
-    wings are pulled in to the widest spread whose per-contract risk fits — so
+    wings are pulled in to the widest spread whose per-contract risk fits - so
     pricey / high-IV names size to at least one contract instead of skipping.
 
     ``min_credit_ratio`` is the reward/risk gate: the minimum credit collected as
@@ -222,7 +222,7 @@ def build_trade_spec(
     # Walk from the playbook's intended width inward, taking the widest spread
     # whose one-contract risk fits the budget *and* whose credit clears the
     # reward/risk floor (or just the intended width when neither is constrained).
-    # Narrowing improves both — risk drops and credit/width rises — so the same
+    # Narrowing improves both - risk drops and credit/width rises - so the same
     # inward walk satisfies them together. Step with a stride so dense chains
     # stay to a couple dozen quote lookups at most.
     kmax = max(call_def or 0, put_def or 0)

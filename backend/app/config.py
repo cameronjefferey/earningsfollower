@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     paper_min_credit: float = 0.10
     # Operational override: comma-separated signal ids to force-close on the next
     # run regardless of the usual exit rules (used to flatten a bad fill without
-    # desyncing the DB — the close still goes through the normal code path). Clear
+    # desyncing the DB - the close still goes through the normal code path). Clear
     # it once the positions are closed.
     paper_force_close_ids: str = ""
     # Reward/risk gate: floor on the credit collected as a fraction of the
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
     paper_min_credit_width_ratio: float = 0.20
     # Proactive loss-cutting on sell-vol / earnings credit trades. On by default:
     # without it, take-profits clip winners while losers can run toward full
-    # defined risk — a 50% win rate still bleeds the book. Loss is measured as a
+    # defined risk - a 50% win rate still bleeds the book. Loss is measured as a
     # fraction of the trade's max risk, evaluated each run (so it's only as
     # timely as the cron cadence).
     paper_stops_enabled: bool = True
@@ -173,7 +173,7 @@ class Settings(BaseSettings):
     paper_late_stop_frac: float = 0.10
     # --- Fills ----------------------------------------------------------------
     # A limit at (or a few pennies off) the mid won't fill a wide, illiquid
-    # options spread — we watched JEF/WOR spreads sit unfilled all session. To
+    # options spread - we watched JEF/WOR spreads sit unfilled all session. To
     # actually get filled we price at the *marketable cross*: take the ask on
     # legs we buy, hit the bid on legs we sell, plus a small buffer. That fills
     # like a market order but with a sane worst-case price cap (you never pay
@@ -244,7 +244,7 @@ class Settings(BaseSettings):
 
     # --- Exit discipline: underlying take-profit (learning loop acts) ----------
     # The exit-quality backtest showed our directional books reach a favorable
-    # underlying move and then hand most of it back — capturing < 0 of the peak on
+    # underlying move and then hand most of it back - capturing < 0 of the peak on
     # average. This is a global take-profit on the direction-adjusted underlying
     # move that binds *before* each book's looser gain target, so we harvest the
     # move instead of round-tripping it. Applies to the directional books
@@ -293,9 +293,9 @@ class Settings(BaseSettings):
     # A separate, directional strategy: when a tracked peer reports a strong
     # earnings move, buy a themed name that historically drifts in sympathy, ride
     # the pop for a couple of days, and get out. This is decoupled from the
-    # target's *own* earnings date — the catalyst is the peer's print, not the
-    # target's — so we enter as early as the peer reports and hold a short, fixed
-    # window. (A debit spread — not a naked long option — keeps high-priced names
+    # target's *own* earnings date - the catalyst is the peer's print, not the
+    # target's - so we enter as early as the peer reports and hold a short, fixed
+    # window. (A debit spread - not a naked long option - keeps high-priced names
     # like TSM/ASML affordable on a small budget and caps the risk.)
     paper_waves_enabled: bool = True
     # Only trigger on a peer that reported within this many days (be early: the
@@ -310,7 +310,7 @@ class Settings(BaseSettings):
     # Fixed hold: exit this many calendar days after entry (≈ a couple trading
     # days), regardless of the target's own calendar.
     paper_wave_hold_days: int = 4
-    # Don't hold a directional sympathy trade into the target's *own* print —
+    # Don't hold a directional sympathy trade into the target's *own* print -
     # bail if its earnings land within this many days of the hold.
     paper_wave_avoid_earnings_within_days: int = 3
     # Bracket on the *underlying's* move from entry (favorable / adverse).
@@ -350,7 +350,7 @@ class Settings(BaseSettings):
 
     # --- Reddit sentiment strategy (RETIRED) ----------------------------------
     # Formerly traded social-attention spikes as debit spreads. Disabled after
-    # poor live results — keep the knobs so historical paper trades / research
+    # poor live results - keep the knobs so historical paper trades / research
     # still deserialize, but never open new reddit positions.
     paper_reddit_enabled: bool = False
     # Discovery + velocity source. ApeWisdom is a free, no-auth aggregator that
@@ -393,14 +393,14 @@ class Settings(BaseSettings):
     reddit_baseline_days: int = 7
     # Trade filters: require at least this conviction, and refuse anything whose
     # pump risk is at/above the ceiling (we never want to be late-stage exit
-    # liquidity). is_noise signals are always skipped. Deliberately strict — this
+    # liquidity). is_noise signals are always skipped. Deliberately strict - this
     # is a speculative book, so we only want the rare, high-quality signal, not a
     # trade every day.
     reddit_min_conviction: str = "high"    # low | medium | high
     reddit_max_pump_risk: str = "low"      # low | medium | high  (ceiling, inclusive-below)
     # Max-loss budget per Reddit trade (the net debit), as a fraction of equity,
     # and a hard cap on simultaneous open Reddit positions. Sized small on
-    # purpose — this is the most speculative book.
+    # purpose - this is the most speculative book.
     paper_reddit_risk_frac: float = 0.01
     paper_reddit_max_open: int = 2
     # Trade-frequency guardrails so we don't churn: cap how many *new* Reddit
@@ -413,13 +413,13 @@ class Settings(BaseSettings):
     paper_reddit_risk_high: float = 0.015
     paper_reddit_risk_medium: float = 0.01
     paper_reddit_risk_low: float = 0.005
-    # Exit rules — this is an intraday momentum ride: we're riding the Reddit
+    # Exit rules - this is an intraday momentum ride: we're riding the Reddit
     # wave for a few hours, not holding overnight. Keep it tight:
     #   - hold_hours: close this many hours after the fill no matter what (the
     #     cron's ~30-min cadence is the granularity; e.g. 2.0 ≈ a couple hours).
-    #   - take_profit: quick gain — close once the spread is worth this fraction
+    #   - take_profit: quick gain - close once the spread is worth this fraction
     #     of its max width.
-    #   - stop_frac: quick loss — close once it has lost this fraction of the
+    #   - stop_frac: quick loss - close once it has lost this fraction of the
     #     debit paid.
     #   - and we still bail if the chatter itself reverses or dies.
     paper_reddit_hold_hours: float = 1.0

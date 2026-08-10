@@ -153,7 +153,7 @@ def test_record_decision_persists_typed_columns_and_json():
 
 
 def test_record_decision_bad_value_does_not_break_the_run():
-    """A feature that can't be stored must not raise or poison the session — a
+    """A feature that can't be stored must not raise or poison the session - a
     good decision recorded right after still commits."""
     db = _session()
     # edge_sample is an Integer column; a non-coercible value trips the savepoint.

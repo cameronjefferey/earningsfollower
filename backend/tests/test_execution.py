@@ -69,7 +69,7 @@ def test_signal_quality_grades_the_lean_regardless_of_execution():
 
 def test_exit_capture_measures_giveback_from_the_price_path():
     """Plant a bullish drift trade: entry 100, ran to 120 (MFE +20%), but we
-    exited at 110 (+10% realized) — capture should be ~0.5, give-back ~0.10."""
+    exited at 110 (+10% realized) - capture should be ~0.5, give-back ~0.10."""
     db = _session()
     opened_at = datetime(2026, 7, 1, 14, 30)
     trade = PaperTrade(
@@ -140,7 +140,7 @@ def test_exit_policy_recovers_giveback_and_conditions_capture():
 
 def test_played_out_capture_excludes_signal_misses():
     """A trade whose underlying never moved favorably (MFE≈0) is a signal miss, not
-    an exit-timing problem — it must be excluded from the played-out capture read."""
+    an exit-timing problem - it must be excluded from the played-out capture read."""
     db = _session()
     opened_at = datetime(2026, 7, 1, 14, 30)
     trade = PaperTrade(
@@ -167,7 +167,7 @@ def test_played_out_capture_excludes_signal_misses():
 
 def test_exit_capture_handles_bearish_direction():
     """Bearish trade: entry 100, dropped to 80 (MFE +20% favorable), exited at 90
-    (+10% realized favorable) — capture ~0.5."""
+    (+10% realized favorable) - capture ~0.5."""
     db = _session()
     opened_at = datetime(2026, 7, 1, 14, 30)
     trade = PaperTrade(

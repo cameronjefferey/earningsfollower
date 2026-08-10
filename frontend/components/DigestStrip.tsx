@@ -16,7 +16,7 @@ function boardsHref(focus: RankedSetup | null, isPreview: boolean): string {
   return "/boards?tab=waves";
 }
 
-/** One-line Today lead on Calendar — stays out of the way of the card grid. */
+/** One-line Today lead on Calendar - stays out of the way of the card grid. */
 export function DigestStrip() {
   const { ready, accessToken, subscribed } = useAuthReady();
   const [focus, setFocus] = useState<RankedSetup | null>(null);

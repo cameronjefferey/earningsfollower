@@ -1,4 +1,4 @@
-"""Cross-board ranked setups — the decision layer for the morning brief.
+"""Cross-board ranked setups - the decision layer for the morning brief.
 
 Quality over quantity: prefer solid samples and nearer catalysts. Thin history
 can appear, but never as the day's focus when something better exists.
@@ -58,7 +58,7 @@ def _urgency_boost(report_day: date | None, today: date) -> float:
 
 def _pct(value: Any, digits: int = 1, signed: bool = False) -> str:
     if not isinstance(value, (int, float)):
-        return "—"
+        return "-"
     s = f"{value * 100:+.{digits}f}%" if signed else f"{value * 100:.{digits}f}%"
     return s
 
@@ -103,13 +103,13 @@ def _conviction(
 
 def _sizing(tier: str, n: int, win_floor: float | None) -> str:
     if tier == "thin":
-        return f"Starter size only — thin history (n={n})."
+        return f"Starter size only - thin history (n={n})."
     floor_txt = (
         f", floor {win_floor:.0%}" if isinstance(win_floor, (int, float)) else ""
     )
     if tier == "solid":
-        return f"Standard size — solid sample (n={n}{floor_txt})."
-    return f"Half size — usable but not deep (n={n}{floor_txt})."
+        return f"Standard size - solid sample (n={n}{floor_txt})."
+    return f"Half size - usable but not deep (n={n}{floor_txt})."
 
 
 def _wave_rows(signals: list[dict], today: date) -> list[dict]:
@@ -146,7 +146,7 @@ def _wave_rows(signals: list[dict], today: date) -> list[dict]:
         else:
             why.append(f"Sample n={n}.")
         if tier == "thin":
-            why.append("Thin history — exploratory only.")
+            why.append("Thin history - exploratory only.")
 
         # Live trigger status: the whole wave thesis hinges on the trigger's move.
         if isinstance(trig_move, (int, float)):
@@ -260,7 +260,7 @@ def _drift_rows(setups: list[dict], today: date) -> list[dict]:
         if isinstance(wr, (int, float)):
             why.append(f"5d continuation {wr:.0%} on n={n}.")
         if tier == "thin" and not any("thin" in w.lower() for w in why):
-            why.append("Thin history — size conviction down.")
+            why.append("Thin history - size conviction down.")
 
         action = f"Stay {side} {ticker} for the remaining PEAD window"
         if isinstance(days_left, (int, float)):
@@ -382,7 +382,7 @@ def _cluster_waves(rows: list[dict]) -> list[dict]:
     return out
 
 
-# Fixed placeholders for unpaid brief preview — identity + edge stats of the
+# Fixed placeholders for unpaid brief preview - identity + edge stats of the
 # live lean must not leave the server. Kind/direction stay so the card chrome
 # still looks like a real brief.
 _PREVIEW_TICKERS = ("ORCL", "AMD")
@@ -406,13 +406,13 @@ def _demo_preview_setup(row: dict[str, Any], index: int) -> dict[str, Any]:
     r["sample_tier"] = "ok"
     r["conviction"] = 72 if i == 0 else 58
     r["conviction_label"] = "Medium"
-    r["headline"] = "Demo example — not today's live book."
+    r["headline"] = "Demo example - not today's live book."
     r["why"] = ["Placeholder pattern for layout only (not live)."]
     r["action"] = "Pro unlocks today's live action / watch note."
     r["invalidation"] = "Pro unlocks live invalidation framing."
     r.pop("cluster_peers", None)
     r["plan"] = {
-        "thesis": "Demo thesis for layout — not today's live lean.",
+        "thesis": "Demo thesis for layout - not today's live lean.",
         "trigger_status": "Demo trigger (sample)",
         "target": "Pro",
         "window": "a few sessions",
@@ -471,13 +471,13 @@ def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dic
 
     note = None
     if preview:
-        # Never ship the live lean to unpaid callers — ticker / edge / win /
+        # Never ship the live lean to unpaid callers - ticker / edge / win /
         # conviction / thesis are the product. Keep kind + direction so the
         # layout still reads as a real brief card; swap identity + numbers for
         # fixed demo placeholders (UI also blurs them).
         picked = [_demo_preview_setup(r, i) for i, r in enumerate(picked[:2])]
         note = (
-            "Sample brief — demo data only, not today's live lean. "
+            "Sample brief - demo data only, not today's live lean. "
             "Pro unlocks the real focus, plan, and boards."
         )
 

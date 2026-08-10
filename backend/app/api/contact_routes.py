@@ -23,7 +23,7 @@ class ContactBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: str = Field(..., min_length=3, max_length=320)
     message: str = Field(..., min_length=10, max_length=5000)
-    # Honeypot — bots fill this; humans leave it blank.
+    # Honeypot - bots fill this; humans leave it blank.
     website: str | None = Field(default="", max_length=200)
 
     @field_validator("name")
@@ -119,9 +119,9 @@ def submit_contact(
         db,
         kind="contact_message",
         email=body.email,
-        message=f"Contact form: {body.name} <{body.email}> — {body.message[:120]}",
+        message=f"Contact form: {body.name} <{body.email}> - {body.message[:120]}",
         meta={"name": body.name},
         debounce_s=0,
     )
     db.commit()
-    return {"ok": True, "message": "Thanks — we’ll get back to you by email."}
+    return {"ok": True, "message": "Thanks - we’ll get back to you by email."}

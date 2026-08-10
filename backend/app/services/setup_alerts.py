@@ -47,7 +47,7 @@ def notify_new_setups(
     if not telegram_configured():
         return False
 
-    # First snapshot after deploy isn't "new" — only alert on subsequent diffs.
+    # First snapshot after deploy isn't "new" - only alert on subsequent diffs.
     if prev_waves is None and prev_drift is None:
         return False
 
@@ -57,7 +57,7 @@ def notify_new_setups(
         return False
 
     base = (settings.public_app_url or "").rstrip("/") or "https://www.earningsfollower.com"
-    lines = ["earningsfollower — new research setups"]
+    lines = ["earningsfollower - new research setups"]
     if new_wave_targets:
         lines.append(
             "Waves: " + ", ".join(new_wave_targets[:12])

@@ -1,6 +1,6 @@
 /**
  * Guest meter for company pages: a few free deep-dives per browser, then a
- * signup gate. Signed-in users are never metered. localStorage-based — easy to
+ * signup gate. Signed-in users are never metered. localStorage-based - easy to
  * bypass on purpose; this is a nudge for real visitors, not DRM.
  */
 
@@ -24,7 +24,7 @@ function readViewed(): string[] {
  * Record a guest view of `ticker`. Revisiting an already-counted ticker never
  * burns quota. Returns whether the page may render and how many new companies
  * the guest can still open. `remaining` is null when storage is unavailable
- * (private mode) — in that case we always allow rather than lock someone out.
+ * (private mode) - in that case we always allow rather than lock someone out.
  */
 export function recordCompanyView(ticker: string): {
   allowed: boolean;

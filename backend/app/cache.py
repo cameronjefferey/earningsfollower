@@ -1,7 +1,7 @@
 """Process-local TTL cache for expensive read endpoints.
 
 Fine for a single API instance. Cleared on data refresh so cards don't serve
-stale reaction/implied stats after ingest. Not shared across multiple workers —
+stale reaction/implied stats after ingest. Not shared across multiple workers -
 use Redis later if you scale out.
 """
 

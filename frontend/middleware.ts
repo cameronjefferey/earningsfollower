@@ -70,7 +70,7 @@ export default function middleware(req: NextRequest, event: NextFetchEvent) {
   }
 
   // Never run the auth session wrapper on NextAuth's own endpoints (or any API
-  // route) — just let them through. Alias hosts already redirected above.
+  // route) - just let them through. Alias hosts already redirected above.
   if (req.nextUrl.pathname.startsWith("/api")) {
     return NextResponse.next();
   }

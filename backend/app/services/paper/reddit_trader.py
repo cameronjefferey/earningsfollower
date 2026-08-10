@@ -2,7 +2,7 @@
 
 The sentiment service surfaces (ticker, direction, conviction) where Reddit
 chatter is spiking with a clear lean. Here we express that as a defined-risk
-options trade — never naked, so a coordinated pump that rugs can only ever cost
+options trade - never naked, so a coordinated pump that rugs can only ever cost
 the debit paid:
 
   - bullish lean -> bull call spread (buy near-the-money call, sell an OTM call)

@@ -69,7 +69,7 @@ function AmbientHeat({ cards }: { cards: EarningsCard[] }) {
   );
 }
 
-/** Live week board — fewer names, more signal per card. Shares one fetch. */
+/** Live week board - fewer names, more signal per card. Shares one fetch. */
 export function WeekHeat({
   dense = false,
   limit,
@@ -89,7 +89,7 @@ export function WeekHeat({
   }, [week.data, max]);
 
   // Decorative backdrop: only ever render tiles (skeleton while loading,
-  // nothing on empty/error) — never leak a text/error box behind the hero.
+  // nothing on empty/error) - never leak a text/error box behind the hero.
   if (dense) {
     if (week.data === null) {
       if (week.failed) return null;
@@ -147,7 +147,7 @@ export function WeekHeat({
               <div className="min-w-0">
                 <div className="m-priced-ticker">{c.ticker}</div>
                 <div className="m-priced-name truncate">
-                  {c.name ?? c.sector ?? "—"}
+                  {c.name ?? c.sector ?? "-"}
                 </div>
               </div>
               <div className="m-priced-when shrink-0 text-right">

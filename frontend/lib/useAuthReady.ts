@@ -2,7 +2,7 @@
 
 import { useSession } from "next-auth/react";
 
-/** True once Auth.js has settled — never treat "loading" as a logged-out guest. */
+/** True once Auth.js has settled - never treat "loading" as a logged-out guest. */
 export function useAuthReady() {
   const { data: session, status } = useSession();
   return {

@@ -19,7 +19,7 @@ from app.services.sample_stats import annotate_history
 MAX_GAP_DAYS = 100
 MIN_SAMPLE = 3
 # A single peer printing (e.g. ABBV) used to surface every themed name
-# reporting soon — noisy industry fan-out. Require breadth before a target
+# reporting soon - noisy industry fan-out. Require breadth before a target
 # appears on the board, and only the closest comps of each print count.
 MIN_PEERS_PER_TARGET = 2
 MAX_PEERS_PER_TRIGGER = DEFAULT_PEER_LIMIT
@@ -239,7 +239,7 @@ def current_waves(
     historical lead-lag so the user can decide whether to ride the wave.
 
     Targets need at least ``MIN_PEERS_PER_TARGET`` distinct recent peers with
-    usable history — one peer printing must not fan out into every themed name.
+    usable history - one peer printing must not fan out into every themed name.
 
     Stops once enough qualifying *target groups* are found to fill ``limit``
     (plus one probe group for ``has_more``). Caps peers per target so a single
@@ -248,7 +248,7 @@ def current_waves(
     today = date.today()
     recent_start = today - timedelta(days=recent_days)
     upcoming_end = today + timedelta(days=upcoming_days)
-    # Budget in cards, not raw peer rows — otherwise one 60-peer target
+    # Budget in cards, not raw peer rows - otherwise one 60-peer target
     # early-stops the scan and the board shows a single card in season.
     max_targets = max(1, math.ceil(limit / MIN_PEERS_PER_TARGET)) + 1
 
@@ -376,7 +376,7 @@ def current_waves(
             )
 
         # History filters can thin a multi-peer candidate back to one usable
-        # peer — still drop those so the board never shows single-peer noise.
+        # peer - still drop those so the board never shows single-peer noise.
         if len(target_signals) < MIN_PEERS_PER_TARGET:
             continue
         target_signals.sort(
@@ -408,7 +408,7 @@ def current_waves(
 # --- peer-earnings sympathy ride (short, fixed hold) -------------------------
 # Unlike `lead_lag` (which measures the runup all the way to the target's *own*
 # print), this measures the target's return over a short, fixed window right
-# after the peer reports — the "ride the pop for a couple days" edge. It's
+# after the peer reports - the "ride the pop for a couple days" edge. It's
 # independent of the target's earnings calendar, so it can fire whenever a peer
 # reports strongly, and it directly matches the short live hold.
 

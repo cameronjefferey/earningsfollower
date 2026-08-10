@@ -4,18 +4,18 @@
 
 ## Product
 
-- Free: earnings calendar — who reports, timing (BMO/AMC), themes, market cap, options-implied move estimates.
-- Pro ($9.99/month): Morning brief — one ranked focus setup with action, watch, and drop-if; short secondary board; what changed; who’s reporting today.
+- Free: earnings calendar - who reports, timing (BMO/AMC), themes, market cap, options-implied move estimates.
+- Pro ($9.99/month): Morning brief - one ranked focus setup with action, watch, and drop-if; short secondary board; what changed; who’s reporting today.
 - Not financial advice. Not an autotrader. Not a generic “AI stock picker.”
 
 ## Key URLs
 
-- https://www.earningsfollower.com/ — marketing overview
-- https://www.earningsfollower.com/calendar — free earnings calendar
-- https://www.earningsfollower.com/brief — morning brief (Pro; preview for unpaid)
-- https://www.earningsfollower.com/pricing — subscribe / manage billing
-- https://www.earningsfollower.com/how-it-works — product walkthrough
-- https://www.earningsfollower.com/faq — FAQ
+- https://www.earningsfollower.com/ - marketing overview
+- https://www.earningsfollower.com/calendar - free earnings calendar
+- https://www.earningsfollower.com/brief - morning brief (Pro; preview for unpaid)
+- https://www.earningsfollower.com/pricing - subscribe / manage billing
+- https://www.earningsfollower.com/how-it-works - product walkthrough
+- https://www.earningsfollower.com/faq - FAQ
 
 ## Concepts traders ask about
 

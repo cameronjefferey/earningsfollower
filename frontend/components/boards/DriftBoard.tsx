@@ -105,7 +105,7 @@ export function DriftBoard({ embedded = false }: { embedded?: boolean }) {
       {isPreview ? (
         <PaywallBanner
           note={data?.preview_note}
-          title="Post-earnings drift — sample board"
+          title="Post-earnings drift - sample board"
           badge="Sample"
         />
       ) : null}
@@ -206,7 +206,7 @@ export function DriftBoard({ embedded = false }: { embedded?: boolean }) {
                     })
                     .catch(() => {
                       if (gen !== fetchGen.current) return;
-                      setMoreError("Couldn't load more — try again.");
+                      setMoreError("Couldn't load more - try again.");
                     })
                     .finally(() => {
                       if (gen === fetchGen.current) setLoadingMore(false);
@@ -245,7 +245,7 @@ function Playbook() {
         <div>
           <div className="font-semibold mb-0.5">2 · Hold ~5 trading days</div>
           <p className="text-[var(--color-muted)]">
-            Exit after 5 trading days — that&apos;s the horizon the historical edge is
+            Exit after 5 trading days - that&apos;s the horizon the historical edge is
             measured over. Some names keep paying to 10 days; the card will say so.
           </p>
         </div>
@@ -370,7 +370,7 @@ function SetupCard({
         {plan ? (
           <MiniStat
             label="Stop level"
-            value={s.live.stop_level !== null ? `$${s.live.stop_level}` : "—"}
+            value={s.live.stop_level !== null ? `$${s.live.stop_level}` : "-"}
             blur={blur}
           />
         ) : null}

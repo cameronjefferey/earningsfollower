@@ -129,7 +129,7 @@ def test_attribution_respects_min_samples():
 
 def test_counterfactual_compares_opened_vs_skipped():
     db = _session()
-    # Opened setups drifted favorably; skipped ones drifted against — the gate
+    # Opened setups drifted favorably; skipped ones drifted against - the gate
     # was right to skip. Both cohorts need >= min_samples.
     for i in range(6):
         db.add(_mk(

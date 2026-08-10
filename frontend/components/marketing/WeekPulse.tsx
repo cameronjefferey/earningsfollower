@@ -7,7 +7,7 @@ import { useMarketingData } from "./MarketingData";
 /**
  * Live one-line proof strip for the ad landing hero: how many names report
  * this week, how many are priced for big swings, and the single biggest
- * implied move. Renders nothing until real data is in (no skeleton — the
+ * implied move. Renders nothing until real data is in (no skeleton - the
  * hero reads fine without it).
  */
 export function WeekPulse() {

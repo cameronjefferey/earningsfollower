@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-/** Quiet scroll-in — no bounce, no spring. */
+/** Quiet scroll-in - no bounce, no spring. */
 export function Reveal({
   children,
   className = "",

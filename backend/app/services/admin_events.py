@@ -27,7 +27,7 @@ def log_event(
 ) -> AppEvent | None:
     """Write an AppEvent and optionally ping Telegram.
 
-    Never raises. Does not commit — the caller owns the transaction. On a DB
+    Never raises. Does not commit - the caller owns the transaction. On a DB
     write failure we expunge the row (no full-session rollback) so the caller's
     work is preserved.
     """

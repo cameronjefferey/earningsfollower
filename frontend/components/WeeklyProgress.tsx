@@ -10,12 +10,12 @@ const MUTED = "#8a97b1";
 const WARN = "#f0a85b";
 
 function pct(v: number | null | undefined, digits = 0): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   return `${(v * 100).toFixed(digits)}%`;
 }
 
 function money(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   const sign = v < 0 ? "-" : v > 0 ? "+" : "";
   return `${sign}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
@@ -119,7 +119,7 @@ function WeekRow({ w }: { w: ProgressWeek }) {
             </span>
           </span>
         ) : (
-          <span className="text-[var(--color-muted)]">—</span>
+          <span className="text-[var(--color-muted)]">-</span>
         )}
       </td>
       <td className="py-2 text-[var(--color-muted)]">
@@ -171,7 +171,7 @@ export function WeeklyProgress({ report }: { report: ProgressResponse | null }) 
                 </th>
                 <th className="py-2 pr-3">
                   Odds miss
-                  <InfoTip text="How far our predicted win rate was from reality. Smaller is better — a green down arrow means we got more honest." />
+                  <InfoTip text="How far our predicted win rate was from reality. Smaller is better - a green down arrow means we got more honest." />
                 </th>
                 <th className="py-2 pr-3">
                   Patterns

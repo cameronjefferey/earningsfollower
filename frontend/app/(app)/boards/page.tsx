@@ -33,7 +33,7 @@ function BoardsInner() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Boards</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1 max-w-2xl">
-            Live peer-wave and post-earnings drift setups — the boards you trade from.
+            Live peer-wave and post-earnings drift setups - the boards you trade from.
           </p>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-[var(--color-edge)] p-0.5">

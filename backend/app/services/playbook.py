@@ -345,7 +345,7 @@ def _conviction(
 
     basis["tier_reason"] = (
         f"seller edge {seller_edge:.0%} (n={edge_n}), richness "
-        f"{richness if richness is not None else '—'}"
+        f"{richness if richness is not None else '-'}"
         + (", richness suspect → capped" if suspect else "")
     )
     return tier, basis
@@ -543,7 +543,7 @@ def _caveats(summary: dict, implied: dict | None, analyst: dict | None) -> list[
     if richness is not None and richness > RICHNESS_SUSPECT:
         caveats.append(
             f"Implied move looks implausibly rich ({richness:.1f}x its historical "
-            "average) — likely a data artifact, so conviction is capped until the "
+            "average) - likely a data artifact, so conviction is capped until the "
             "inputs are validated."
         )
 
@@ -599,13 +599,13 @@ def _round_strike(price: float | None) -> float | None:
 
 def _pct(value: float | None) -> str:
     if value is None:
-        return "—"
+        return "-"
     return f"{value * 100:+.1f}%"
 
 
 def _mag(value: float | None) -> str:
     if value is None:
-        return "—"
+        return "-"
     return f"{value * 100:.1f}%"
 
 

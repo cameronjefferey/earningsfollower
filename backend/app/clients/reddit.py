@@ -11,7 +11,7 @@ Two modes, picked automatically:
     is rate-limited harder and can be throttled on cloud IPs.
 
 Scoped to what the strategy needs: pull a subreddit listing (hot/rising/new) and
-optionally the top-level comments on a post. Everything degrades gracefully — a
+optionally the top-level comments on a post. Everything degrades gracefully - a
 failed call returns an empty list and is logged, never raised into the trader.
 """
 

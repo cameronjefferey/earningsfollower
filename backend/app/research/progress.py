@@ -2,7 +2,7 @@
 
 The attribution report is a point-in-time read; this reconstructs it at each past
 week-end from the immutable decision store and diffs the weeks, so you can see the
-exact summary of what changed and whether the model actually got better — honestly,
+exact summary of what changed and whether the model actually got better - honestly,
 including the weeks it regressed. If the metrics don't improve as evidence
 accumulates (and as we act on it), that's the experiment telling you something.
 
@@ -95,12 +95,12 @@ def _window_perf(db: Session, start: date, end: date) -> dict:
 
 
 def _pct(v) -> str:
-    return "—" if v is None else f"{v * 100:.0f}%"
+    return "-" if v is None else f"{v * 100:.0f}%"
 
 
 def _money(v) -> str:
     if v is None:
-        return "—"
+        return "-"
     sign = "-" if v < 0 else "+" if v > 0 else ""
     return f"{sign}${abs(v):,.0f}"
 
@@ -119,7 +119,7 @@ def _week_changes(cur: dict, prev: dict | None) -> tuple[list[str], int]:
 
     if cn["closed"]:
         changes.append(
-            f"{cn['closed']} trade(s) closed this week — {_pct(cn['win_rate'])} wins, "
+            f"{cn['closed']} trade(s) closed this week - {_pct(cn['win_rate'])} wins, "
             f"about {_money(cn['avg_pnl'])} each ({_money(cn['total_pnl'])} total)."
         )
         if cn["avg_pnl"] is not None:
@@ -224,7 +224,7 @@ def _verdict(series: list[dict]) -> dict:
         return {
             "learning": None,
             "summary": (
-                "Too early to call a trend — need at least two weeks with closed "
+                "Too early to call a trend - need at least two weeks with closed "
                 "trades. This fills in as more paper trades finish."
             ),
         }
@@ -263,7 +263,7 @@ def _verdict(series: list[dict]) -> dict:
         )
     if learning is False:
         parts.append(
-            "No steady week-to-week improvement yet — if that continues as the "
+            "No steady week-to-week improvement yet - if that continues as the "
             "sample grows, the edge may not be there."
         )
 
@@ -273,12 +273,12 @@ def _verdict(series: list[dict]) -> dict:
         "weeks_regressed": regressed,
         "calibration_gap_trend": gap_trend,
         "win_rate_trend": wr_trend,
-        "summary": " ".join(parts) if parts else "Steady — nothing big changed across the window.",
+        "summary": " ".join(parts) if parts else "Steady - nothing big changed across the window.",
     }
 
 
 def _print(series: dict) -> None:
-    print(f"\nWeekly learning tracker — {series['verdict']['summary']}\n" + "=" * 70)
+    print(f"\nWeekly learning tracker - {series['verdict']['summary']}\n" + "=" * 70)
     for w in series["weeks"]:
         c = w["cumulative"]
         print(

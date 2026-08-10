@@ -12,7 +12,7 @@ import { trackRedditSignUp } from "@/lib/reddit-pixel";
 type Mode = "signin" | "signup";
 
 function safeNextPath(raw: string | null): string {
-  // Free users land on the calendar by default — never force Pricing after login.
+  // Free users land on the calendar by default - never force Pricing after login.
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw === "/") {
     return "/calendar";
   }

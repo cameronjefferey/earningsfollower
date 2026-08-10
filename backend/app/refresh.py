@@ -62,7 +62,7 @@ def main() -> None:
             stale = refresh_stale_anomaly(db)
             if stale:
                 notify_anomalies(
-                    title="earningsfollower — refresh heartbeat stale",
+                    title="earningsfollower - refresh heartbeat stale",
                     anomalies=stale,
                 )
         except Exception as e:  # noqa: BLE001
@@ -81,7 +81,7 @@ def main() -> None:
             notify_refresh_health(result)
         except Exception as e:  # noqa: BLE001
             logger.warning("refresh health notify failed: %s", e)
-        logger.error("Refresh unhealthy — exiting non-zero")
+        logger.error("Refresh unhealthy - exiting non-zero")
         raise SystemExit(1)
 
 

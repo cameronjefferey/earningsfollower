@@ -146,7 +146,7 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
         for t in closed:
             if t.realized_pnl is None:
                 continue
-            k = getattr(t, key) or "—"
+            k = getattr(t, key) or "-"
             b = out.setdefault(k, {"n": 0, "pnl": 0.0, "wins": 0})
             b["n"] += 1
             b["pnl"] = round(b["pnl"] + t.realized_pnl, 2)

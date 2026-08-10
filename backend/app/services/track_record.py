@@ -35,7 +35,7 @@ def _sanitize_bucket(raw: dict) -> list[dict]:
 
 
 def track_record(db: Session, *, preview: bool) -> dict:
-    # Skip Alpaca account / live spots — we only need closed-trade aggregates.
+    # Skip Alpaca account / live spots - we only need closed-trade aggregates.
     full = paper_report.scorecard(db, include_account=False)
     stats = full.get("stats") or {}
     closed_n = int(stats.get("closed_count") or 0)
@@ -59,7 +59,7 @@ def track_record(db: Session, *, preview: bool) -> dict:
             row["total_pnl"] = None
         by_strategy = by_strategy[:3]
         note = (
-            "Preview — lagged paper-research aggregates. Pro unlocks full strategy "
+            "Preview - lagged paper-research aggregates. Pro unlocks full strategy "
             "breakdown and P&L totals. Not investment advice."
         )
     else:

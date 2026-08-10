@@ -46,12 +46,12 @@ def main() -> None:
 
         if not telegram_configured():
             logger.error(
-                "Telegram not configured — set TELEGRAM_BOT_TOKEN and "
+                "Telegram not configured - set TELEGRAM_BOT_TOKEN and "
                 "TELEGRAM_CHAT_ID in .env (or the Render environment)."
             )
             raise SystemExit(1)
         ok = send_telegram(
-            f"EarningsFollower test alert — bot is wired up "
+            f"EarningsFollower test alert - bot is wired up "
             f"({datetime.now():%Y-%m-%d %H:%M})."
         )
         logger.info("Test message %s.", "sent" if ok else "failed to send")
@@ -67,7 +67,7 @@ def main() -> None:
                 hb = paper_heartbeat_anomalies(db)
                 if hb:
                     notify_anomalies(
-                        title="earningsfollower — paper heartbeat stale",
+                        title="earningsfollower - paper heartbeat stale",
                         anomalies=hb,
                     )
             except Exception as e:  # noqa: BLE001
@@ -97,7 +97,7 @@ def main() -> None:
             except Exception as e:  # noqa: BLE001 - never mask the real failure
                 logger.warning("paper health notify failed: %s", e)
             logger.error(
-                "Paper run unhealthy — exiting non-zero: %s",
+                "Paper run unhealthy - exiting non-zero: %s",
                 "; ".join(anomalies),
             )
             raise SystemExit(1)

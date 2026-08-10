@@ -107,7 +107,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
         equity = client.equity()
         summary["equity"] = equity
 
-        # Only place orders when the market is open — options can't fill
+        # Only place orders when the market is open - options can't fill
         # overnight or pre/post-open, which is what left whole batches expiring.
         # dry-runs ignore this (they never submit). Reconcile always runs so
         # fills from the prior session still get picked up.
@@ -141,7 +141,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
 
         summary["reconciled"] = _reconcile(db, client, dry_run)
 
-        # Settle options that already expired. Does not need the market open —
+        # Settle options that already expired. Does not need the market open -
         # there is nothing left to trade; we just journal intrinsic P&L so
         # stale "open" rows (DAL/PENG-style) don't linger forever.
         expired = _settle_expired_options(db, client, dry_run)
@@ -196,14 +196,14 @@ def run(db: Session, dry_run: bool = False) -> dict:
         if calib:
             summary["calibration"] = {s: e.multiplier for s, e in calib.items()}
 
-        # Each book scans independently — a bad underlying in one strategy must
+        # Each book scans independently - a bad underlying in one strategy must
         # not prevent the others from opening trades the same cycle.
         scan_results: list[tuple[int, list]] = []
         for label, fn in (
             ("earnings", lambda: _scan_entries(db, client, equity, settings, dry_run, calib)),
             ("waves", lambda: _scan_wave_entries(db, client, equity, settings, dry_run, calib)),
             ("drift", lambda: _scan_drift_entries(db, client, equity, settings, dry_run, calib)),
-            # Reddit sentiment book retired — do not scan for new entries.
+            # Reddit sentiment book retired - do not scan for new entries.
             # Earnings-equity runs after the options scan so it can size a twin
             # to the spread that just opened (or stand alone otherwise).
             (
@@ -308,7 +308,7 @@ def _reconcile(db: Session, client: AlpacaClient, dry_run: bool) -> int:
             elif state in ("canceled", "expired", "rejected"):
                 # The close (a limit at our target credit) didn't fill and the
                 # day order lapsed. Re-arm to open so the next manage-exits pass
-                # re-attempts — never leave a position stuck mid-close.
+                # re-attempts - never leave a position stuck mid-close.
                 t.status = "open"
                 t.exit_order_id = None
                 count += 1
@@ -357,7 +357,7 @@ def _settle_expired_options(
 
     After expiry Alpaca stops returning usable option quotes, so every
     quote-gated exit manager ``continue``s forever and the row stays ``open``.
-    There is nothing left to close at the broker — settle at intrinsic against
+    There is nothing left to close at the broker - settle at intrinsic against
     the underlying close on/before expiration and mark the trade closed.
     """
     today = date.today()
@@ -537,12 +537,12 @@ def _exit_reason(t: PaperTrade, exit_net: float, today: date, settings) -> str |
     # trades each have their own exit manager (_manage_drift_exits, etc.) with
     # strategy-appropriate hold windows, take-profits and stops. Without this
     # guard the "post-earnings" harvest below would instantly flatten every
-    # drift trade — a drift entry is by definition placed *after* the print, so
-    # earnings_date < today is always true — closing it on the first cron cycle
+    # drift trade - a drift entry is by definition placed *after* the print, so
+    # earnings_date < today is always true - closing it on the first cron cycle
     # before its own manager ever runs.
     if (t.strategy or "earnings") != "earnings":
         return None
-    # Planned exit: the print has passed — close to capture the IV crush. We
+    # Planned exit: the print has passed - close to capture the IV crush. We
     # wait until strictly after the earnings date so we don't close ahead of an
     # after-market report on the day itself.
     if t.earnings_date and t.earnings_date < today:
@@ -627,7 +627,7 @@ def _scan_entries(
     window_end = today + timedelta(days=settings.paper_entry_window_days)
     regime = regime_snapshot(settings)
 
-    # Cap is for the earnings *options* book only — equity twins have their own
+    # Cap is for the earnings *options* book only - equity twins have their own
     # (higher) limit and must not crowd options out of these slots.
     open_n = len(
         db.scalars(
@@ -697,7 +697,7 @@ def _try_earnings_entry(
         return 0, {"ticker": ticker, "reason": "max open positions reached"}
 
     # Already have an options trade for this ticker+event? Equity twins for
-    # the same print don't count — they have their own one-per-event guard.
+    # the same print don't count - they have their own one-per-event guard.
     existing = db.scalars(
         select(PaperTrade).where(
             PaperTrade.ticker == ticker,
@@ -959,16 +959,16 @@ def _marketable_net(
     """Signed net limit price for a leg set, or ``None`` if the market's too wide
     to trade (entries only).
 
-    SIGN — Alpaca multi-leg ``limit_price`` is signed: a positive value is a net
+    SIGN - Alpaca multi-leg ``limit_price`` is signed: a positive value is a net
     *debit* (the most we'll pay), a negative value is a net *credit* (the least
     we'll accept to receive). A net-credit order sent as a *positive* number is
-    read as a debit ceiling — i.e. "pay up to X to close" — which makes it
+    read as a debit ceiling - i.e. "pay up to X to close" - which makes it
     marketable and dumps the spread into the touch (that's what closed a $6-wide
     spread for $0.35). So every credit order MUST be negative. We compute a
     positive magnitude below and sign it at the end.
 
-    ``aggressive`` (entries): price at the *cross* — take the ask on legs we buy
-    and hit the bid on legs we sell, plus a small buffer — so it fills. But if
+    ``aggressive`` (entries): price at the *cross* - take the ask on legs we buy
+    and hit the bid on legs we sell, plus a small buffer - so it fills. But if
     crossing the market gives up more than ``paper_max_cross_slippage_frac`` of
     the combo's mid value, the market is too wide/illiquid to trade without the
     round-trip slippage swamping the edge, so we return ``None`` and skip it
@@ -977,7 +977,7 @@ def _marketable_net(
 
     ``min_credit`` (credit orders): a hard floor on the credit we'll accept. On
     a credit *exit* (selling a debit spread we own) pass the spread's intrinsic
-    value here so a stale/wide book can never fill us below intrinsic — the bug
+    value here so a stale/wide book can never fill us below intrinsic - the bug
     that closed an in-the-money 85/90 spread for $0.70. ``max_debit`` is the
     symmetric ceiling for debit exits (never pay more than the spread is worth).
 
@@ -1038,7 +1038,7 @@ def _marketable_net(
         cross = (buy_ask - sell_bid) + buf
 
     # Liquidity guard: refuse to open when crossing gives up too much of the
-    # spread's mid value — a wide market bleeds far more on the round trip than
+    # spread's mid value - a wide market bleeds far more on the round trip than
     # the trade can make. Skipped for urgent exits (exit_cross): we already hold
     # the position and want out now, so we pay the touch regardless of width.
     if (
@@ -1186,8 +1186,8 @@ def _recompute_max_risk(trade: PaperTrade) -> None:
     """Re-derive max_risk from the *actual* booked entry price.
 
     At record time max_risk is modeled off the mid credit, but the real fill
-    almost always differs. Recomputing here keeps the stored max loss — and the
-    max-profit:max-loss ratio the UI derives from it — consistent with the
+    almost always differs. Recomputing here keeps the stored max loss - and the
+    max-profit:max-loss ratio the UI derives from it - consistent with the
     credit/debit we actually booked (otherwise the card shows max profit from the
     fill but max loss from the stale model)."""
     if _is_equity(trade):
@@ -1720,7 +1720,7 @@ def _wave_exit_reason(
     tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
     if tp is not None:
         return tp
-    # Fixed short hold: the sympathy pop is a few-day move — take it and leave.
+    # Fixed short hold: the sympathy pop is a few-day move - take it and leave.
     if t.opened_at and (today - t.opened_at.date()).days >= settings.paper_wave_hold_days:
         return "hold window elapsed"
     # Safety: never ride a directional sympathy trade into the target's OWN print.
@@ -1799,7 +1799,7 @@ def _scan_wave_entries(
             )
             continue
 
-        # The catalyst is the peer's print, not the target's — so the target's
+        # The catalyst is the peer's print, not the target's - so the target's
         # own earnings date no longer gates entry. But we won't hold a directional
         # trade INTO the target's own report, so skip if it lands inside the hold.
         tgt_date = _parse_iso(sig.get("target_report_date"))
@@ -2087,7 +2087,7 @@ def _drift_exit_reason(
     t: PaperTrade, spot_now: float | None, exit_value: float, today: date,
     settings, tp_pct: float,
 ) -> str | None:
-    # Global learned take-profit on the underlying move — drift otherwise has no
+    # Global learned take-profit on the underlying move - drift otherwise has no
     # upside exit but the time/width ones, which let winners round-trip.
     tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
     if tp is not None:
@@ -2100,7 +2100,7 @@ def _drift_exit_reason(
         return f"take-profit ({exit_value / t.width:.0%} of width)"
     # Stop: underlying gave back the post-earnings move (broken thesis). Two
     # guards stop this from whipsawing a fresh entry to a loss (what churned
-    # JEF/WOR): (1) don't stop on the entry day — give the thesis a session, and
+    # JEF/WOR): (1) don't stop on the entry day - give the thesis a session, and
     # (2) require the price to be a buffer *beyond* the pivot, not just grazing
     # it, so intraday noise around the level doesn't trigger.
     if t.opened_at and t.opened_at.date() >= today:
@@ -2487,7 +2487,7 @@ def _reddit_exit_reason(
     tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
     if tp is not None:
         return tp
-    # Time exit: this is a momentum day-trade — we ride the Reddit wave for only
+    # Time exit: this is a momentum day-trade - we ride the Reddit wave for only
     # a few hours and never hold overnight. Measured in hours since the fill (the
     # cron's ~30-min cadence is the exit granularity).
     if t.opened_at:
@@ -2500,8 +2500,8 @@ def _reddit_exit_reason(
     # Stop: the spread has given back a chunk of the debit we paid.
     if t.entry_credit and exit_value <= (1 - settings.paper_reddit_stop_frac) * t.entry_credit:
         return f"stop ({exit_value / t.entry_credit:.0%} of debit left)"
-    # Sentiment reversal/collapse: don't whipsaw on the entry day — give the
-    # thesis a session — then bail if the freshest signal flipped against us,
+    # Sentiment reversal/collapse: don't whipsaw on the entry day - give the
+    # thesis a session - then bail if the freshest signal flipped against us,
     # went quiet (noise), or fell below the velocity floor.
     if t.opened_at and t.opened_at.date() >= today:
         return None
@@ -2621,7 +2621,7 @@ def _scan_reddit_entries(
     )
 
     # How many *new* Reddit option entries we've already opened today, to enforce
-    # the per-day cap (equity twins don't count — they ride an option entry).
+    # the per-day cap (equity twins don't count - they ride an option entry).
     start_today = datetime.combine(datetime.utcnow().date(), datetime.min.time())
     new_today = len(
         db.scalars(
@@ -2709,7 +2709,7 @@ def _scan_reddit_entries(
         ).first()
         if existing:
             continue
-        # Re-entry cooldown: don't chase the same name day after day — require a
+        # Re-entry cooldown: don't chase the same name day after day - require a
         # gap since its last entry (win or lose) before we trade it again.
         recent = db.scalars(
             select(PaperTrade).where(
@@ -2842,7 +2842,7 @@ def _open_reddit_equity_twin(
     db: Session, client: AlpacaClient, sig: dict, option_trade: PaperTrade, settings
 ) -> None:
     """Alongside the options spread, open a stock position on the same name and
-    direction (short for bearish), sized to the same dollar risk as the spread —
+    direction (short for bearish), sized to the same dollar risk as the spread -
     an A/B twin to see whether the shares beat the options on the same signal."""
     if not settings.paper_reddit_equity_twin_enabled:
         return
@@ -2998,7 +2998,7 @@ def _notify_trades(db: Session, pre_status: dict[str, str]) -> dict:
     Returns ``{attempted, ok, opened, closed}`` so the health layer can fail
     loud when Telegram drops a real fill/close alert.
     """
-    # Expire cached ORM state — sync_labels may have committed mid-run, and we
+    # Expire cached ORM state - sync_labels may have committed mid-run, and we
     # need the statuses mutated by reconcile/exits, not a stale identity map.
     db.expire_all()
     rows = db.scalars(

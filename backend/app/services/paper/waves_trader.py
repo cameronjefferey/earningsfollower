@@ -10,9 +10,9 @@ lean into a defined-risk trade that rides that sympathy pop for a few days:
 We use a debit spread rather than a naked long option for the same reasons drift
 does: it caps cost, cuts theta drag, and the short leg is placed near the
 expected move target so we pay only for the move the history predicts. Crucially
-it also makes high-priced names (TSM, ASML, ...) tradeable on a small budget —
+it also makes high-priced names (TSM, ASML, ...) tradeable on a small budget -
 a single ATM call there can cost thousands, but a tight spread fits. The expiry
-is short-dated (a couple of weeks out) — decoupled from the target's own print —
+is short-dated (a couple of weeks out) - decoupled from the target's own print -
 so a few-day hold isn't chewed up by theta but we aren't paying for months.
 """
 
@@ -64,7 +64,7 @@ def build_wave_spec(
 
     When ``risk_budget`` (dollars of max loss for one contract) is given and the
     full-width spread's debit would exceed it, the short leg is pulled in toward
-    the long leg to the widest spread whose debit fits — so high-priced names
+    the long leg to the widest spread whose debit fits - so high-priced names
     still size to a contract instead of skipping."""
     target = signal["target"]
     bullish = signal.get("direction") != "bearish"

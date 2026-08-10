@@ -60,7 +60,7 @@ export function reportFunnel(
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, "1");
     } catch {
-      /* private mode — fire anyway */
+      /* private mode - fire anyway */
     }
   }
   const attrs = readAdAttrs();
@@ -88,7 +88,7 @@ export function reportSignupOnce(email: string | undefined, method: string): voi
     if (localStorage.getItem(key)) return;
     localStorage.setItem(key, "1");
   } catch {
-    /* private mode — fire anyway */
+    /* private mode - fire anyway */
   }
   reportFunnel("signup", { target: method });
 }

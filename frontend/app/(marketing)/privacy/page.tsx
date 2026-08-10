@@ -29,21 +29,21 @@ export default function PrivacyPage() {
           <h2 className="m-display text-xl text-[var(--m-ink)]">Information we collect</h2>
           <ul className="list-disc pl-5 space-y-2">
             <li>
-              <span className="text-[var(--m-ink)]">Account data</span> — email, name,
+              <span className="text-[var(--m-ink)]">Account data</span> - email, name,
               profile image (if you sign in with Google), and password hash if you create
               an email/password account.
             </li>
             <li>
-              <span className="text-[var(--m-ink)]">Billing data</span> — handled by
+              <span className="text-[var(--m-ink)]">Billing data</span> - handled by
               Stripe. We store Stripe customer/subscription ids and subscription status;
               we do not store full card numbers.
             </li>
             <li>
-              <span className="text-[var(--m-ink)]">Messages</span> — if you use Contact,
+              <span className="text-[var(--m-ink)]">Messages</span> - if you use Contact,
               we receive the name, email, and message you submit.
             </li>
             <li>
-              <span className="text-[var(--m-ink)]">Usage & logs</span> — standard server
+              <span className="text-[var(--m-ink)]">Usage & logs</span> - standard server
               logs (IP, user agent, paths) for security, rate limiting, and debugging.
             </li>
           </ul>
@@ -64,12 +64,12 @@ export default function PrivacyPage() {
           <h2 className="m-display text-xl text-[var(--m-ink)]">Processors</h2>
           <p>We use third parties to operate the Service, including:</p>
           <ul className="list-disc pl-5 space-y-2">
-            <li>Stripe — payments</li>
-            <li>Resend — transactional and contact email</li>
-            <li>Google — optional OAuth sign-in</li>
-            <li>Render — hosting and database</li>
-            <li>Reddit — advertising measurement (conversion pixel) when ads are running</li>
-            <li>Market data providers (e.g. FMP, Yahoo) — market/earnings data (not your personal account content)</li>
+            <li>Stripe - payments</li>
+            <li>Resend - transactional and contact email</li>
+            <li>Google - optional OAuth sign-in</li>
+            <li>Render - hosting and database</li>
+            <li>Reddit - advertising measurement (conversion pixel) when ads are running</li>
+            <li>Market data providers (e.g. FMP, Yahoo) - market/earnings data (not your personal account content)</li>
           </ul>
         </section>
 

@@ -49,7 +49,7 @@ class TrafficBody(BaseModel):
     # Anonymous per-browser-session id so events can be stitched into journeys.
     sid: str | None = Field(default=None, max_length=64)
     referrer: str | None = Field(default=None, max_length=512)
-    # "guest" | "member" | "pro" — coarse auth state at event time.
+    # "guest" | "member" | "pro" - coarse auth state at event time.
     viewer: str | None = Field(default=None, max_length=16)
     rdt_cid: str | None = Field(default=None, max_length=128)
     utm_source: str | None = Field(default=None, max_length=64)
@@ -232,18 +232,18 @@ def _traffic_message(
         err = body.auth_error or "Error"
         cause = f" · {body.auth_cause}" if body.auth_cause else ""
         return (
-            f"{tag}Auth fail: {err}{cause} · score={score} · ip={ip} · ua={ua_short or '—'}"
+            f"{tag}Auth fail: {err}{cause} · score={score} · ip={ip} · ua={ua_short or '-'}"
         )
     if body.kind == "ad_engage":
         ms = body.engaged_ms if body.engaged_ms is not None else "?"
-        cid = body.rdt_cid or "—"
-        return f"Ad engage {ms}ms · rdt_cid={cid} · {body.utm_campaign or body.utm_source or '—'}"
+        cid = body.rdt_cid or "-"
+        return f"Ad engage {ms}ms · rdt_cid={cid} · {body.utm_campaign or body.utm_source or '-'}"
     if body.kind == "pageview":
         who = body.viewer or "guest"
-        return f"Pageview {body.path or '—'} · {who} · sid={body.sid or '—'}"
-    cid = body.rdt_cid or "—"
-    camp = body.utm_campaign or "—"
-    src = body.utm_source or "—"
+        return f"Pageview {body.path or '-'} · {who} · sid={body.sid or '-'}"
+    cid = body.rdt_cid or "-"
+    camp = body.utm_campaign or "-"
+    src = body.utm_source or "-"
     if body.kind in ("cta_click", "calendar_view", "company_view", "guest_gate", "signup"):
         label = {
             "cta_click": "CTA click",
@@ -261,5 +261,5 @@ def _traffic_message(
     # ad_landing
     return (
         f"{tag}Ad landing · source={src} · campaign={camp} · rdt_cid={cid} "
-        f"· score={score} · ip={ip} · ua={ua_short or '—'}"
+        f"· score={score} · ip={ip} · ua={ua_short or '-'}"
     )

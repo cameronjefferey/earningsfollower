@@ -23,7 +23,7 @@ function PricingInner() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   // Live Stripe reality (not AUTH_BYPASS / stale JWT). Manage only when this
-  // has a customer id — otherwise show Subscribe even if session says "active".
+  // has a customer id - otherwise show Subscribe even if session says "active".
   const [billing, setBilling] = useState<BillingResponse | null>(null);
   const confirmStarted = useRef(false);
   const syncedOnce = useRef(false);
@@ -49,7 +49,7 @@ function PricingInner() {
 
   useEffect(() => {
     if (checkout === "cancel") {
-      setMessage("Checkout canceled — no charge was made.");
+      setMessage("Checkout canceled - no charge was made.");
       return;
     }
     if (checkout !== "success" || !session?.accessToken) return;
@@ -57,7 +57,7 @@ function PricingInner() {
     confirmStarted.current = true;
 
     let cancelled = false;
-    setMessage("Payment received — unlocking Pro…");
+    setMessage("Payment received - unlocking Pro…");
 
     const confirm = async () => {
       try {
@@ -71,7 +71,7 @@ function PricingInner() {
               conversionId: `sub_${session.user?.email ?? "anon"}_${Date.now()}`,
             });
           }
-          setMessage("You're subscribed — opening the boards…");
+          setMessage("You're subscribed - opening the boards…");
           router.replace(nextPath === "/" ? "/boards" : nextPath);
           return;
         }
@@ -94,7 +94,7 @@ function PricingInner() {
                 conversionId: `sub_${session.user?.email ?? "anon"}_${Date.now()}`,
               });
             }
-            setMessage("You're subscribed — opening the boards…");
+            setMessage("You're subscribed - opening the boards…");
             router.replace(nextPath === "/" ? "/boards" : nextPath);
             return;
           }
@@ -135,7 +135,7 @@ function PricingInner() {
       });
       if (data.already_subscribed) {
         await refreshBilling();
-        setMessage("You're already subscribed — opening billing…");
+        setMessage("You're already subscribed - opening billing…");
       }
       if (data.url) {
         window.location.href = data.url;
@@ -169,7 +169,7 @@ function PricingInner() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Portal failed";
       setError(msg);
-      // Ghost sandbox subscription cleared — drop Manage and offer Subscribe.
+      // Ghost sandbox subscription cleared - drop Manage and offer Subscribe.
       if (/subscribe first|test mode|no stripe customer/i.test(msg)) {
         setBilling({
           subscribed: false,
@@ -177,7 +177,7 @@ function PricingInner() {
           stripe_customer_id: null,
           stripe_subscription_id: null,
         });
-        setMessage("Sandbox billing cleared — subscribe again with a live card.");
+        setMessage("Sandbox billing cleared - subscribe again with a live card.");
       }
       try {
         await refreshBilling();
@@ -189,7 +189,7 @@ function PricingInner() {
   }, [session, nextPath, refreshBilling]);
 
   // Manage only when Stripe actually has a customer. AUTH_BYPASS / admin can keep
-  // session.subscribed true with no live customer — that must not show Manage.
+  // session.subscribed true with no live customer - that must not show Manage.
   const showManage = Boolean(billing?.stripe_customer_id);
 
   return (
@@ -206,7 +206,7 @@ function PricingInner() {
           <div>
             <div className="text-lg font-semibold">Free</div>
             <div className="text-sm text-[var(--color-muted)] mt-1">
-              Earnings calendar — who reports and what&apos;s priced in
+              Earnings calendar - who reports and what&apos;s priced in
             </div>
           </div>
           <div className="text-right">
@@ -216,7 +216,7 @@ function PricingInner() {
         <ul className="text-sm space-y-1.5 text-[var(--color-muted)]">
           <li>Full earnings calendar with implied moves</li>
           <li>
-            Unlimited company pages — full reaction history and implied move context
+            Unlimited company pages - full reaction history and implied move context
           </li>
           <li>Live headline price on company pages</li>
           <li>Sample board layout so you can see what Pro unlocks</li>
@@ -245,19 +245,19 @@ function PricingInner() {
 
         <ul className="text-sm space-y-2 text-[var(--color-muted)]">
           <li>
-            <span className="text-white font-medium">Drift board</span> — live
+            <span className="text-white font-medium">Drift board</span> - live
             post-earnings continuation setups with history and stops
           </li>
           <li>
-            <span className="text-white font-medium">Waves board</span> — peer-driven
+            <span className="text-white font-medium">Waves board</span> - peer-driven
             run-ups into names reporting next
           </li>
           <li>
-            <span className="text-white font-medium">Sample honesty</span> — win rate
+            <span className="text-white font-medium">Sample honesty</span> - win rate
             next to n; thin history gets flagged
           </li>
           <li>
-            <span className="text-white font-medium">Plans on setups</span> — entry,
+            <span className="text-white font-medium">Plans on setups</span> - entry,
             window, and invalidation where the sample supports it
           </li>
           <li>Full company reaction detail on top of the free calendar</li>

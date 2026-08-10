@@ -155,7 +155,7 @@ def build_digest(db: Session, *, as_of: date | None = None) -> dict[str, Any]:
         bullets.append(
             {
                 "kind": "none",
-                "text": "Quiet day — no material calendar or board changes vs the last digest.",
+                "text": "Quiet day - no material calendar or board changes vs the last digest.",
             }
         )
 
@@ -206,7 +206,7 @@ def get_today(db: Session, *, preview: bool) -> dict:
             ],
             "preview": preview,
             "preview_note": (
-                "Preview — subscribe for the full daily change list."
+                "Preview - subscribe for the full daily change list."
                 if preview
                 else None
             ),
@@ -222,7 +222,7 @@ def get_today(db: Session, *, preview: bool) -> dict:
     note = None
     if preview:
         bullets = bullets[:3]
-        note = "Preview — a few of today's changes. Pro unlocks the full digest."
+        note = "Preview - a few of today's changes. Pro unlocks the full digest."
 
     return {
         "date": payload.get("date") or row.digest_date.isoformat(),

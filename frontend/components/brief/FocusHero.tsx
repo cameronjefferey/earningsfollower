@@ -44,7 +44,7 @@ function ConvictionRing({
         className="mt-2 text-[11px] font-semibold uppercase tracking-wide"
         style={{ color }}
       >
-        {label ?? "—"}
+        {label ?? "-"}
       </span>
       <span className="text-[10px] text-[var(--color-muted)] uppercase tracking-wide">
         Conviction
@@ -93,7 +93,7 @@ function EdgeViz({ setup }: { setup: RankedSetup }) {
             Win rate
           </span>
           <span className="text-sm font-semibold tabular text-white">
-            {win != null ? pct(win, 0) : "—"}
+            {win != null ? pct(win, 0) : "-"}
           </span>
         </div>
         <div className="relative h-2 rounded-full bg-[var(--color-panel-2)] overflow-hidden">
@@ -111,8 +111,8 @@ function EdgeViz({ setup }: { setup: RankedSetup }) {
         </div>
         <div className="text-[10px] text-[var(--color-muted)] mt-1">
           {floor != null
-            ? `Wilson floor ${pct(floor, 0)} · n=${setup.sample_size ?? "—"}`
-            : `n=${setup.sample_size ?? "—"}`}
+            ? `Wilson floor ${pct(floor, 0)} · n=${setup.sample_size ?? "-"}`
+            : `n=${setup.sample_size ?? "-"}`}
         </div>
       </div>
     </div>
@@ -138,7 +138,7 @@ function PlanCell({
           <p className="text-sm text-white">{value || "Pro detail"}</p>
         </BlurValue>
       ) : (
-        <p className="text-sm text-white leading-snug">{value || "—"}</p>
+        <p className="text-sm text-white leading-snug">{value || "-"}</p>
       )}
     </div>
   );
@@ -218,7 +218,7 @@ export function FocusHero({
             <SampleTierBadge tier={setup.sample_tier} />
           </div>
 
-          <BlurZone active={preview} label="Pro — today's lean">
+          <BlurZone active={preview} label="Pro - today's lean">
             <div className="flex items-baseline gap-2 flex-wrap">
               {preview ? (
                 <span className="text-3xl font-semibold tracking-tight">
@@ -317,11 +317,11 @@ export function BoardQualityBar({ q }: { q: BoardQuality }) {
     },
     {
       label: "Median win floor",
-      value: q.median_win_floor != null ? pct(q.median_win_floor, 0) : "—",
+      value: q.median_win_floor != null ? pct(q.median_win_floor, 0) : "-",
     },
     {
       label: "Best edge",
-      value: q.best_edge_pct != null ? signedPct(q.best_edge_pct, 1) : "—",
+      value: q.best_edge_pct != null ? signedPct(q.best_edge_pct, 1) : "-",
     },
   ];
 
@@ -335,7 +335,7 @@ export function BoardQualityBar({ q }: { q: BoardQuality }) {
           }`}
         >
           {narrow
-            ? "Narrow day — one dominant driver. Don't mistake peers for diversification."
+            ? "Narrow day - one dominant driver. Don't mistake peers for diversification."
             : `${q.distinct_drivers} independent drivers today.`}
         </span>
       </div>

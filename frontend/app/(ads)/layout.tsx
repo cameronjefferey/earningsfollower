@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-/** Lean chrome for paid-traffic landings — brand + sign-in only. */
+/** Lean chrome for paid-traffic landings - brand + sign-in only. */
 export default function AdsLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="marketing">

@@ -17,7 +17,7 @@ export function SampleTierBadge({ tier }: { tier?: SampleTier | null }) {
       style={{ color: v.color, borderColor: `${v.color}55`, backgroundColor: `${v.color}1a` }}
       title={
         tier === "thin"
-          ? "Fewer than 5 similar past events — treat cautiously"
+          ? "Fewer than 5 similar past events - treat cautiously"
           : tier === "ok"
             ? "5–8 similar past events"
             : "9+ similar past events"

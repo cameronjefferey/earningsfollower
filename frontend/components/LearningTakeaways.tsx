@@ -14,13 +14,13 @@ const WARN = "#f0a85b";
 const LOSS = "#f0556d";
 
 function money(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   const sign = v < 0 ? "-" : v > 0 ? "+" : "";
   return `${sign}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function pct(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   return `${(v * 100).toFixed(0)}%`;
 }
 
@@ -34,7 +34,7 @@ function plainPoint(raw: string): string {
     .replace(/\bthe gate\b/gi, "our entry filter")
     .replace(/\brejecting winners\b/gi, "passing on setups that then worked")
     .replace(/\bgraded trades?\b/gi, "closed trades")
-    .replace(/\bthin sample\b/gi, "small sample — take lightly")
+    .replace(/\bthin sample\b/gi, "small sample - take lightly")
     .replace(/\bCI\b/g, "likely range")
     .replace(/\bn=(\d+)/g, "($1 trades)")
     .replace(/\br=([+-]?\d+\.\d+)/g, "link strength $1");
@@ -75,12 +75,12 @@ function buildDoThis(
       .find((r) => (r.avg_pnl ?? 0) < 0 && r.n >= 5);
     if (best && out.length < 3) {
       out.push(
-        `Favor setups like ${best.key} — about ${money(best.avg_pnl)}/trade so far (${best.wins}/${best.n} wins).`
+        `Favor setups like ${best.key} - about ${money(best.avg_pnl)}/trade so far (${best.wins}/${best.n} wins).`
       );
     }
     if (worst && out.length < 3) {
       out.push(
-        `Be careful with ${worst.key} — averaging ${money(worst.avg_pnl)}/trade (${worst.wins}/${worst.n} wins).`
+        `Be careful with ${worst.key} - averaging ${money(worst.avg_pnl)}/trade (${worst.wins}/${worst.n} wins).`
       );
     }
   }
@@ -89,11 +89,11 @@ function buildDoThis(
   if (stops && out.length < 4) {
     if (stops.enabled) {
       out.push(
-        `Hard-stop earnings credit losers around ${pct(stops.stop_loss_frac)} of max risk (tighter near expiry) — don't let a 50% win rate bleed via fat left tails.`
+        `Hard-stop earnings credit losers around ${pct(stops.stop_loss_frac)} of max risk (tighter near expiry) - don't let a 50% win rate bleed via fat left tails.`
       );
     } else {
       out.push(
-        "Hard stops are off on earnings credits — that's how a ~50% win rate still loses money (small wins, fat losses)."
+        "Hard stops are off on earnings credits - that's how a ~50% win rate still loses money (small wins, fat losses)."
       );
     }
   }
@@ -103,11 +103,11 @@ function buildDoThis(
     const tp = pct(live.effective_pct);
     if (live.learned?.applicable) {
       out.push(
-        `On winners that are working, the book is taking profits around a ${tp} move in the stock — consider the same discipline in your own trades.`
+        `On winners that are working, the book is taking profits around a ${tp} move in the stock - consider the same discipline in your own trades.`
       );
     } else {
       out.push(
-        `Default take-profit is around a ${tp} move while more trades grade — a simple rule you can mirror.`
+        `Default take-profit is around a ${tp} move while more trades grade - a simple rule you can mirror.`
       );
     }
   }
@@ -116,11 +116,11 @@ function buildDoThis(
   if (base && out.length < 4) {
     if (base.significant && base.avg_excess_move_5d > 0) {
       out.push(
-        "Signals are beating the broad tape after the print — the ideas themselves look useful, not just a bull market."
+        "Signals are beating the broad tape after the print - the ideas themselves look useful, not just a bull market."
       );
     } else if (base.avg_excess_move_5d <= 0) {
       out.push(
-        "After the print, picks aren't clearly beating the market — size smaller until that turns."
+        "After the print, picks aren't clearly beating the market - size smaller until that turns."
       );
     }
   }
@@ -176,7 +176,7 @@ export function LearningTakeaways({
             What this means for your trades
           </h2>
           <p className="text-sm text-[var(--color-muted)] mt-1 max-w-2xl">
-            Plain-English takeaways from the paper book — use them as a checklist
+            Plain-English takeaways from the paper book - use them as a checklist
             when you size your own earnings trades.
           </p>
         </div>

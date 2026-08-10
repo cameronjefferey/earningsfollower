@@ -4,17 +4,17 @@ Pipeline (mirrors how the waves/drift screens produce signals the paper trader
 consumes):
 
   1. Pull the configured subreddit listings (and optionally top comments).
-  2. Extract candidate tickers from the text — cashtags ($TSLA) and bare symbols
+  2. Extract candidate tickers from the text - cashtags ($TSLA) and bare symbols
      validated against names we actually track, with a stoplist so common
      English words that happen to be tickers (e.g. "IT", "ALL", "GO") don't leak
      in. This is also the universe guard the brief calls for: we only ever trade
      names that already exist in our DB.
-  3. Per ticker: count distinct mentions and measure *velocity* — mentions this
+  3. Per ticker: count distinct mentions and measure *velocity* - mentions this
      scan vs. the ticker's trailing baseline (the acceleration / anti-pump
      guard). Only tickers clearing both the mention floor and the velocity floor
      get scored.
   4. Score sentiment into a structured verdict (direction, conviction, pump_risk,
-     is_noise, sentiment, rationale) — via an LLM when configured, else a
+     is_noise, sentiment, rationale) - via an LLM when configured, else a
      transparent keyword heuristic.
   5. Journal one RedditSignal row per qualifying ticker (auditable) and return
      the freshly scored signals.
@@ -51,7 +51,7 @@ _CASHTAG_RE = re.compile(r"\$([A-Za-z]{1,5})\b")
 _BARE_RE = re.compile(r"\b([A-Z]{2,5})\b")
 
 # Uppercase tokens that are real tickers but, on these subreddits, are almost
-# always English/slang — require a cashtag for these to count.
+# always English/slang - require a cashtag for these to count.
 _STOPLIST = {
     "A", "I", "ALL", "GO", "ON", "IT", "FOR", "ARE", "BE", "BY", "OR", "SO",
     "AT", "AN", "AM", "PM", "US", "USA", "USD", "CEO", "CFO", "COO", "IPO",
@@ -125,7 +125,7 @@ def current_reddit_signals(db: Session, *, persist: bool = True) -> list[dict]:
     attention = _fetch_apewisdom(settings, known) if settings.reddit_use_apewisdom else {}
     # Reddit post text is best-effort: it powers true sentiment direction when
     # OAuth creds are configured, and is the sole source when ApeWisdom is off.
-    # Skip it entirely when ApeWisdom is on but Reddit isn't authenticated — the
+    # Skip it entirely when ApeWisdom is on but Reddit isn't authenticated - the
     # public endpoints block datacenter IPs, so hitting them just spams 403s.
     reddit_authed = bool(settings.reddit_client_id and settings.reddit_client_secret)
     if reddit_authed or not settings.reddit_use_apewisdom:
@@ -372,7 +372,7 @@ def _extract_tickers(text: str, known: set[str]) -> set[str]:
     if not text:
         return set()
     found: set[str] = set()
-    # Cashtags are explicit — accept any that maps to a tracked ticker.
+    # Cashtags are explicit - accept any that maps to a tracked ticker.
     for m in _CASHTAG_RE.findall(text):
         sym = m.upper()
         if sym in known:

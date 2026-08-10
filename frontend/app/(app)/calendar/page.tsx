@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/ui";
 import { windowLabel } from "@/lib/format";
 
 // The tabs are client-side date filters over a single fetched span, not
-// separate requests — switching is instant and search spans every group.
+// separate requests - switching is instant and search spans every group.
 const WINDOWS = [
   { key: "all", label: "All" },
   { key: "today", label: "Today" },
@@ -49,7 +49,7 @@ const CONVICTION_BUCKETS: { key: string; label: string }[] = [
 
 // HappyTrader (and any external deep-link) speaks a stable, public slug
 // vocabulary. These maps translate to/from our internal window + theme keys.
-// Keep these slugs stable — they are a published interface.
+// Keep these slugs stable - they are a published interface.
 const TAB_FROM_SLUG: Record<string, string> = {
   all: "all",
   today: "today",
@@ -186,7 +186,7 @@ export default function DashboardPage() {
   };
 
   // Read inbound deep-link params on mount. Anything unknown/malformed is
-  // ignored and we fall through to the normal calendar — never an error.
+  // ignored and we fall through to the normal calendar - never an error.
   useEffect(() => {
     try {
       const sp = new URLSearchParams(window.location.search);
@@ -200,7 +200,7 @@ export default function DashboardPage() {
       const sym = (sp.get("symbol") ?? "").trim().toUpperCase();
       if (sym) setFocusSymbol(sym);
     } catch {
-      // Ignore — render the default calendar.
+      // Ignore - render the default calendar.
     } finally {
       setParamsReady(true);
     }
@@ -294,7 +294,7 @@ export default function DashboardPage() {
       const qs = sp.toString();
       window.history.replaceState(null, "", qs ? `/?${qs}` : "/");
     } catch {
-      // Non-fatal — URL sync is a convenience only.
+      // Non-fatal - URL sync is a convenience only.
     }
   }, [paramsReady, windowKey, theme, focusSymbol]);
 
@@ -370,7 +370,7 @@ export default function DashboardPage() {
   );
 
   // Group by week for the broad views ("Upcoming" and "All"), but not while a
-  // symbol search is active — search results are a flat cross-tab list.
+  // symbol search is active - search results are a flat cross-tab list.
   const weekGroups = useMemo(
     () =>
       !focusSymbol && (windowKey === "upcoming" || windowKey === "all")
@@ -761,7 +761,7 @@ export default function DashboardPage() {
               <>
                 No earnings for{" "}
                 <span className="text-white font-medium">{focusSymbol}</span> in this
-                tab — try All or another window.
+                tab - try All or another window.
               </>
             ) : (
               <span>{resultsSummary}</span>
@@ -863,7 +863,7 @@ export default function DashboardPage() {
                 })
                 .catch(() => {
                   if (gen !== fetchGen.current) return;
-                  setMoreError("Couldn't load more — try again.");
+                  setMoreError("Couldn't load more - try again.");
                 })
                 .finally(() => {
                   if (gen === fetchGen.current) setLoadingMore(false);

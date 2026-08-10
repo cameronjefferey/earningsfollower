@@ -37,7 +37,7 @@ def live_quote(
 ) -> dict[str, float | None]:
     """Best-effort last trade + day change for the company detail UI.
 
-    Prefers Alpaca (same feed as paper trading), then Yahoo. Never raises —
+    Prefers Alpaca (same feed as paper trading), then Yahoo. Never raises -
     missing credentials or vendor blips just omit the live fields so the page
     can fall back to the cached EOD close.
     """
@@ -219,7 +219,7 @@ def earnings_cards(
             {"key": row.theme_key, "label": row.theme_label}
         )
 
-    # Reaction summaries are the expensive bit — once per ticker.
+    # Reaction summaries are the expensive bit - once per ticker.
     summary_by: dict[str, object] = {}
     realized_abs_by: dict[str, list[float]] = {}
     for ticker in tickers:
@@ -274,7 +274,7 @@ def earnings_cards(
 
 
 def earnings_watchlist(db: Session, window: str = "today", *, limit: int = 12) -> list[dict]:
-    """Light today/upcoming names for the brief — no reaction recompute."""
+    """Light today/upcoming names for the brief - no reaction recompute."""
     start, end = date_range_for_window(window)
     events = db.scalars(
         select(EarningsEvent)

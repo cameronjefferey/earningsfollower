@@ -370,7 +370,7 @@ body {
   border-radius: 0.5rem;
 }
 
-/* Priced-in board — fewer cards, more signal */
+/* Priced-in board - fewer cards, more signal */
 .m-priced-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -616,7 +616,7 @@ body {
 }
 
 /* If JS never runs (or IntersectionObserver never fires), don't leave content
-   stuck invisible — show it. */
+   stuck invisible - show it. */
 @media (scripting: none) {
   .m-reveal {
     opacity: 1;

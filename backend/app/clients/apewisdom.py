@@ -1,7 +1,7 @@
 """Thin httpx wrapper over ApeWisdom's free, no-auth mentions API.
 
 ApeWisdom crawls the retail subreddits for us and publishes, per ticker, how
-many times it was mentioned, its upvotes, and — crucially — the same numbers as
+many times it was mentioned, its upvotes, and - crucially - the same numbers as
 of 24h ago, which gives a ready-made acceleration (velocity) signal. No app, no
 OAuth, no datacenter-IP blocking, so it's the dependable discovery + velocity
 source for the Reddit strategy. Direction/sentiment is layered on separately

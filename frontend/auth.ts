@@ -180,11 +180,11 @@ function reportAuthFailure(error: Error): void {
       message:
         `${bot ? "[BOT] " : ""}Auth fail: ${type}` +
         (cause ? ` · ${cause.slice(0, 180)}` : "") +
-        (error.message && !cause ? ` — ${error.message.slice(0, 180)}` : ""),
+        (error.message && !cause ? ` - ${error.message.slice(0, 180)}` : ""),
     }),
     cache: "no-store",
   }).catch(() => {
-    /* ignore — alerting must never break auth */
+    /* ignore - alerting must never break auth */
   });
 }
 

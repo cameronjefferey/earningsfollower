@@ -3,16 +3,16 @@
 Every scan the executor runs makes a series of per-name decisions: it either
 OPENS a trade or SKIPS the setup for a reason. This module journals each of those
 decisions to the ``trade_decisions`` table as a flat row of typed signal features,
-so we can later learn which signals actually predict winners — including the
+so we can later learn which signals actually predict winners - including the
 counterfactuals (the skips), which a fills-only journal can never tell us.
 
 Three responsibilities:
-  1. ``regime_snapshot`` — capture the code version + tunable knobs in force, so a
+  1. ``regime_snapshot`` - capture the code version + tunable knobs in force, so a
      P&L shift can be attributed to signal edge vs. a config change.
-  2. ``*_features`` builders — turn each strategy's live signal object (playbook /
+  2. ``*_features`` builders - turn each strategy's live signal object (playbook /
      wave / drift / reddit) into a flat dict of typed columns, identically for an
      opened trade and a skipped setup.
-  3. ``record_decision`` / ``sync_labels`` — write a decision row, and later fill
+  3. ``record_decision`` / ``sync_labels`` - write a decision row, and later fill
      in the realized labels (at-exit P&L + multi-horizon underlying moves) from
      the linked ``PaperTrade`` and price bars.
 
@@ -267,7 +267,7 @@ def record_decision(
     """Journal one decision (``opened`` or ``skipped``) with its signal features.
 
     Best-effort: never raises into the trader. Returns the row (flushed, not
-    committed — the caller's normal commit/rollback governs persistence, so a
+    committed - the caller's normal commit/rollback governs persistence, so a
     dry-run's rollback discards it just like a preview PaperTrade). The write is
     wrapped in a SAVEPOINT so a bad row rolls back only itself, never the
     surrounding scan's other (uncommitted) trades and decisions."""
@@ -304,7 +304,7 @@ _EQUITY_STRUCTURES = ("Long shares", "Short shares")
 
 def features_from_paper_trade(t: PaperTrade) -> tuple[str, dict]:
     """Reconstruct a decision's features from an existing PaperTrade + its thesis
-    JSON, for backfilling history. Returns ``(strategy_label, features)`` — the
+    JSON, for backfilling history. Returns ``(strategy_label, features)`` - the
     label separates the equity A/B books ("earnings_equity" / "reddit_equity")
     from their options siblings, matching what the live scans now record."""
     try:
@@ -388,7 +388,7 @@ _BACKFILL_OPENED_STATES = {"pending", "open", "closing", "closed"}
 def backfill_from_paper_trades(db: Session) -> int:
     """Create a decision row for every PaperTrade that doesn't already have one,
     reconstructing features from its thesis JSON. Idempotent (skips trades whose
-    signal_id is already journaled). Does not commit — the caller governs that."""
+    signal_id is already journaled). Does not commit - the caller governs that."""
     existing = set(
         db.scalars(
             select(TradeDecision.signal_id).where(TradeDecision.signal_id.is_not(None))
@@ -401,7 +401,7 @@ def backfill_from_paper_trades(db: Session) -> int:
         label, feats = features_from_paper_trade(t)
         if t.status in _BACKFILL_OPENED_STATES:
             decision, reason = "opened", None
-        else:  # canceled / rejected — a real setup we didn't end up holding
+        else:  # canceled / rejected - a real setup we didn't end up holding
             decision, reason = "skipped", (t.note or "canceled")
         dd = t.created_at or t.opened_at
         row = record_decision(
@@ -474,7 +474,7 @@ def sync_labels(db: Session) -> int:
     underlying's +1d/+5d move from the entry anchor.
 
     For ``skipped`` decisions (the counterfactuals): there's no trade, so only the
-    underlying move from the decision date is computed — this is what lets us ask
+    underlying move from the decision date is computed - this is what lets us ask
     "did the gate reject winners?". These finalize once the +5d bar exists (or are
     given up on after a couple weeks so they aren't rescanned forever).
 

@@ -13,12 +13,12 @@ const LOSS = "#f0556d";
 const MUTED = "#8a97b1";
 
 function pct(v: number | null | undefined, digits = 0): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   return `${(v * 100).toFixed(digits)}%`;
 }
 
 function money(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   const sign = v < 0 ? "-" : v > 0 ? "+" : "";
   return `${sign}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
@@ -111,7 +111,7 @@ function NumericFeatures({ features }: { features: AttrNumericFeature[] }) {
     <Card className="p-4">
       <h3 className="font-semibold text-sm mb-2">
         Feature → outcome
-        <InfoTip text="Correlation of each entry feature with realized P&L (Pearson r, with a 95% CI). A ★ means the CI excludes zero — the association is unlikely to be pure noise at the current sample. The strip shows win rate across low→mid→high thirds of that feature." />
+        <InfoTip text="Correlation of each entry feature with realized P&L (Pearson r, with a 95% CI). A ★ means the CI excludes zero - the association is unlikely to be pure noise at the current sample. The strip shows win rate across low→mid→high thirds of that feature." />
       </h3>
       <div className="space-y-2.5">
         {features.map((f) => {
@@ -142,7 +142,7 @@ function NumericFeatures({ features }: { features: AttrNumericFeature[] }) {
                       {cp.r.toFixed(2)}
                     </span>
                   ) : (
-                    <span className="text-[var(--color-muted)]">—</span>
+                    <span className="text-[var(--color-muted)]">-</span>
                   )}
                   <span className="text-[var(--color-muted)] ml-2">n={f.n}</span>
                 </span>
@@ -211,7 +211,7 @@ function Counterfactual({ report }: { report: AttributionResponse }) {
     <Card className="p-4">
       <h3 className="font-semibold text-sm mb-2">
         Gate check: opened vs skipped
-        <InfoTip text="For each strategy, the share of setups whose underlying moved favorably (direction-adjusted) over the next 5 days — comparing the ones we traded against the ones the gate skipped. If skipped setups moved up about as often as opened ones, the gate may be rejecting winners." />
+        <InfoTip text="For each strategy, the share of setups whose underlying moved favorably (direction-adjusted) over the next 5 days - comparing the ones we traded against the ones the gate skipped. If skipped setups moved up about as often as opened ones, the gate may be rejecting winners." />
       </h3>
       <div className="space-y-2">
         {rows.map((c) => (
@@ -225,7 +225,7 @@ function Counterfactual({ report }: { report: AttributionResponse }) {
                     {pct(c.opened.up_rate)} up
                   </span>
                 ) : (
-                  "—"
+                  "-"
                 )}
                 {c.opened ? ` (n=${c.opened.n})` : ""}
               </span>
@@ -236,7 +236,7 @@ function Counterfactual({ report }: { report: AttributionResponse }) {
                     {pct(c.skipped.up_rate)} up
                   </span>
                 ) : (
-                  "—"
+                  "-"
                 )}
                 {c.skipped ? ` (n=${c.skipped.n})` : ""}
               </span>

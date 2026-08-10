@@ -13,7 +13,7 @@ export function PaywallBanner({
   note?: string | null;
   title?: string;
   ctaLabel?: string;
-  /** Shown in the corner chip — "Sample" for demo boards, not "Pro". */
+  /** Shown in the corner chip - "Sample" for demo boards, not "Pro". */
   badge?: string;
 }) {
   const pathname = usePathname();
@@ -33,7 +33,7 @@ export function PaywallBanner({
           <div className="text-sm font-semibold tracking-tight">{title}</div>
           <p className="text-sm text-[var(--color-muted)] mt-1 leading-relaxed">
             {note ||
-              "This is demo data so you can see the layout — not today's live book. Pro unlocks live Waves and Drift."}
+              "This is demo data so you can see the layout - not today's live book. Pro unlocks live Waves and Drift."}
           </p>
         </div>
       </div>

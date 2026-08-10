@@ -270,7 +270,7 @@ class AlpacaClient:
         time_in_force: str = "day",
         client_order_id: str | None = None,
     ) -> dict[str, Any]:
-        """Submit a plain equity market order. Used for the Reddit equity twin —
+        """Submit a plain equity market order. Used for the Reddit equity twin -
         stocks are liquid so a market order fills at a fair NBBO price (no wide
         option spread to cross). A ``sell`` with no long position opens a short;
         a ``buy`` closes it (Alpaca nets against the existing position)."""

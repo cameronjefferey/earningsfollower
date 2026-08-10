@@ -34,7 +34,7 @@ def notify_signup(
         return False
     if not telegram_configured():
         logger.warning(
-            "Signup alert skipped kind=%s — TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set",
+            "Signup alert skipped kind=%s - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set",
             kind,
         )
         return False

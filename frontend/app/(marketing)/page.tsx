@@ -6,7 +6,7 @@ import { Reveal } from "@/components/marketing/Reveal";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
 
 export const metadata: Metadata = {
-  title: "earningsfollower — priced-in calendar & trading boards",
+  title: "earningsfollower - priced-in calendar & trading boards",
   description:
     "Earnings research built around what’s already priced in options, plus live Drift and Waves boards for post-report continuation and peer setups.",
   alternates: { canonical: "https://www.earningsfollower.com/" },
@@ -60,7 +60,7 @@ export default function MarketingHomePage() {
             earnings<span>follower</span>
           </p>
           <h1 className="m-hero-line mt-8 max-w-2xl text-xl sm:text-2xl text-white/90 leading-snug font-medium">
-            A map of what&apos;s priced in — then what usually happens after a name
+            A map of what&apos;s priced in - then what usually happens after a name
             reports, and after a peer reports.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-lg text-[var(--m-muted)]">
@@ -98,12 +98,12 @@ export default function MarketingHomePage() {
               {
                 n: "02",
                 t: "After it reports",
-                d: "Peer waves into the next name. Drift after a strong report. History with n attached — thin samples get called thin.",
+                d: "Peer waves into the next name. Drift after a strong report. History with n attached - thin samples get called thin.",
               },
               {
                 n: "03",
                 t: "Boards",
-                d: "Live Drift and Waves — post-earnings continuation and peer setups, with sample size attached. Trade from the board, not a catalog.",
+                d: "Live Drift and Waves - post-earnings continuation and peer setups, with sample size attached. Trade from the board, not a catalog.",
               },
             ].map((s, i) => (
               <Reveal key={s.t} delayMs={i * 50}>
@@ -132,7 +132,7 @@ export default function MarketingHomePage() {
               </Link>
             </div>
             <p className="max-w-xl text-[var(--m-muted)] leading-relaxed mb-8">
-              Top names this week by options-implied move — with date, history, and theme
+              Top names this week by options-implied move - with date, history, and theme
               on each card.
             </p>
           </Reveal>
@@ -160,15 +160,15 @@ export default function MarketingHomePage() {
             <Reveal delayMs={40}>
               <ul className="space-y-4 text-sm text-[var(--m-muted)]">
                 <li className="border-l-2 border-[var(--m-accent)] pl-3">
-                  <span className="text-white font-medium">Wave</span> — ride transmission
+                  <span className="text-white font-medium">Wave</span> - ride transmission
                   into the next peer report
                 </li>
                 <li className="border-l-2 border-[var(--m-warm)] pl-3">
-                  <span className="text-white font-medium">Drift</span> — after a strong
+                  <span className="text-white font-medium">Drift</span> - after a strong
                   report, history on whether the move kept going
                 </li>
                 <li className="border-l-2 border-[var(--m-line)] pl-3">
-                  <span className="text-white font-medium">Drop-if</span> — explicit kill
+                  <span className="text-white font-medium">Drop-if</span> - explicit kill
                   switch so you&apos;re not inventing one mid-session
                 </li>
               </ul>
@@ -246,7 +246,7 @@ export default function MarketingHomePage() {
 
       <section className="mx-auto max-w-6xl px-4 sm:px-5 py-10">
         <p className="text-xs text-[var(--m-muted)] max-w-xl leading-relaxed">
-          Research only — not advice. Data from Financial Modeling Prep and Yahoo Finance
+          Research only - not advice. Data from Financial Modeling Prep and Yahoo Finance
           can be late or wrong. Implied moves are ATM-straddle estimates.
         </p>
       </section>

@@ -2,7 +2,7 @@
 
 The LLM path is exercised only when a key is configured; in the test env
 ``LLMClient.enabled`` is False, so ``build_narrative`` deterministically takes the
-heuristic path — which is exactly what we assert here.
+heuristic path - which is exactly what we assert here.
 
 Runnable without pytest (``python tests/test_narrator.py``) and via pytest.
 """
@@ -42,7 +42,7 @@ def _report(**over) -> dict:
              "opened": {"n": 8, "avg_fav_move_5d": 0.03, "up_rate": 0.75},
              "skipped": {"n": 8, "avg_fav_move_5d": 0.04, "up_rate": 0.9}},
         ],
-        "notes": ["Small sample — directional only."],
+        "notes": ["Small sample - directional only."],
     }
     base.update(over)
     return base

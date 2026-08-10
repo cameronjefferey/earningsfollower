@@ -97,7 +97,7 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
     }
     _upsert(db, "drift", str(DEFAULT_DRIFT_LOOKBACK), drift_payload)
 
-    # Calendar cards for the full tab span — cold /earnings reads slice this.
+    # Calendar cards for the full tab span - cold /earnings reads slice this.
     earn_cards, _ = dashboard.earnings_cards(db, "all")
     persist_earnings_snapshot(db, earn_cards)
 

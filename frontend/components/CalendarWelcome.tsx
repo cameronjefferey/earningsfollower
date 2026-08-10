@@ -31,7 +31,7 @@ export function CalendarWelcome() {
         return;
       }
     } catch {
-      /* private mode — still show once this session */
+      /* private mode - still show once this session */
     }
     setVariant(next);
   }, [ready, status, subscribed]);
@@ -51,16 +51,14 @@ export function CalendarWelcome() {
     <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-[var(--color-edge)]/60 bg-[var(--color-panel)]/40 px-3 py-2">
       {variant === "guest" ? (
         <p className="min-w-0 text-sm text-[var(--color-muted)]">
-          <span className="font-medium text-white">Free calendar, no account needed</span>
-          {" — "}
-          open any name for its full earnings history ({FREE_COMPANY_LIMIT} company
+          <span className="font-medium text-white">Free calendar, no account needed.</span>{" "}
+          Open any name for its full earnings history ({FREE_COMPANY_LIMIT} company
           pages free as a guest).
         </p>
       ) : (
         <p className="min-w-0 text-sm text-[var(--color-muted)]">
-          <span className="font-medium text-white">You&apos;re in</span>
-          {" — "}
-          calendar and company pages are free. Pro unlocks the live Drift &amp; Waves
+          <span className="font-medium text-white">You&apos;re in.</span>{" "}
+          Calendar and company pages are free. Pro unlocks the live Drift &amp; Waves
           boards.
         </p>
       )}

@@ -1,11 +1,11 @@
-"""Calibration feedback — close the learning loop (phase 3).
+"""Calibration feedback - close the learning loop (phase 3).
 
 The trade-decision store records the model's predicted win probability at entry
 and the realized outcome at exit. Over time that tells us whether each strategy's
 ``win_prob`` has been optimistic or pessimistic. This module turns that history
 into a per-strategy multiplier and applies it to the win-probability the entry
 EV gate consumes, so the trader gradually stops taking trades its own track
-record says are mispriced — and takes more of the ones it has underrated.
+record says are mispriced - and takes more of the ones it has underrated.
 
 Heavily guardrailed on purpose (it changes what we trade):
   - opt-in via ``paper_calibration_enabled`` (default off),
@@ -112,7 +112,7 @@ def adjust_win_prob(
 ) -> float | None:
     """Recalibrate a model win-probability by the strategy's track record, within
     the guardrails. Returns ``raw`` unchanged when calibration is off, untrusted
-    (too few samples), or unavailable — so it's always safe to call."""
+    (too few samples), or unavailable - so it's always safe to call."""
     if raw is None or not calib:
         return raw
     entry = calib.get(strategy)

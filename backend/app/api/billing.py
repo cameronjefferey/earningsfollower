@@ -97,7 +97,7 @@ def _customer_exists(customer_id: str) -> bool:
 def _resolve_customer_id(user: User) -> str | None:
     if user.stripe_customer_id:
         # Stale ids from the other Stripe mode (test vs live) look valid in our
-        # DB but 404 in the API — clear them so the user can re-subscribe cleanly.
+        # DB but 404 in the API - clear them so the user can re-subscribe cleanly.
         if _customer_exists(user.stripe_customer_id):
             return user.stripe_customer_id
         logger.warning(
@@ -270,7 +270,7 @@ def create_checkout_session(
 
     user = _get_or_create_user(db, caller)
     try:
-        # If they already paid, don't start a second subscription — send portal.
+        # If they already paid, don't start a second subscription - send portal.
         access = _sync_user_from_stripe(user, settings)
         db.commit()
         if access["subscribed"]:
@@ -356,7 +356,7 @@ def create_portal_session(
         if not customer_id:
             raise HTTPException(
                 status_code=400,
-                detail="No Stripe customer on this account yet — subscribe first",
+                detail="No Stripe customer on this account yet - subscribe first",
             )
         app_url = settings.public_app_url.rstrip("/")
         portal = stripe.billing_portal.Session.create(
@@ -461,7 +461,7 @@ async def stripe_webhook(
                 kind=f"stripe_{etype.replace('.', '_')}",
                 email=user.email if user else None,
                 message=f"Stripe {etype}"
-                + (f" — {user.email}" if user else ""),
+                + (f" - {user.email}" if user else ""),
                 meta={"event": etype, "object_id": data.get("id")},
                 debounce_s=0,
             )

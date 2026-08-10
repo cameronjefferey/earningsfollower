@@ -7,7 +7,7 @@ export const glossary = {
   avg_move:
     "Average absolute % move on past earnings (close-to-close, timing-aware). A gauge of how violent this stock's prints usually are.",
   up_rate:
-    "Share of past earnings reactions that were positive. A rough directional tilt — 50% is a coin flip.",
+    "Share of past earnings reactions that were positive. A rough directional tilt - 50% is a coin flip.",
   beat_streak:
     "Consecutive quarters the company beat its EPS estimate. Shows consistency, but beats are often already priced in, so it doesn't guarantee an up move.",
   last_move: "The stock's % move on its most recent earnings report.",
@@ -19,7 +19,7 @@ export const glossary = {
   expected_runup:
     "How this stock has historically drifted from the peer's report date up to its own print, averaged across past cycles. The 'ride the wave' edge.",
   win_rate: "Share of past cycles where that drift was positive.",
-  sample: "Number of past cycles in the calculation — a larger sample is more reliable.",
+  sample: "Number of past cycles in the calculation - a larger sample is more reliable.",
   vol_edge:
     "How often this stock's actual earnings move reached the move currently priced in by options. A low rate means options look expensive (premium-seller edge); a high rate favors buyers.",
   pead:

@@ -78,11 +78,11 @@ def send_magic_link(
     welcome_html = ""
     if welcome_new_user:
         welcome_text = (
-            "Welcome — your account is ready. The earnings calendar is free "
+            "Welcome - your account is ready. The earnings calendar is free "
             f"({calendar}). Pro unlocks Drift and Waves boards when you're ready.\n\n"
         )
         welcome_html = (
-            "<p>Welcome — your account is ready. The earnings calendar is free. "
+            "<p>Welcome - your account is ready. The earnings calendar is free. "
             "Pro unlocks Drift and Waves boards when you&apos;re ready.</p>"
         )
     return send_email(
@@ -120,21 +120,21 @@ def send_welcome(
         subject="Welcome to Earnings Follower",
         text=(
             f"{greeting}\n\n"
-            "Your account is ready. The earnings calendar is free — who reports "
+            "Your account is ready. The earnings calendar is free - who reports "
             "and what's priced in:\n\n"
             f"{calendar}\n\n"
             "When you want live Drift and Waves boards, Pro unlocks them:\n\n"
             f"{boards}\n\n"
-            "— Earnings Follower"
+            "- Earnings Follower"
         ),
         html=(
             f"<p>{greeting}</p>"
-            "<p>Your account is ready. The earnings calendar is free — who reports "
+            "<p>Your account is ready. The earnings calendar is free - who reports "
             "and what&apos;s priced in.</p>"
             f'<p><a href="{calendar}">Open the calendar</a></p>'
             "<p>When you want live Drift and Waves boards, Pro unlocks them.</p>"
             f'<p><a href="{boards}">Preview the boards</a></p>'
-            "<p style='color:#666;font-size:13px'>— Earnings Follower</p>"
+            "<p style='color:#666;font-size:13px'>- Earnings Follower</p>"
         ),
     )
 

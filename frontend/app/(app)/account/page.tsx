@@ -61,8 +61,8 @@ export default function AccountPage() {
           await update();
           setNote(
             sync.subscribed
-              ? "Synced with Stripe — Pro is active."
-              : "Synced with Stripe — no active subscription on this account."
+              ? "Synced with Stripe - Pro is active."
+              : "Synced with Stripe - no active subscription on this account."
           );
           return;
         }
@@ -86,7 +86,7 @@ export default function AccountPage() {
           isAdmin: Boolean(data.is_admin),
           periodEnd: data.current_period_end ?? null,
         });
-        // If DB still says free, pull from Stripe once — covers webhook misses.
+        // If DB still says free, pull from Stripe once - covers webhook misses.
         if (!data.subscribed) {
           const sync = await postBilling("/billing/sync", session.accessToken);
           setProfile({

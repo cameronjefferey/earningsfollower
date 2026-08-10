@@ -49,7 +49,7 @@ export function EarningsCardItem({ card }: { card: EarningsCard }) {
               ) : null}
             </div>
             <div className="text-sm text-[var(--color-muted)] truncate mt-0.5">
-              {card.name ?? card.sector ?? "—"}
+              {card.name ?? card.sector ?? "-"}
             </div>
           </div>
           <div className="text-right shrink-0">
@@ -86,7 +86,7 @@ export function EarningsCardItem({ card }: { card: EarningsCard }) {
             <div className="text-xs text-[var(--color-muted)]">
               Beat streak{" "}
               <span className="font-medium text-white tabular">
-                {card.beat_streak > 0 ? `${card.beat_streak}Q` : "—"}
+                {card.beat_streak > 0 ? `${card.beat_streak}Q` : "-"}
               </span>
             </div>
           </div>

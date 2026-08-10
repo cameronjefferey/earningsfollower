@@ -1,7 +1,7 @@
 """Signal attribution over the trade-decision feature store (learning loop phase 2).
 
 Answers "which signals actually predict winners?" from the ``trade_decisions``
-table — honestly, with sample sizes and confidence intervals front and centre so
+table - honestly, with sample sizes and confidence intervals front and centre so
 a two-trade cohort can't masquerade as an edge. Deliberately statistics, not an
 LLM: at this scale the right tool is proportion/mean CIs and correlations, which
 are calibrated and reproducible.
@@ -15,7 +15,7 @@ What it computes:
     split showing win rate / avg P&L across low→high values.
   - Calibration: predicted win_prob vs. realized win rate, bucketed.
   - Counterfactual: opened vs. skipped setups compared on the underlying's
-    direction-adjusted +5d move — i.e. did the gate reject would-be winners?
+    direction-adjusted +5d move - i.e. did the gate reject would-be winners?
 
 Pure numpy (no scipy/sklearn) so it adds no deployment weight.
 """
@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import PaperTrade, TradeDecision
 
-# Don't report a cohort/feature thinner than this — it's noise, not signal.
+# Don't report a cohort/feature thinner than this - it's noise, not signal.
 DEFAULT_MIN_SAMPLES = 5
 
 # Numeric entry features worth attributing, with a human label. Only those with
@@ -73,7 +73,7 @@ _COHORT_DIMS: list[tuple[str, str]] = [
 
 
 def wilson_interval(wins: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    """95% Wilson score interval for a binomial proportion — well-behaved for the
+    """95% Wilson score interval for a binomial proportion - well-behaved for the
     small, lopsided samples a trade journal produces (unlike the normal approx)."""
     if n <= 0:
         return (0.0, 0.0)
@@ -141,7 +141,7 @@ def pearson_ci(x: np.ndarray, y: np.ndarray) -> dict | None:
 
 
 def _closed(db: Session, as_of: datetime | None = None) -> list[TradeDecision]:
-    """Opened decisions with a realized P&L label — the trades we can grade.
+    """Opened decisions with a realized P&L label - the trades we can grade.
 
     When ``as_of`` is given, only trades whose linked position had actually closed
     by that moment are returned, so we can reconstruct exactly what was known at
@@ -244,7 +244,7 @@ def _numeric_attribution(rows: list[TradeDecision], min_samples: int) -> list[di
 
 def _terciles(feat: np.ndarray, pnl: np.ndarray, win: np.ndarray) -> list[dict]:
     """Split the feature into low/mid/high thirds and report each third's win rate
-    and avg P&L — a monotone gradient is the visual 'this signal matters' tell."""
+    and avg P&L - a monotone gradient is the visual 'this signal matters' tell."""
     order = np.argsort(feat)
     thirds = np.array_split(order, 3)
     labels = ["low", "mid", "high"]
@@ -362,7 +362,7 @@ def attribution_report(
     notes: list[str] = []
     if n < 20:
         notes.append(
-            f"Only {n} graded trades so far — treat every number as directional, "
+            f"Only {n} graded trades so far - treat every number as directional, "
             "not conclusive. Confidence intervals will tighten as more trades close."
         )
     notes.append(
@@ -392,7 +392,7 @@ def attribution_report(
 
 
 def _print_report(report: dict) -> None:
-    print(f"\nSignal attribution — {report['graded_trades']} graded trades\n" + "=" * 60)
+    print(f"\nSignal attribution - {report['graded_trades']} graded trades\n" + "=" * 60)
     for note in report["notes"]:
         print(f"  note: {note}")
     for key, rows in report["cohorts"].items():

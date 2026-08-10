@@ -44,7 +44,7 @@ function GuestGate({ ticker }: { ticker: string }) {
             That&apos;s your {FREE_COMPANY_LIMIT} free company pages
           </h1>
           <p className="text-sm text-[var(--color-muted)] mt-2 leading-relaxed">
-            Create a free account for unlimited company pages — full reaction
+            Create a free account for unlimited company pages - full reaction
             history, implied move context, and a live headline price. The
             calendar stays free either way.
           </p>
@@ -170,11 +170,11 @@ export default function CompanyPage() {
 
       {isPreview ? (
         <PaywallBanner
-          title={`${data.ticker} — sample company brief`}
+          title={`${data.ticker} - sample company brief`}
           badge="Sample"
           note={
             data.preview_note ||
-            "Sample data for layout — key stats and charts are not the live brief. Pro unlocks the real numbers."
+            "Sample data for layout - key stats and charts are not the live brief. Pro unlocks the real numbers."
           }
         />
       ) : null}
@@ -184,11 +184,11 @@ export default function CompanyPage() {
           <p className="min-w-0 text-[var(--color-muted)]">
             {freeViewsLeft > 0 ? (
               <>
-                Guest view — {freeViewsLeft} of {FREE_COMPANY_LIMIT} free company{" "}
+                Guest view - {freeViewsLeft} of {FREE_COMPANY_LIMIT} free company{" "}
                 {freeViewsLeft === 1 ? "page" : "pages"} left.
               </>
             ) : (
-              <>Guest view — this is your last free company page.</>
+              <>Guest view - this is your last free company page.</>
             )}
           </p>
           <Link
@@ -204,7 +204,7 @@ export default function CompanyPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{data.ticker}</h1>
           <div className="text-[var(--color-muted)] mt-1">
-            {data.name ?? "—"} {data.sector ? `· ${data.sector}` : ""}
+            {data.name ?? "-"} {data.sector ? `· ${data.sector}` : ""}
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">
             {data.themes.map((t) => (
@@ -231,7 +231,7 @@ export default function CompanyPage() {
         <Stat
           label="Implied move"
           info={glossary.implied_move}
-          value={im ? pct(im.expected_move_pct) : "—"}
+          value={im ? pct(im.expected_move_pct) : "-"}
           sub={
             im?.verdict ? <VerdictPill verdict={im.verdict} /> : im?.expiry ?? undefined
           }
@@ -254,7 +254,7 @@ export default function CompanyPage() {
         <Stat
           label="Beat streak"
           info={glossary.beat_streak}
-          value={s.beat_streak > 0 ? `${s.beat_streak}Q` : "—"}
+          value={s.beat_streak > 0 ? `${s.beat_streak}Q` : "-"}
           sub={s.beat_rate !== null ? `${pct(s.beat_rate, 0)} beat rate` : undefined}
           blur={isPreview}
         />
@@ -369,11 +369,11 @@ export default function CompanyPage() {
                 <tr key={e.date} className="border-t border-[var(--color-edge)]">
                   <td className="py-2 pr-4">{fmtDate(e.date)}</td>
                   <td className="py-2 pr-4 text-[var(--color-muted)]">
-                    {timingLabel(e.timing) ?? "—"}
+                    {timingLabel(e.timing) ?? "-"}
                   </td>
                   <td className="py-2 pr-4">
                     <BlurValue active={isPreview}>
-                      {e.eps_estimate ?? "—"} / {e.eps_actual ?? "—"}
+                      {e.eps_estimate ?? "-"} / {e.eps_actual ?? "-"}
                     </BlurValue>
                   </td>
                   <td className="py-2 pr-4">
@@ -396,7 +396,7 @@ export default function CompanyPage() {
         <div className="text-xs text-[var(--color-muted)] mt-3">
           Market cap {marketCap(data.market_cap)}
           {data.exchange ? ` · ${data.exchange}` : ""}
-          {isPreview ? " · demo numbers — subscribe for live history" : ""}
+          {isPreview ? " · demo numbers - subscribe for live history" : ""}
         </div>
       </Card>
 
@@ -484,7 +484,7 @@ function LegsTable({ legs }: { legs: PlayLeg[] }) {
                   <span className="text-[var(--color-muted)]">{leg.option}</span>
                 </td>
                 <td className="py-1.5 px-3 font-semibold">
-                  {leg.strike !== null ? `≈$${leg.strike}` : "—"}
+                  {leg.strike !== null ? `≈$${leg.strike}` : "-"}
                 </td>
                 <td className="py-1.5 px-3 text-[var(--color-muted)] text-xs">
                   {leg.note}
@@ -620,12 +620,12 @@ const EDGE_MAP: Record<string, { label: string; color: string; note: string }> =
   seller_edge: {
     label: "Options look rich",
     color: "#f0a85b",
-    note: "Realized moves rarely reach the implied move — historically a premium-seller edge.",
+    note: "Realized moves rarely reach the implied move - historically a premium-seller edge.",
   },
   buyer_edge: {
     label: "Options look cheap",
     color: "#28c08a",
-    note: "Realized moves often exceed the implied move — historically a premium-buyer edge.",
+    note: "Realized moves often exceed the implied move - historically a premium-buyer edge.",
   },
   balanced: {
     label: "Fairly priced",

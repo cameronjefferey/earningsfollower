@@ -47,7 +47,7 @@ function RedditPixelInner() {
       }
       sessionStorage.setItem(dedupeKey, "1");
     } catch {
-      /* private mode — still fire once this mount */
+      /* private mode - still fire once this mount */
     }
     signedUp.current = true;
     trackRedditSignUp(email || undefined);

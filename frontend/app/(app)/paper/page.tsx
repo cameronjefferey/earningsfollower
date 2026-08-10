@@ -22,7 +22,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function money(v: number | null | undefined, digits = 0): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   const sign = v < 0 ? "-" : "";
   return `${sign}$${Math.abs(v).toLocaleString(undefined, {
     minimumFractionDigits: digits,
@@ -31,7 +31,7 @@ function money(v: number | null | undefined, digits = 0): string {
 }
 
 function signedMoney(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
   return (v > 0 ? "+" : "") + money(v, 0);
 }
 
@@ -262,7 +262,7 @@ function PlainEnglish({ g, trade }: { g: Geometry; trade: PaperTrade }) {
       {movePct ? (
         <>
           {" "}
-          The options price a {movePct} move by then — this wins if the actual move
+          The options price a {movePct} move by then - this wins if the actual move
           comes in smaller.
         </>
       ) : null}
@@ -272,7 +272,7 @@ function PlainEnglish({ g, trade }: { g: Geometry; trade: PaperTrade }) {
 
 // Derive the payoff geometry of a directional debit spread (drift / PEAD) from
 // its legs: a bull call (bullish) or bear put (bearish) spread. Unlike a credit
-// spread it's one-sided — max loss is the debit, max profit is width minus debit.
+// spread it's one-sided - max loss is the debit, max profit is width minus debit.
 function driftGeometry(trade: PaperTrade) {
   const legs = trade.legs ?? [];
   const long = trade.direction === "bullish"; // bull call vs bear put
@@ -441,7 +441,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
   // debit-spread payoff (one-sided ramp). Waves (single long option) has no
   // spread geometry, so it falls back to the simple summary.
   const g = (trade.strategy ?? "earnings") === "earnings" ? payoffGeometry(trade) : null;
-  // Drift, waves, and reddit are all directional debit spreads — same payoff.
+  // Drift, waves, and reddit are all directional debit spreads - same payoff.
   const dg =
     trade.strategy === "drift" ||
     trade.strategy === "waves" ||
@@ -485,14 +485,14 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
                 Entry $/sh
               </div>
               <div className="font-semibold">
-                ${trade.spot_entry?.toFixed(2) ?? "—"}
+                ${trade.spot_entry?.toFixed(2) ?? "-"}
               </div>
             </div>
             <div>
               <div className="text-[10px] uppercase text-[var(--color-muted)]">
                 Shares
               </div>
-              <div className="font-semibold">{trade.contracts ?? "—"}</div>
+              <div className="font-semibold">{trade.contracts ?? "-"}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase text-[var(--color-muted)]">
@@ -504,7 +504,7 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
             <span>
               Now{" "}
-              <span className="text-white">${trade.spot_now?.toFixed(2) ?? "—"}</span>
+              <span className="text-white">${trade.spot_now?.toFixed(2) ?? "-"}</span>
             </span>
             {eqGain !== null ? (
               <>
@@ -527,11 +527,11 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
             <span>
               Credit{" "}
-              <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "—"}</span>
+              <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "-"}</span>
             </span>
             <span>·</span>
             <span>
-              <span className="text-white">{trade.contracts ?? "—"}</span> contract
+              <span className="text-white">{trade.contracts ?? "-"}</span> contract
               {trade.contracts === 1 ? "" : "s"}
             </span>
           </div>
@@ -551,11 +551,11 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-muted)]">
             <span>
               Debit{" "}
-              <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "—"}</span>
+              <span className="text-white">${trade.entry_credit?.toFixed(2) ?? "-"}</span>
             </span>
             <span>·</span>
             <span>
-              <span className="text-white">{trade.contracts ?? "—"}</span> contract
+              <span className="text-white">{trade.contracts ?? "-"}</span> contract
               {trade.contracts === 1 ? "" : "s"}
             </span>
           </div>
@@ -576,14 +576,14 @@ function OpenCard({ trade }: { trade: PaperTrade }) {
                 {(trade.strategy ?? "earnings") === "earnings" ? "Credit" : "Debit"}
               </div>
               <div className="font-semibold">
-                ${trade.entry_credit?.toFixed(2) ?? "—"}
+                ${trade.entry_credit?.toFixed(2) ?? "-"}
               </div>
             </div>
             <div>
               <div className="text-[10px] uppercase text-[var(--color-muted)]">
                 Contracts
               </div>
-              <div className="font-semibold">{trade.contracts ?? "—"}</div>
+              <div className="font-semibold">{trade.contracts ?? "-"}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase text-[var(--color-muted)]">
@@ -892,7 +892,7 @@ export default function PaperPage() {
           drift into a name&apos;s own print), and{" "}
           <span className="text-white">drift</span> (post-earnings announcement drift via
           a directional debit spread). Each trade is sized by conviction and journaled
-          with a unique signal id. This is the live scorecard — head to the{" "}
+          with a unique signal id. This is the live scorecard - head to the{" "}
           <Link href="/learning" className="text-[var(--color-accent)] hover:underline">
             Learning
           </Link>{" "}
@@ -934,7 +934,7 @@ export default function PaperPage() {
             {data.live_stop_policy.enabled ? (
               <>
                 {" "}
-                — cut at{" "}
+                - cut at{" "}
                 {(data.live_stop_policy.stop_loss_frac * 100).toFixed(0)}% of max
                 risk, tighten to{" "}
                 {(data.live_stop_policy.late_stop_frac * 100).toFixed(0)}% inside{" "}
@@ -943,7 +943,7 @@ export default function PaperPage() {
             ) : (
               <>
                 {" "}
-                — losers can run to full defined risk while take-profits bank small
+                - losers can run to full defined risk while take-profits bank small
                 wins. Turn on <span className="font-mono">PAPER_STOPS_ENABLED</span>.
               </>
             )}
@@ -971,7 +971,7 @@ export default function PaperPage() {
             <span className="text-[var(--color-muted)]">
               {data.last_run.finished_at
                 ? new Date(data.last_run.finished_at + "Z").toLocaleString()
-                : "—"}
+                : "-"}
             </span>
             <span className="text-[var(--color-muted)]">
               opened {data.last_run.opened} · closed {data.last_run.closed}
@@ -992,7 +992,7 @@ export default function PaperPage() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <Stat
           label="Account equity"
-          value={account ? money(account.equity) : "—"}
+          value={account ? money(account.equity) : "-"}
           sub={account ? `${money(account.cash)} cash` : "connect Alpaca"}
         />
         <Stat
@@ -1003,7 +1003,7 @@ export default function PaperPage() {
         />
         <Stat
           label="Win rate"
-          value={stats.win_rate !== null ? `${(stats.win_rate * 100).toFixed(0)}%` : "—"}
+          value={stats.win_rate !== null ? `${(stats.win_rate * 100).toFixed(0)}%` : "-"}
           sub={`${stats.wins}/${stats.closed_count} wins`}
         />
         <Stat
@@ -1094,7 +1094,7 @@ export default function PaperPage() {
           />
           <Stat
             label="Win rate"
-            value={fWinRate !== null ? `${(fWinRate * 100).toFixed(0)}%` : "—"}
+            value={fWinRate !== null ? `${(fWinRate * 100).toFixed(0)}%` : "-"}
             sub={`${fWins}/${fClosedCount} wins`}
           />
           <Stat
@@ -1228,8 +1228,8 @@ export default function PaperPage() {
                       <td className="py-2 pr-4 text-[var(--color-muted)]">{t.structure}</td>
                       <td className="py-2 pr-4">{fmtDate(t.earnings_date)}</td>
                       <td className="py-2 pr-4">{fmtDate(t.closed_at)}</td>
-                      <td className="py-2 pr-4">${t.entry_credit?.toFixed(2) ?? "—"}</td>
-                      <td className="py-2 pr-4">${t.exit_debit?.toFixed(2) ?? "—"}</td>
+                      <td className="py-2 pr-4">${t.entry_credit?.toFixed(2) ?? "-"}</td>
+                      <td className="py-2 pr-4">${t.exit_debit?.toFixed(2) ?? "-"}</td>
                       <td className="py-2 pr-4">{money(t.max_risk)}</td>
                       <td className={`py-2 pr-4 font-semibold ${moveClass(t.realized_pnl)}`}>
                         {signedMoney(t.realized_pnl)}

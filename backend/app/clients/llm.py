@@ -4,7 +4,7 @@ Talks to any OpenAI-compatible ``/chat/completions`` endpoint. It's *optional*
 by design: if no ``llm_api_key`` is configured, ``enabled`` is False and callers
 fall back to a transparent keyword heuristic, so the social strategy still runs
 end-to-end without an LLM bill. JSON is requested via response_format and parsed
-defensively — any failure returns None rather than raising into the trader.
+defensively - any failure returns None rather than raising into the trader.
 """
 
 from __future__ import annotations

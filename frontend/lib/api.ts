@@ -708,7 +708,7 @@ export interface LiveStopPolicy {
 
 async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {
   // Only attach a bearer when the caller already resolved one via useAuthReady.
-  // Do NOT call getSession() here — that hits /api/auth/session on every public
+  // Do NOT call getSession() here - that hits /api/auth/session on every public
   // fetch and can thrash the Next.js dev server.
   if (accessToken) {
     return { Authorization: `Bearer ${accessToken}` };

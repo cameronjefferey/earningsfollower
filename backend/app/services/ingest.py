@@ -418,7 +418,7 @@ def ingest_company(
     # yfinance earnings scraping is unreliable on cloud IPs, so full history
     # ingest is only a fallback when FMP earnings aren't available. Timing
     # enrichment is cheaper and runs for names we already hit Yahoo for
-    # (implied move) — FMP's stable calendar no longer returns BMO/AMC.
+    # (implied move) - FMP's stable calendar no longer returns BMO/AMC.
     got_yahoo_earnings = False
     if fetch_earnings and not got_fmp_earnings:
         got_yahoo_earnings = _ingest_earnings_yahoo(db, ticker)

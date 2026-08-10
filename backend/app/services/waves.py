@@ -101,7 +101,12 @@ def lead_lag(
     def _trigger_moves(ticker: str) -> dict[date, float | None]:
         if reactions_cache is not None and ticker in reactions_cache:
             return reactions_cache[ticker]
-        moves = {r.date: r.move_pct for r in compute_reactions(db, ticker, series=_series(ticker))}
+        # Reaction dates serialize as ISO strings; key by real dates so report-
+        # date lookups (date objects) actually hit.
+        moves = {
+            date.fromisoformat(r.date): r.move_pct
+            for r in compute_reactions(db, ticker, series=_series(ticker))
+        }
         if reactions_cache is not None:
             reactions_cache[ticker] = moves
         return moves
@@ -328,7 +333,7 @@ def current_waves(
                 series = series_cache.get(trig) or load_price_series(db, trig)
                 series_cache[trig] = series
                 reactions_cache[trig] = {
-                    r.date: r.move_pct
+                    date.fromisoformat(r.date): r.move_pct
                     for r in compute_reactions(db, trig, series=series)
                 }
             trig_move = reactions_cache[trig].get(trig_event.date)
@@ -438,7 +443,9 @@ def sympathy_stats(
     trigger, target = trigger.upper(), target.upper()
     target_series = load_price_series(db, target)
     trigger_reports = _report_dates(db, trigger, past_only=True)
-    trigger_moves = {r.date: r.move_pct for r in compute_reactions(db, trigger)}
+    trigger_moves = {
+        date.fromisoformat(r.date): r.move_pct for r in compute_reactions(db, trigger)
+    }
 
     rets: list[float] = []
     rets_up: list[float] = []
@@ -526,7 +533,8 @@ def current_sympathy_waves(
         trig = trig_event.ticker
         if trig not in trigger_move_cache:
             trigger_move_cache[trig] = {
-                r.date: r.move_pct for r in compute_reactions(db, trig)
+                date.fromisoformat(r.date): r.move_pct
+                for r in compute_reactions(db, trig)
             }
         trig_move = trigger_move_cache[trig].get(trig_event.date)
         # Require a real catalyst: the peer must have moved enough on its print.

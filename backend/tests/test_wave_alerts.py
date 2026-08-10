@@ -141,6 +141,36 @@ def test_send_emails_new_targets_to_subscribers():
     assert "/waves/alerts/unsubscribe" in kwargs["text"]
 
 
+def test_send_includes_receipts_proof_when_available():
+    settings = _settings()
+    prev = _payload([])
+    new = _payload([_signal("NVDA", "AMD"), _signal("AVGO", "AMD")])
+    user = MagicMock(email="pro@example.com")
+    db = MagicMock()
+    proof_payload = {
+        "days_back": 30,
+        "summary": {
+            "count": 6,
+            "followed": 4,
+            "follow_rate": 0.667,
+            "avg_edge_pct": 0.021,
+            "best": None,
+        },
+    }
+    with patch.object(wave_alerts, "resend_configured", return_value=True), patch.object(
+        wave_alerts, "_recipients", return_value=[user]
+    ), patch.object(wave_alerts, "send_email", return_value=True) as send, patch(
+        "app.services.board_snapshots.get_snapshot", return_value=proof_payload
+    ):
+        sent = wave_alerts.send_wave_alert_emails(
+            db, prev_waves=prev, new_waves=new, settings=settings
+        )
+    assert sent == 1
+    text = send.call_args.kwargs["text"]
+    assert "6 waves resolved" in text
+    assert "right 4 of 6" in text
+
+
 def test_send_respects_kill_switch():
     settings = _settings(email_wave_alerts=False)
     db = MagicMock()

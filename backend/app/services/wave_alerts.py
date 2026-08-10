@@ -243,6 +243,22 @@ def send_wave_alert_emails(
     detailed = fresh[:MAX_DETAILED_TARGETS]
     rest = fresh[MAX_DETAILED_TARGETS:]
 
+    # Proof from resolved waves so the email sells with receipts, not adjectives.
+    proof = ""
+    try:
+        from app.services import board_snapshots, wave_receipts
+
+        proof = (
+            wave_receipts.receipts_proof_line(
+                board_snapshots.get_snapshot(
+                    db, "wave_receipts", board_snapshots.wave_receipts_key()
+                )
+            )
+            or ""
+        )
+    except Exception:  # noqa: BLE001 - proof line is optional garnish
+        proof = ""
+
     intro_text = (
         "Peers just reported and these names are still waiting on their own print. "
         "That's a wave: the setup this site was built on.\n\n"
@@ -250,6 +266,8 @@ def send_wave_alert_emails(
     body_text = intro_text + "\n\n".join(_target_text(w) for w in detailed)
     if rest:
         body_text += "\n\nAlso on the board: " + ", ".join(w["target"] for w in rest)
+    if proof:
+        body_text += f"\n\n{proof}"
     body_text += f"\n\nOpen the live board:\n{board}\n"
 
     intro_html = (
@@ -263,6 +281,8 @@ def send_wave_alert_emails(
             + ", ".join(w["target"] for w in rest)
             + "</p>"
         )
+    if proof:
+        body_html += f"<p style='color:#444'>{proof}</p>"
     body_html += f"<p><a href='{board}'>Open the live Waves board</a></p>"
 
     sent = 0

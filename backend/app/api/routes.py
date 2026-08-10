@@ -198,6 +198,30 @@ def get_wave_watch(db: Session = Depends(get_db)) -> dict:
     return payload
 
 
+@router.get("/waves/receipts", tags=["waves"])
+def get_wave_receipts(db: Session = Depends(get_db)) -> dict:
+    """Public proof: how the waves that already resolved actually played out.
+
+    Every qualifying wave in the window is scored - winners and losers - so the
+    aggregate is honest. Served from the refresh snapshot; computed lazily (and
+    persisted) only if a deploy landed before the next refresh.
+    """
+    cached = response_cache.get("waves:receipts")
+    if cached is not None:
+        return cached
+
+    snap = board_snapshots.get_snapshot(
+        db, "wave_receipts", board_snapshots.wave_receipts_key()
+    )
+    if snap is None:
+        from app.services import wave_receipts
+
+        snap = wave_receipts.compute_wave_receipts(db)
+        board_snapshots.persist_wave_receipts(db, snap)
+    response_cache.set("waves:receipts", snap)
+    return snap
+
+
 @router.get("/waves/alerts/unsubscribe", tags=["waves"])
 def wave_alerts_unsubscribe(
     email: str = Query(..., max_length=320),

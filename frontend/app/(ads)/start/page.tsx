@@ -6,6 +6,7 @@ import { CaptureAdAttrs } from "@/components/marketing/CaptureAdAttrs";
 import { TrackAdLanding } from "@/components/marketing/TrackAdLanding";
 import { MarketingDataProvider } from "@/components/marketing/MarketingData";
 import { Reveal } from "@/components/marketing/Reveal";
+import { WaveReceipts } from "@/components/WaveReceipts";
 import { WaveWatch } from "@/components/WaveWatch";
 import { WeekHeat } from "@/components/marketing/WeekHeat";
 import { WeekPulse } from "@/components/marketing/WeekPulse";
@@ -218,6 +219,11 @@ export default function AdStartPage() {
             <Reveal delayMs={120}>
               <div className="mt-4">
                 <WaveWatch variant="marketing" />
+              </div>
+            </Reveal>
+            <Reveal delayMs={160}>
+              <div className="mt-4">
+                <WaveReceipts variant="marketing" />
               </div>
             </Reveal>
           </div>

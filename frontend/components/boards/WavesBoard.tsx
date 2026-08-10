@@ -11,6 +11,7 @@ import { glossary } from "@/lib/glossary";
 import { fmtDate, moveClass, pct, signedPct } from "@/lib/format";
 import { SampleTierBadge } from "@/components/SampleTierBadge";
 import { UpdatedAt } from "@/components/UpdatedAt";
+import { WaveReceipts } from "@/components/WaveReceipts";
 import { useAuthReady } from "@/lib/useAuthReady";
 
 interface TargetGroup {
@@ -242,6 +243,9 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
           ) : null}
         </>
       )}
+
+      {/* Real outcomes below the board - especially persuasive under the demo. */}
+      {!loading ? <WaveReceipts /> : null}
     </div>
   );
 }

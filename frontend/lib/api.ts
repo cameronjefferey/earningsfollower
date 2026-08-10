@@ -227,6 +227,42 @@ export interface WaveWatchResponse {
   updated_at?: string | null;
 }
 
+export interface WaveReceipt {
+  target: string;
+  target_name: string | null;
+  target_report_date: string;
+  wave_start_date: string;
+  peers: { ticker: string; report_date: string; move_pct: number | null }[];
+  peer_count: number;
+  ripped_count: number;
+  direction: "bullish" | "bearish";
+  actual_runup_pct: number | null;
+  followed: boolean;
+}
+
+export interface WaveReceiptsSummary {
+  count: number;
+  followed: number;
+  follow_rate: number | null;
+  avg_edge_pct: number | null;
+  best: {
+    target: string;
+    direction: string;
+    actual_runup_pct: number;
+    target_report_date: string;
+  } | null;
+}
+
+export interface WaveReceiptsResponse {
+  generated_at: string;
+  days_back: number;
+  recent_days: number;
+  count: number;
+  summary: WaveReceiptsSummary;
+  receipts: WaveReceipt[];
+  updated_at?: string | null;
+}
+
 export interface WavesResponse {
   recent_days: number;
   upcoming_days: number;
@@ -904,6 +940,7 @@ export const api = {
       accessToken
     ),
   waveWatch: () => getJSON<WaveWatchResponse>("/waves/watch"),
+  waveReceipts: () => getJSON<WaveReceiptsResponse>("/waves/receipts"),
   drift: (lookbackDays = 12, limit = 30, accessToken?: string | null) =>
     getJSON<DriftResponse>(
       `/drift?lookback_days=${lookbackDays}&limit=${limit}`,

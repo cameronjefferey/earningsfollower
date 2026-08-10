@@ -22,6 +22,17 @@ FULL_WAVES_LIMIT = 80
 FULL_DRIFT_LIMIT = 30
 
 
+def wave_receipts_key() -> str:
+    from app.services import wave_receipts
+
+    return f"{wave_receipts.DAYS_BACK}:{wave_receipts.RECENT_DAYS}"
+
+
+def persist_wave_receipts(db: Session, payload: dict) -> None:
+    _upsert(db, "wave_receipts", wave_receipts_key(), payload)
+    db.commit()
+
+
 def earnings_snapshot_key() -> str:
     start, end = dashboard.date_range_for_window("all")
     return f"all:{start.isoformat()}:{end.isoformat()}"
@@ -96,6 +107,15 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
         "preview_note": None,
     }
     _upsert(db, "drift", str(DEFAULT_DRIFT_LOOKBACK), drift_payload)
+
+    # Receipts: how the waves that already resolved actually played out. Proof
+    # for the funnel and the alert emails; cheap to serve once persisted.
+    try:
+        from app.services import wave_receipts
+
+        persist_wave_receipts(db, wave_receipts.compute_wave_receipts(db))
+    except Exception as exc:  # noqa: BLE001 - receipts must never break refresh
+        logger.warning("Wave receipts failed: %s", exc)
 
     # Calendar cards for the full tab span - cold /earnings reads slice this.
     earn_cards, _ = dashboard.earnings_cards(db, "all")

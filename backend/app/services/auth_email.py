@@ -79,11 +79,11 @@ def send_magic_link(
     if welcome_new_user:
         welcome_text = (
             "Welcome - your account is ready. The earnings calendar is free "
-            f"({calendar}). Pro unlocks Drift and Waves boards when you're ready.\n\n"
+            f"({calendar}). Pro unlocks Waves and Drift boards when you're ready.\n\n"
         )
         welcome_html = (
             "<p>Welcome - your account is ready. The earnings calendar is free. "
-            "Pro unlocks Drift and Waves boards when you&apos;re ready.</p>"
+            "Pro unlocks Waves and Drift boards when you&apos;re ready.</p>"
         )
     return send_email(
         settings,
@@ -123,7 +123,7 @@ def send_welcome(
             "Your account is ready. The earnings calendar is free - who reports "
             "and what's priced in:\n\n"
             f"{calendar}\n\n"
-            "When you want live Drift and Waves boards, Pro unlocks them:\n\n"
+            "When you want live Waves and Drift boards, Pro unlocks them:\n\n"
             f"{boards}\n\n"
             "- Earnings Follower"
         ),
@@ -132,7 +132,7 @@ def send_welcome(
             "<p>Your account is ready. The earnings calendar is free - who reports "
             "and what&apos;s priced in.</p>"
             f'<p><a href="{calendar}">Open the calendar</a></p>'
-            "<p>When you want live Drift and Waves boards, Pro unlocks them.</p>"
+            "<p>When you want live Waves and Drift boards, Pro unlocks them.</p>"
             f'<p><a href="{boards}">Preview the boards</a></p>'
             "<p style='color:#666;font-size:13px'>- Earnings Follower</p>"
         ),

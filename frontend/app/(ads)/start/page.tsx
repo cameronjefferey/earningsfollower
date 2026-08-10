@@ -142,6 +142,82 @@ export default function AdStartPage() {
         </div>
       </section>
 
+      {/* The origin story: waves, and the trade that started the site. */}
+      <section className="border-b border-[var(--m-line)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+          <div className="lg:col-span-7">
+            <Reveal>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--m-accent)] mb-3">
+                Why this exists
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight max-w-lg">
+                MDB and SNOW ripped. Oracle hadn&apos;t reported yet.
+              </h2>
+              <p className="mt-4 text-[var(--m-muted)] leading-relaxed max-w-lg text-sm sm:text-base">
+                Names in a group move together around earnings. When two of them
+                blow through their numbers, the market starts re-pricing the rest
+                of the group before they ever report. That run-up into the next
+                name is what we call a <span className="text-white font-medium">wave</span>.
+              </p>
+              <p className="mt-3 text-[var(--m-muted)] leading-relaxed max-w-lg text-sm sm:text-base">
+                That&apos;s not theory. The founder watched MDB and SNOW rip, rode
+                the wave into Oracle&apos;s report, and turned $50k into $125k.
+                This site exists to find that same setup systematically, every
+                earnings season. The Pro Waves board tracks every group: who
+                reported, who ripped, and who&apos;s still waiting.
+              </p>
+              <p className="mt-3 text-xs text-[var(--m-muted)] leading-relaxed max-w-lg">
+                One trade, not a promise. Every wave on the board carries its
+                history and sample size, and thin history gets called thin.
+              </p>
+              <div className="mt-6">
+                <AdCtas placement="story" primary="signup" />
+              </div>
+            </Reveal>
+          </div>
+
+          <div className="lg:col-span-5">
+            <Reveal delayMs={80}>
+              <div className="m-board-frame space-y-2">
+                <div className="flex items-center justify-between rounded-lg border border-[var(--m-line)] bg-white/[0.02] px-4 py-3">
+                  <div>
+                    <div className="font-semibold text-white">MDB</div>
+                    <div className="text-xs text-[var(--m-muted)]">Reported</div>
+                  </div>
+                  <span className="text-sm font-semibold text-[var(--m-accent)]">
+                    Ripped ✓
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-[var(--m-line)] bg-white/[0.02] px-4 py-3">
+                  <div>
+                    <div className="font-semibold text-white">SNOW</div>
+                    <div className="text-xs text-[var(--m-muted)]">Reported</div>
+                  </div>
+                  <span className="text-sm font-semibold text-[var(--m-accent)]">
+                    Ripped ✓
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-[var(--m-accent)]/60 bg-[var(--m-accent)]/10 px-4 py-3">
+                  <div>
+                    <div className="font-semibold text-white">ORCL</div>
+                    <div className="text-xs text-[var(--m-muted)]">Reports next</div>
+                  </div>
+                  <span className="text-sm font-semibold text-[var(--m-accent)]">
+                    ← The wave
+                  </span>
+                </div>
+                <div className="pt-2 text-center text-sm text-[var(--m-muted)]">
+                  The trade behind this site:{" "}
+                  <span className="font-semibold text-white tabular">
+                    $50k → $125k
+                  </span>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
       {/* Objection handling: who this is for, in one honest breath. */}
       <section className="border-b border-[var(--m-line)]">
         <div className="mx-auto max-w-6xl px-4 sm:px-5 py-12 sm:py-16 grid grid-cols-1 md:grid-cols-12 gap-8 items-center">

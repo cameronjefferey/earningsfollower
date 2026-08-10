@@ -4,18 +4,18 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "FAQ for earningsfollower: free earnings calendar vs Pro Drift/Waves boards, pricing, data sources, and what the product is not.",
+    "FAQ for earningsfollower: free earnings calendar vs Pro Waves/Drift boards, pricing, data sources, and what the product is not.",
   alternates: { canonical: "https://www.earningsfollower.com/faq" },
 };
 
 const faqs: { q: string; a: string }[] = [
   {
     q: "What is earningsfollower?",
-    a: "Research for earnings season built around what’s already priced in options, plus live Drift and Waves boards for post-report continuation and peer setups.",
+    a: "Research for earnings season built around what’s already priced in options, plus live Waves and Drift boards for post-report continuation and peer setups.",
   },
   {
     q: "What’s free vs paid?",
-    a: "The earnings calendar is free with no account. Company pages - full reaction history and implied move context - are free too: a few pages as a guest, unlimited with a free account. Live Drift and Waves boards are Pro. Details on Pricing.",
+    a: "The earnings calendar is free with no account. Company pages - full reaction history and implied move context - are free too: a few pages as a guest, unlimited with a free account. Live Waves and Drift boards are Pro. Details on Pricing.",
   },
   {
     q: "What’s on the boards?",

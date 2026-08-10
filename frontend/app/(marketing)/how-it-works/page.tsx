@@ -19,7 +19,7 @@ export default function HowItWorksPage() {
       </h1>
       <p className="m-hero-line mt-5 text-lg text-[var(--m-muted)] leading-relaxed">
         Priced-in map. Follow-through after a name reports and after a peer reports -
-        on live Drift and Waves boards.
+        on live Waves and Drift boards.
       </p>
 
       <div className="mt-12 space-y-12 text-[var(--m-muted)] leading-relaxed">
@@ -37,12 +37,26 @@ export default function HowItWorksPage() {
         </Reveal>
 
         <Reveal delayMs={40}>
-          <h2 className="m-display text-xl text-[var(--m-ink)]">Boards: after it reports</h2>
+          <h2 className="m-display text-xl text-[var(--m-ink)]">
+            Waves: the reason this site exists
+          </h2>
           <p className="mt-3">
-            <span className="text-[var(--m-ink)]">Peer waves</span> - a related name
-            already reported; we look at how names in that theme have moved into their own
-            reports.
+            Names in a group move together around earnings. When peers blow through
+            their numbers, the market starts re-pricing the names in that group that
+            haven&apos;t reported yet. That run-up into the next report is a{" "}
+            <span className="text-[var(--m-ink)]">wave</span>.
           </p>
+          <p className="mt-3">
+            The founder watched MDB and SNOW rip, rode the wave into Oracle&apos;s
+            report, and turned $50k into $125k. The Waves board exists to find that
+            setup systematically: every group, who reported, who ripped, and who&apos;s
+            still waiting. One trade, not a promise - every wave carries its history
+            and sample size.
+          </p>
+        </Reveal>
+
+        <Reveal delayMs={60}>
+          <h2 className="m-display text-xl text-[var(--m-ink)]">Drift: after it reports</h2>
           <p className="mt-3">
             <span className="text-[var(--m-ink)]">Post-earnings drift</span> - the report
             already landed; history on whether similar reports kept moving (or faded),
@@ -54,8 +68,8 @@ export default function HowItWorksPage() {
           <h2 className="m-display text-xl text-[var(--m-ink)]">Trade from the board</h2>
           <p className="mt-3">
             Open{" "}
-            <span className="text-[var(--m-ink)]">Drift</span> or{" "}
-            <span className="text-[var(--m-ink)]">Waves</span>, filter by sample quality,
+            <span className="text-[var(--m-ink)]">Waves</span> or{" "}
+            <span className="text-[var(--m-ink)]">Drift</span>, filter by sample quality,
             and work the live list. Calendar&apos;s Today strip can point you at a board
             when something&apos;s hot - without a separate brief page.
           </p>

@@ -159,8 +159,12 @@ export function WavesBoard({ embedded = false }: { embedded?: boolean }) {
 
       {isPreview ? (
         <PaywallBanner
-          note={data?.preview_note}
-          title="Peer waves - sample board"
+          note={
+            "Demo data so you can see the layout. The live board tracks real waves: " +
+            "peers rip, the next name in the group re-prices before it reports. The " +
+            "founder turned $50k into $125k on one of these (ORCL). Pro unlocks the live board."
+          }
+          title="Waves: the setup this site was built on"
           badge="Sample"
         />
       ) : null}

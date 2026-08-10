@@ -8,7 +8,7 @@ import { WeekHeat } from "@/components/marketing/WeekHeat";
 export const metadata: Metadata = {
   title: "earningsfollower - priced-in calendar & trading boards",
   description:
-    "Earnings research built around what’s already priced in options, plus live Drift and Waves boards for post-report continuation and peer setups.",
+    "Earnings research built around what’s already priced in options, plus live Waves and Drift boards for post-report continuation and peer setups.",
   alternates: { canonical: "https://www.earningsfollower.com/" },
 };
 
@@ -21,7 +21,7 @@ export default function MarketingHomePage() {
     operatingSystem: "Web",
     url: "https://www.earningsfollower.com",
     description:
-      "Priced-in earnings calendar plus Pro Drift and Waves boards for post-report continuation and peer-wave setups.",
+      "Priced-in earnings calendar plus Pro Waves and Drift boards for post-report continuation and peer-wave setups.",
     offers: [
       {
         "@type": "Offer",
@@ -35,7 +35,7 @@ export default function MarketingHomePage() {
         price: "9.99",
         priceCurrency: "USD",
         name: "Pro",
-        description: "Live Drift and Waves boards, billed monthly",
+        description: "Live Waves and Drift boards, billed monthly",
       },
     ],
   };
@@ -64,7 +64,7 @@ export default function MarketingHomePage() {
             reports, and after a peer reports.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-lg text-[var(--m-muted)]">
-            Calendar for the field. Drift and Waves boards when you&apos;re ready to
+            Calendar for the field. Waves and Drift boards when you&apos;re ready to
             trade the follow-through.
           </p>
           <div className="m-hero-line m-hero-line-3 mt-9 flex flex-wrap items-center gap-3">
@@ -103,7 +103,7 @@ export default function MarketingHomePage() {
               {
                 n: "03",
                 t: "Boards",
-                d: "Live Drift and Waves - post-earnings continuation and peer setups, with sample size attached. Trade from the board, not a catalog.",
+                d: "Live Waves and Drift - post-earnings continuation and peer setups, with sample size attached. Trade from the board, not a catalog.",
               },
             ].map((s, i) => (
               <Reveal key={s.t} delayMs={i * 50}>
@@ -174,6 +174,15 @@ export default function MarketingHomePage() {
               </ul>
             </Reveal>
             <Reveal delayMs={80}>
+              <div className="rounded-lg border border-[var(--m-accent)]/30 bg-[var(--m-accent)]/5 p-4 text-sm text-[var(--m-muted)] leading-relaxed">
+                Waves are why this site exists. The founder watched MDB and SNOW
+                rip, rode the wave into Oracle&apos;s report, and turned{" "}
+                <span className="text-white font-medium tabular">$50k into $125k</span>.
+                One trade, not a promise - but it&apos;s the setup the Waves board
+                hunts every season.
+              </div>
+            </Reveal>
+            <Reveal delayMs={100}>
               <Link href="/how-it-works" className="text-sm text-[var(--m-accent)] hover:underline">
                 How waves &amp; drift work →
               </Link>
@@ -230,7 +239,7 @@ export default function MarketingHomePage() {
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
               See what&apos;s priced for this week. When reports start landing, open
-              Drift and Waves.
+              Waves and Drift.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/login?mode=signup&next=/calendar" className="m-btn-primary">

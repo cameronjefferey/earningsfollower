@@ -197,7 +197,7 @@ function PricingInner() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pricing</h1>
         <p className="text-sm text-[var(--color-muted)] mt-1">
-          Start free on the calendar. Upgrade when you want live Drift and Waves boards.
+          Start free on the calendar. Upgrade when you want the live Waves board.
         </p>
       </div>
 
@@ -234,7 +234,8 @@ function PricingInner() {
           <div>
             <div className="text-lg font-semibold">Pro</div>
             <div className="text-sm text-[var(--color-muted)] mt-1 max-w-xs">
-              Live Waves + Drift boards with the stats and plans behind each setup
+              The live Waves board: peers rip, the next name re-prices. Plus Drift
+              and the stats behind each setup.
             </div>
           </div>
           <div className="text-right">
@@ -245,12 +246,13 @@ function PricingInner() {
 
         <ul className="text-sm space-y-2 text-[var(--color-muted)]">
           <li>
-            <span className="text-white font-medium">Drift board</span> - live
-            post-earnings continuation setups with history and stops
+            <span className="text-white font-medium">Waves board</span> - when peers
+            rip, the market re-prices the names that haven&apos;t reported yet. Live
+            waves into every upcoming report, with history and sample size
           </li>
           <li>
-            <span className="text-white font-medium">Waves board</span> - peer-driven
-            run-ups into names reporting next
+            <span className="text-white font-medium">Drift board</span> - live
+            post-earnings continuation setups with history and stops
           </li>
           <li>
             <span className="text-white font-medium">Sample honesty</span> - win rate

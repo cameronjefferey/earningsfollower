@@ -58,7 +58,7 @@ export function CalendarWelcome() {
       ) : (
         <p className="min-w-0 text-sm text-[var(--color-muted)]">
           <span className="font-medium text-white">You&apos;re in.</span>{" "}
-          Calendar and company pages are free. Pro unlocks the live Drift &amp; Waves
+          Calendar and company pages are free. Pro unlocks the live Waves &amp; Drift
           boards.
         </p>
       )}

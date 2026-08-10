@@ -67,6 +67,19 @@ export function WaveReceipts({
           ) : null}
           . Winners and losers both counted.
         </p>
+        {summary.best ? (
+          <p className="mt-2 text-sm text-[var(--m-muted)] leading-relaxed">
+            Most waves do nothing. The biggest,{" "}
+            <span className="font-semibold text-white">
+              {summary.best.target}
+            </span>
+            , ran{" "}
+            <span className="font-semibold text-white tabular">
+              {signedPct(summary.best.actual_runup_pct)}
+            </span>{" "}
+            into its print. The board&apos;s job is telling them apart.
+          </p>
+        ) : null}
         <div className="mt-3 space-y-1.5">
           {receipts.map((r) => (
             <div key={`${r.target}-${r.target_report_date}`} className="text-sm">

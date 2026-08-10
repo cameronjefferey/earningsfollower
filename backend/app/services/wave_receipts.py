@@ -185,8 +185,9 @@ def compute_wave_receipts(
                 moves.append(move)
                 if move >= RIP_MOVE_PCT:
                     ripped += 1
-        # A wave has a direction; without any peer moves there's no story to score.
-        if not moves:
+        # A wave's direction comes from its peers' moves. Calling it off a single
+        # known move is noise - mirror the board's 2-peer breadth rule.
+        if len(moves) < MIN_PEERS_PER_TARGET:
             continue
         direction = "bullish" if statistics.fmean(moves) >= 0 else "bearish"
         followed = runup > 0 if direction == "bullish" else runup < 0

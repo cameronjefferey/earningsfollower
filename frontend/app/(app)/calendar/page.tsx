@@ -623,7 +623,7 @@ export default function DashboardPage() {
       {filtersOpen ? (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/60"
+            className="fixed inset-0 z-40 bg-black/70"
             onClick={() => setFiltersOpen(false)}
             aria-hidden
           />
@@ -631,7 +631,7 @@ export default function DashboardPage() {
             role="dialog"
             aria-modal="true"
             aria-label="Filters"
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-[var(--color-edge)]/70 bg-[var(--color-bg)] shadow-2xl"
+            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-[var(--color-edge)] bg-[var(--color-ink)] shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[var(--color-edge)]/60 px-4 py-3">
               <div className="text-base font-semibold text-white">Filters</div>

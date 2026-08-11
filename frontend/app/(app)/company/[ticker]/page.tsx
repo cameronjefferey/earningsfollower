@@ -31,6 +31,7 @@ import {
 import { useAuthReady } from "@/lib/useAuthReady";
 import { FREE_COMPANY_LIMIT, recordCompanyView } from "@/lib/companyMeter";
 import { reportFunnel } from "@/lib/ad-traffic";
+import { HappyTraderBridge } from "@/components/HappyTraderBridge";
 
 /** Full-screen soft gate once a guest has spent their free company pages. */
 function GuestGate({ ticker }: { ticker: string }) {
@@ -226,6 +227,8 @@ export default function CompanyPage() {
           ) : null}
         </Card>
       </div>
+
+      <HappyTraderBridge ticker={data.ticker} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Stat

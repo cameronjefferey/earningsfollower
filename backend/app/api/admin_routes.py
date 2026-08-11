@@ -150,6 +150,8 @@ def admin_overview(
     by_status = {str(status or "none"): int(n) for status, n in status_rows}
 
     all_users = db.scalars(select(User)).all()
+    bypass_emails = settings.auth_bypass_email_set
+    admin_emails = settings.admin_email_set
     subscribed_total = sum(
         1
         for u in all_users
@@ -160,6 +162,8 @@ def admin_overview(
             settings=settings,
         )
     )
+    vip_total = sum(1 for u in all_users if u.email.lower() in bypass_emails)
+    admin_total = sum(1 for u in all_users if u.email.lower() in admin_emails)
 
     recent = sorted(
         all_users,
@@ -178,6 +182,8 @@ def admin_overview(
                 period_end=u.current_period_end,
                 settings=settings,
             ),
+            "is_vip": u.email.lower() in bypass_emails,
+            "is_admin": u.email.lower() in admin_emails,
             "has_password": bool(u.password_hash),
             "has_google": bool(u.google_sub),
             "email_verified": u.email_verified_at is not None,
@@ -203,6 +209,8 @@ def admin_overview(
         "users": {
             "total": int(total_users),
             "subscribed": int(subscribed_total),
+            "vip": int(vip_total),
+            "admin": int(admin_total),
             "created_7d": int(created_7d),
             "created_30d": int(created_30d),
             "by_status": by_status,

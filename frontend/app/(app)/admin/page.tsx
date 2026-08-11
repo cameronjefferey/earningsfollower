@@ -27,6 +27,8 @@ type AdminOverview = {
   users: {
     total: number;
     subscribed: number;
+    vip?: number;
+    admin?: number;
     created_7d: number;
     created_30d: number;
     by_status: Record<string, number>;
@@ -37,6 +39,8 @@ type AdminOverview = {
     name: string | null;
     subscription_status: string;
     subscribed: boolean;
+    is_vip?: boolean;
+    is_admin?: boolean;
     has_password: boolean;
     has_google: boolean;
     email_verified: boolean;
@@ -52,6 +56,37 @@ type AdminOverview = {
     created_at: string | null;
   }>;
 };
+
+function accessBadges(u: AdminOverview["recent_users"][number]): Array<{
+  label: string;
+  className: string;
+}> {
+  const badges: Array<{ label: string; className: string }> = [];
+  if (u.is_admin) {
+    badges.push({
+      label: "Admin",
+      className: "bg-[var(--color-accent)]/15 text-[var(--color-accent)]",
+    });
+  }
+  if (u.is_vip) {
+    badges.push({
+      label: "VIP",
+      className: "bg-[var(--color-up)]/15 text-[var(--color-up)]",
+    });
+  } else if (u.subscribed) {
+    badges.push({
+      label: "Pro",
+      className: "bg-[var(--color-up)]/15 text-[var(--color-up)]",
+    });
+  }
+  if (!badges.length) {
+    badges.push({
+      label: "Free",
+      className: "bg-[var(--color-panel-2)] text-[var(--color-muted)]",
+    });
+  }
+  return badges;
+}
 
 function fmtWhen(iso: string | null | undefined): string {
   if (!iso) return "-";
@@ -148,9 +183,11 @@ export default function AdminPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Stat label="Users" value={String(data.users.total)} />
         <Stat label="Subscribed" value={String(data.users.subscribed)} />
+        <Stat label="VIP" value={String(data.users.vip ?? 0)} />
+        <Stat label="Admin" value={String(data.users.admin ?? 0)} />
         <Stat label="New (7d)" value={String(data.users.created_7d)} />
         <Stat label="New (30d)" value={String(data.users.created_30d)} />
       </div>
@@ -325,30 +362,37 @@ export default function AdminPage() {
         <Card className="p-5 overflow-hidden">
           <div className="text-sm font-medium mb-4">Recent accounts</div>
           <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
-            {data.recent_users.map((u) => (
-              <div
-                key={u.id}
-                className="flex items-start justify-between gap-3 text-sm border-b border-[var(--color-edge)]/60 pb-3 last:border-0"
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{u.email}</div>
-                  <div className="text-xs text-[var(--color-muted)] mt-0.5">
-                    {fmtWhen(u.created_at)}
-                    {u.has_google ? " · Google" : ""}
-                    {u.has_password ? " · Password" : ""}
+            {data.recent_users.map((u) => {
+              const badges = accessBadges(u);
+              return (
+                <div
+                  key={u.id}
+                  className="flex items-start justify-between gap-3 text-sm border-b border-[var(--color-edge)]/60 pb-3 last:border-0"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{u.email}</div>
+                    <div className="text-xs text-[var(--color-muted)] mt-0.5">
+                      {fmtWhen(u.created_at)}
+                      {u.has_google ? " · Google" : ""}
+                      {u.has_password ? " · Password" : ""}
+                      {!u.is_vip && !u.is_admin && u.subscription_status !== "none"
+                        ? ` · ${u.subscription_status}`
+                        : ""}
+                    </div>
+                  </div>
+                  <div className="shrink-0 flex flex-wrap justify-end gap-1">
+                    {badges.map((b) => (
+                      <span
+                        key={b.label}
+                        className={`text-[11px] uppercase tracking-wide rounded px-1.5 py-0.5 ${b.className}`}
+                      >
+                        {b.label}
+                      </span>
+                    ))}
                   </div>
                 </div>
-                <span
-                  className={`shrink-0 text-[11px] uppercase tracking-wide rounded px-1.5 py-0.5 ${
-                    u.subscribed
-                      ? "bg-[var(--color-up)]/15 text-[var(--color-up)]"
-                      : "bg-[var(--color-panel-2)] text-[var(--color-muted)]"
-                  }`}
-                >
-                  {u.subscription_status}
-                </span>
-              </div>
-            ))}
+              );
+            })}
             {!data.recent_users.length ? (
               <p className="text-sm text-[var(--color-muted)]">No users yet.</p>
             ) : null}

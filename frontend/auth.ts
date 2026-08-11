@@ -40,6 +40,7 @@ async function syncUser(input: {
   subscriptionStatus: string;
   subscribed: boolean;
   isAdmin: boolean;
+  isVip: boolean;
   created: boolean;
 } | null> {
   try {
@@ -63,12 +64,15 @@ async function syncUser(input: {
       subscription_status: string;
       subscribed: boolean;
       is_admin?: boolean;
+      is_vip?: boolean;
+      bypass?: boolean;
       created?: boolean;
     };
     return {
       subscriptionStatus: data.subscription_status,
       subscribed: data.subscribed,
       isAdmin: Boolean(data.is_admin),
+      isVip: Boolean(data.is_vip ?? data.bypass),
       created: Boolean(data.created),
     };
   } catch {
@@ -80,6 +84,7 @@ async function fetchMe(accessToken: string): Promise<{
   subscriptionStatus: string;
   subscribed: boolean;
   isAdmin: boolean;
+  isVip: boolean;
 } | null> {
   try {
     const res = await fetch(`${API_BASE}/auth/me`, {
@@ -91,11 +96,14 @@ async function fetchMe(accessToken: string): Promise<{
       subscription_status: string;
       subscribed: boolean;
       is_admin?: boolean;
+      is_vip?: boolean;
+      bypass?: boolean;
     };
     return {
       subscriptionStatus: data.subscription_status,
       subscribed: data.subscribed,
       isAdmin: Boolean(data.is_admin),
+      isVip: Boolean(data.is_vip ?? data.bypass),
     };
   } catch {
     return null;
@@ -315,6 +323,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.subscriptionStatus = synced.subscriptionStatus;
           token.subscribed = synced.subscribed;
           token.isAdmin = synced.isAdmin;
+          token.isVip = synced.isVip;
           token.subscriptionCheckedAt = Date.now();
           if ("created" in synced && synced.created) {
             token.trackSignUp = true;
@@ -336,6 +345,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.subscriptionStatus = (token.subscriptionStatus as string) ?? "none";
       session.subscribed = Boolean(token.subscribed);
       session.isAdmin = Boolean(token.isAdmin);
+      session.isVip = Boolean(token.isVip);
       session.trackSignUp = Boolean(token.trackSignUp);
       return session;
     },

@@ -7,7 +7,12 @@ import { API_BASE } from "@/lib/api";
 import { postBilling } from "@/lib/billing";
 import { Card } from "@/components/ui";
 
-function statusLabel(status: string | undefined, subscribed: boolean): string {
+function statusLabel(
+  status: string | undefined,
+  subscribed: boolean,
+  isVip: boolean
+): string {
+  if (isVip) return "VIP";
   if (subscribed) {
     if (status === "trialing") return "Trialing";
     return "Active";
@@ -20,6 +25,7 @@ type AccountProfile = {
   subscribed: boolean;
   subscriptionStatus: string;
   isAdmin: boolean;
+  isVip: boolean;
   periodEnd: string | null;
   waveAlerts: boolean;
 };
@@ -54,9 +60,10 @@ export default function AccountPage() {
         if (opts?.fromStripe) {
           const sync = await postBilling("/billing/sync", session.accessToken);
           setProfile((prev) => ({
-            subscribed: Boolean(sync.subscribed),
+            subscribed: Boolean(sync.subscribed) || Boolean(prev?.isVip ?? session.isVip),
             subscriptionStatus: sync.subscription_status || "none",
-            isAdmin: Boolean(session.isAdmin),
+            isAdmin: Boolean(prev?.isAdmin ?? session.isAdmin),
+            isVip: Boolean(prev?.isVip ?? session.isVip),
             periodEnd: sync.current_period_end ?? null,
             waveAlerts: prev?.waveAlerts ?? true,
           }));
@@ -80,23 +87,29 @@ export default function AccountPage() {
           subscribed: boolean;
           subscription_status: string;
           is_admin: boolean;
+          is_vip?: boolean;
+          bypass?: boolean;
           current_period_end?: string | null;
           wave_alerts?: boolean;
         };
+        const isVip = Boolean(data.is_vip ?? data.bypass);
         setProfile({
           subscribed: Boolean(data.subscribed),
           subscriptionStatus: data.subscription_status || "none",
           isAdmin: Boolean(data.is_admin),
+          isVip,
           periodEnd: data.current_period_end ?? null,
           waveAlerts: data.wave_alerts !== false,
         });
         // If DB still says free, pull from Stripe once - covers webhook misses.
-        if (!data.subscribed) {
+        // Skip for VIP — they are not behind Stripe.
+        if (!data.subscribed && !isVip) {
           const sync = await postBilling("/billing/sync", session.accessToken);
           setProfile({
             subscribed: Boolean(sync.subscribed),
             subscriptionStatus: sync.subscription_status || "none",
             isAdmin: Boolean(data.is_admin),
+            isVip,
             periodEnd: sync.current_period_end ?? null,
             waveAlerts: data.wave_alerts !== false,
           });
@@ -108,7 +121,7 @@ export default function AccountPage() {
         setRefreshing(false);
       }
     },
-    [session?.accessToken, session?.isAdmin, update]
+    [session?.accessToken, session?.isAdmin, session?.isVip, update]
   );
 
   useEffect(() => {
@@ -203,7 +216,9 @@ export default function AccountPage() {
   const subStatus =
     profile?.subscriptionStatus ?? session.subscriptionStatus ?? "none";
   const isAdmin = profile?.isAdmin ?? Boolean(session.isAdmin);
+  const isVip = profile?.isVip ?? Boolean(session.isVip);
   const periodEnd = formatPeriodEnd(profile?.periodEnd);
+  const planLabel = isVip ? "VIP" : subscribed ? "Pro" : "Free";
 
   return (
     <div className="max-w-lg mx-auto mt-8 space-y-6">
@@ -236,7 +251,12 @@ export default function AccountPage() {
               </div>
               {isAdmin ? (
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border text-[var(--color-accent)] border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10">
-                  Admin access
+                  Admin
+                </span>
+              ) : null}
+              {isVip ? (
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border text-[var(--color-up)] border-[var(--color-up)]/40 bg-[var(--color-up)]/10">
+                  VIP
                 </span>
               ) : null}
             </div>
@@ -257,7 +277,7 @@ export default function AccountPage() {
           <div>
             <div className="text-sm text-[var(--color-muted)]">Subscription</div>
             <div className="text-lg font-semibold mt-0.5">
-              {statusLabel(subStatus, subscribed)}
+              {statusLabel(subStatus, subscribed, isVip)}
               {refreshing ? (
                 <span className="text-xs font-normal text-[var(--color-muted)] ml-2">
                   updating…
@@ -265,21 +285,23 @@ export default function AccountPage() {
               ) : null}
             </div>
             <p className="text-sm text-[var(--color-muted)] mt-1">
-              {subscribed
-                ? periodEnd
-                  ? `Pro is on through ${periodEnd}. Cancel anytime in Stripe billing.`
-                  : "Pro is on. Cancel anytime in Stripe billing."
-                : "Paid but still showing Free? Sync from Stripe. Otherwise upgrade on Pricing."}
+              {isVip
+                ? "Complimentary Pro access. No billing required."
+                : subscribed
+                  ? periodEnd
+                    ? `Pro is on through ${periodEnd}. Cancel anytime in Stripe billing.`
+                    : "Pro is on. Cancel anytime in Stripe billing."
+                  : "Paid but still showing Free? Sync from Stripe. Otherwise upgrade on Pricing."}
             </p>
           </div>
           <span
             className={`shrink-0 mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border ${
-              subscribed
+              subscribed || isVip
                 ? "text-[var(--color-up)] border-[var(--color-up)]/40 bg-[var(--color-up)]/10"
                 : "text-[var(--color-muted)] border-[var(--color-edge)] bg-[var(--color-panel-2)]"
             }`}
           >
-            {subscribed ? "Pro" : "Free"}
+            {planLabel}
           </span>
         </div>
 
@@ -287,7 +309,14 @@ export default function AccountPage() {
         {error && <p className="text-sm text-[var(--color-down)]">{error}</p>}
 
         <div className="flex flex-col sm:flex-row gap-2">
-          {subscribed ? (
+          {isVip ? (
+            <Link
+              href="/boards"
+              className="flex-1 text-center rounded-lg bg-[var(--color-accent)] text-white font-medium py-2.5 hover:opacity-90"
+            >
+              Open boards
+            </Link>
+          ) : subscribed ? (
             <button
               type="button"
               disabled={busy}
@@ -304,16 +333,18 @@ export default function AccountPage() {
               View pricing
             </Link>
           )}
-          <button
-            type="button"
-            disabled={refreshing}
-            onClick={() => {
-              void refreshProfile({ fromStripe: true });
-            }}
-            className="rounded-lg border border-[var(--color-edge)] px-4 py-2.5 text-sm text-[var(--color-muted)] hover:text-white hover:bg-[var(--color-panel-2)] disabled:opacity-60"
-          >
-            {refreshing ? "Syncing…" : "Sync from Stripe"}
-          </button>
+          {!isVip ? (
+            <button
+              type="button"
+              disabled={refreshing}
+              onClick={() => {
+                void refreshProfile({ fromStripe: true });
+              }}
+              className="rounded-lg border border-[var(--color-edge)] px-4 py-2.5 text-sm text-[var(--color-muted)] hover:text-white hover:bg-[var(--color-panel-2)] disabled:opacity-60"
+            >
+              {refreshing ? "Syncing…" : "Sync from Stripe"}
+            </button>
+          ) : null}
         </div>
       </Card>
 

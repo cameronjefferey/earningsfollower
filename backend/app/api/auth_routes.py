@@ -132,6 +132,7 @@ def _user_payload(user: User, settings: Settings) -> dict:
             user.current_period_end.isoformat() if user.current_period_end else None
         ),
         "bypass": bypass,
+        "is_vip": bypass,
         "is_admin": is_admin,
         "email_verified": user.email_verified_at is not None,
         "has_password": bool(user.password_hash),
@@ -227,6 +228,7 @@ def me(
             "subscribed": bypass,
             "current_period_end": None,
             "bypass": bypass,
+            "is_vip": bypass,
             "is_admin": is_admin,
             "email_verified": False,
             "has_password": False,

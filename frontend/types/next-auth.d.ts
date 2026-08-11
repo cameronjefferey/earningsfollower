@@ -7,6 +7,8 @@ declare module "next-auth" {
     subscriptionStatus?: string;
     subscribed?: boolean;
     isAdmin?: boolean;
+    /** AUTH_BYPASS_EMAILS — Pro without Stripe; not admin. */
+    isVip?: boolean;
     /** True once when the backend just created this account (for ad pixels). */
     trackSignUp?: boolean;
   }
@@ -19,6 +21,7 @@ declare module "next-auth/jwt" {
     subscriptionStatus?: string;
     subscribed?: boolean;
     isAdmin?: boolean;
+    isVip?: boolean;
     subscriptionCheckedAt?: number;
     picture?: string;
     trackSignUp?: boolean;

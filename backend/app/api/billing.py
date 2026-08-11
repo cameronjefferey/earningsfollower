@@ -22,6 +22,11 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 _ACTIVE = frozenset({"active", "trialing"})
 
+# Stamped on new checkouts/subscriptions purely so support can eyeball which
+# product a Stripe object came from. Entitlement is decided by price id, since
+# subscriptions created before this marker existed have empty metadata.
+APP_MARKER = "earningsfollower"
+
 
 class CheckoutBody(BaseModel):
     success_url: str | None = None
@@ -150,6 +155,79 @@ def _field(obj: object, key: str, default=None):
     return data.get(key, default)
 
 
+def _items(container: object, key: str = "items") -> list:
+    """Return the ``data`` array of a nested Stripe list (items, lines, ...)."""
+    value = _as_dict(container).get(key)
+    if isinstance(value, list):
+        return value
+    return _list_data(value) if value is not None else []
+
+
+def _price_id(obj: object) -> str | None:
+    """Pull a price id off a subscription item or invoice line.
+
+    Shapes seen in the wild:
+      subscription item: price.id (or the legacy plan.id)
+      invoice line <2025-03: price.id
+      invoice line 2025-03+: pricing.price_details.price (a bare id string)
+    """
+    data = _as_dict(obj)
+    for key in ("price", "plan"):
+        node = data.get(key)
+        if isinstance(node, str) and node:
+            return node
+        node_id = _field(node, "id")
+        if isinstance(node_id, str) and node_id:
+            return node_id
+    details = _as_dict(_as_dict(data.get("pricing")).get("price_details"))
+    price = details.get("price")
+    if isinstance(price, str) and price:
+        return price
+    return None
+
+
+def _subscription_price_ids(sub: object) -> set[str]:
+    data = _as_dict(sub)
+    ids = {_price_id(item) for item in _items(data)}
+    # Deleted/canceled subs sometimes arrive with only the legacy root plan.
+    ids.add(_price_id({"plan": data.get("plan")}))
+    return {p for p in ids if p}
+
+
+def _invoice_price_ids(invoice: object) -> set[str]:
+    ids = {_price_id(line) for line in _items(invoice, "lines")}
+    return {p for p in ids if p}
+
+
+def is_ours(price_ids: set[str], settings: Settings) -> bool:
+    """Does this object belong to EarningsFollower?
+
+    The Stripe account is shared with sibling products and Stripe fans the whole
+    account's event stream out to every registered endpoint, so we must confirm
+    a price id we sell before touching a user row. Fails closed: with nothing
+    configured we own nothing.
+    """
+    owned = settings.stripe_owned_price_ids
+    if not owned:
+        return False
+    return bool(price_ids & owned)
+
+
+def subscription_is_ours(sub: object, settings: Settings) -> bool:
+    return is_ours(_subscription_price_ids(sub), settings)
+
+
+def _skip_foreign(etype: str, object_id: object, price_ids: set[str]) -> None:
+    """Foreign-product traffic is expected here, so it is INFO, never ERROR."""
+    logger.info(
+        "Ignoring %s for another product on the shared Stripe account "
+        "(object=%s, prices=%s)",
+        etype,
+        object_id,
+        sorted(price_ids) or "none",
+    )
+
+
 def _period_end_ts(sub: dict) -> int | None:
     """Stripe API 2024+ may put period bounds on items, not the subscription root."""
     end = sub.get("current_period_end")
@@ -179,12 +257,25 @@ def _apply_subscription(user: User, sub: object) -> None:
         user.current_period_end = None
 
 
-def _pick_subscription(customer_id: str) -> object | None:
+def _pick_subscription(customer_id: str, settings: Settings) -> object | None:
+    """Best subscription for this customer, ignoring sibling products.
+
+    One person can legitimately buy EarningsFollower and a sibling product with
+    the same email, which puts both subscriptions on the same Stripe customer.
+    Only our own prices may drive entitlement.
+    """
     subs = _list_data(
         stripe.Subscription.list(customer=customer_id, status="all", limit=10)
     )
     chosen = None
     for sub in subs:
+        if not subscription_is_ours(sub, settings):
+            _skip_foreign(
+                "subscription sync",
+                _field(sub, "id"),
+                _subscription_price_ids(sub),
+            )
+            continue
         if _field(sub, "status") in _ACTIVE:
             return sub
         if chosen is None:
@@ -219,7 +310,7 @@ def _sync_user_from_stripe(user: User, settings: Settings) -> dict:
     if not customer_id:
         return _user_access_payload(user, settings, synced=False)
 
-    chosen = _pick_subscription(customer_id)
+    chosen = _pick_subscription(customer_id, settings)
     if chosen is not None:
         _apply_subscription(user, chosen)
     return _user_access_payload(user, settings, synced=True)
@@ -299,7 +390,8 @@ def create_checkout_session(
             success_url=success,
             cancel_url=cancel,
             client_reference_id=str(user.id),
-            metadata={"user_id": str(user.id), "email": user.email},
+            metadata={"user_id": str(user.id), "email": user.email, "app": APP_MARKER},
+            subscription_data={"metadata": {"app": APP_MARKER, "user_id": str(user.id)}},
             allow_promotion_codes=True,
         )
         log_event(
@@ -439,23 +531,27 @@ async def stripe_webhook(
 
     try:
         if etype == "checkout.session.completed":
-            _handle_checkout_completed(db, data)
+            _handle_checkout_completed(db, data, settings)
         elif etype in {
             "customer.subscription.created",
             "customer.subscription.updated",
             "customer.subscription.deleted",
+            "customer.subscription.paused",
+            "customer.subscription.resumed",
         }:
-            _handle_subscription_event(db, data, etype=etype)
+            _handle_subscription_event(db, data, settings, etype=etype)
         elif etype in {"invoice.paid", "invoice.payment_succeeded"}:
-            _handle_invoice_event(db, data, etype=etype)
+            _handle_invoice_event(db, data, settings, etype=etype)
         elif etype == "invoice.payment_failed":
-            _handle_invoice_event(db, data, etype=etype)
+            _handle_invoice_event(db, data, settings, etype=etype)
         elif etype == "checkout.session.expired":
             _handle_checkout_expired(db, data)
         else:
             # Still record unknown-but-delivered Stripe events so the admin
             # dashboard / Telegram catch anything we haven't specialized yet.
-            user = _user_from_stripe(db, data)
+            # Match on customer id only: user_id metadata and
+            # client_reference_id collide with sibling products' user ids.
+            user = _user_from_stripe(db, data, by_metadata=False)
             log_event(
                 db,
                 kind=f"stripe_{etype.replace('.', '_')}",
@@ -481,7 +577,9 @@ async def stripe_webhook(
     return {"received": True}
 
 
-def _user_from_stripe(db: Session, obj: object) -> User | None:
+def _user_from_stripe(
+    db: Session, obj: object, *, by_metadata: bool = True
+) -> User | None:
     data = _as_dict(obj)
     customer_id = data.get("customer")
     if isinstance(customer_id, dict):
@@ -492,6 +590,8 @@ def _user_from_stripe(db: Session, obj: object) -> User | None:
         ).first()
         if user:
             return user
+    if not by_metadata:
+        return None
 
     meta = _as_dict(data.get("metadata"))
     user_id = meta.get("user_id") or data.get("client_reference_id")
@@ -504,8 +604,29 @@ def _user_from_stripe(db: Session, obj: object) -> User | None:
     return None
 
 
-def _handle_checkout_completed(db: Session, session: object) -> None:
+def _handle_checkout_completed(
+    db: Session, session: object, settings: Settings
+) -> None:
     data = _as_dict(session)
+    sub_id = data.get("subscription")
+    if isinstance(sub_id, dict):
+        sub_id = sub_id.get("id")
+    if not sub_id:
+        # No subscription means this is not one of our purchases. Do not fall
+        # through and bind the customer id: on the shared Stripe account the
+        # session may belong to a sibling product whose user id matches ours.
+        _skip_foreign(
+            "checkout.session.completed (no subscription)", data.get("id"), set()
+        )
+        return
+
+    sub = stripe.Subscription.retrieve(str(sub_id))
+    if not subscription_is_ours(sub, settings):
+        _skip_foreign(
+            "checkout.session.completed", data.get("id"), _subscription_price_ids(sub)
+        )
+        return
+
     user = _user_from_stripe(db, data)
     if user is None:
         logger.warning(
@@ -532,12 +653,7 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
         customer = customer.get("id")
     if customer:
         user.stripe_customer_id = customer
-    sub_id = data.get("subscription")
-    if isinstance(sub_id, dict):
-        sub_id = sub_id.get("id")
-    if sub_id:
-        sub = stripe.Subscription.retrieve(str(sub_id))
-        _apply_subscription(user, sub)
+    _apply_subscription(user, sub)
     log_event(
         db,
         kind="stripe_checkout_completed",
@@ -551,9 +667,16 @@ def _handle_checkout_completed(db: Session, session: object) -> None:
 
 
 def _handle_subscription_event(
-    db: Session, sub: object, *, etype: str = "customer.subscription.updated"
+    db: Session,
+    sub: object,
+    settings: Settings,
+    *,
+    etype: str = "customer.subscription.updated",
 ) -> None:
     data = _as_dict(sub)
+    if not subscription_is_ours(data, settings):
+        _skip_foreign(etype, data.get("id"), _subscription_price_ids(data))
+        return
     user = _user_from_stripe(db, data)
     if user is None and data.get("id"):
         user = db.scalars(
@@ -599,11 +722,39 @@ def _handle_subscription_event(
     )
 
 
-def _handle_invoice_event(db: Session, invoice: object, *, etype: str) -> None:
-    data = _as_dict(invoice)
+def _invoice_subscription_id(data: dict) -> str | None:
+    """Invoices moved the subscription pointer under ``parent`` in 2025-03+."""
     sub_id = _field(data, "subscription")
+    if not sub_id:
+        parent = _as_dict(data.get("parent"))
+        sub_id = _as_dict(parent.get("subscription_details")).get("subscription")
     if isinstance(sub_id, dict):
         sub_id = sub_id.get("id")
+    return str(sub_id) if sub_id else None
+
+
+def _invoice_is_ours(data: dict, sub_id: str | None, settings: Settings) -> bool:
+    price_ids = _invoice_price_ids(data)
+    if price_ids:
+        return is_ours(price_ids, settings)
+    # No readable line prices (unusual shape): ask the subscription instead.
+    if not sub_id:
+        return False
+    try:
+        return subscription_is_ours(stripe.Subscription.retrieve(sub_id), settings)
+    except stripe.StripeError:
+        logger.exception("Could not verify ownership of subscription %s", sub_id)
+        return False
+
+
+def _handle_invoice_event(
+    db: Session, invoice: object, settings: Settings, *, etype: str
+) -> None:
+    data = _as_dict(invoice)
+    sub_id = _invoice_subscription_id(data)
+    if not _invoice_is_ours(data, sub_id, settings):
+        _skip_foreign(etype, data.get("id"), _invoice_price_ids(data))
+        return
     user = _user_from_stripe(db, data)
     amount = data.get("amount_paid")
     if amount is None:
@@ -618,7 +769,9 @@ def _handle_invoice_event(db: Session, invoice: object, *, etype: str) -> None:
     if sub_id and etype in {"invoice.paid", "invoice.payment_succeeded"}:
         try:
             sub = stripe.Subscription.retrieve(str(sub_id))
-            _handle_subscription_event(db, sub, etype="customer.subscription.updated")
+            _handle_subscription_event(
+                db, sub, settings, etype="customer.subscription.updated"
+            )
         except stripe.StripeError:
             logger.exception("Failed to refresh sub after %s", etype)
 
@@ -647,7 +800,9 @@ def _handle_invoice_event(db: Session, invoice: object, *, etype: str) -> None:
 
 def _handle_checkout_expired(db: Session, session: object) -> None:
     data = _as_dict(session)
-    user = _user_from_stripe(db, data)
+    # Metadata user ids collide across the products sharing this Stripe account,
+    # so an expired sibling checkout must not be logged against one of our users.
+    user = _user_from_stripe(db, data, by_metadata=False)
     meta = _as_dict(data.get("metadata"))
     email = (
         (user.email if user else None)

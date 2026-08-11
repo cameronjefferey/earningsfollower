@@ -54,6 +54,8 @@ services:
         sync: false
       - key: STRIPE_PRICE_ID
         sync: false
+      - key: STRIPE_PRICE_IDS
+        sync: false # every price id we sell; shared Stripe account ownership gate
       - key: PUBLIC_APP_URL
         value: https://www.earningsfollower.com
       - key: API_PUBLIC_URL

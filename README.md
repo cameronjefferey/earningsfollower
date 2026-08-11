@@ -97,11 +97,18 @@ verify / reset emails use [Resend](https://resend.com) on the API.
 4. **Stripe (free test mode)** — [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys):
    - Copy the **test** secret key → backend `STRIPE_SECRET_KEY`
    - Products → add a monthly Price → `STRIPE_PRICE_ID=price_...`
+   - List every price you sell (annual, legacy, promo) in `STRIPE_PRICE_IDS`,
+     comma-separated. Stripe fans an account's entire event stream out to every
+     webhook endpoint on it, so if the account is shared with another product
+     the webhook must confirm a price id it owns before granting or revoking
+     access. Anything not in this list is treated as another product's traffic:
+     forget a price and those subscribers get no access.
    - Developers → Webhooks → endpoint `http://localhost:8000/billing/webhook`
      (or your API URL) for `checkout.session.completed`,
-     `customer.subscription.*`, `invoice.paid` → `STRIPE_WEBHOOK_SECRET`
+     `customer.subscription.*` (including `updated`, which carries plan switches
+     and cancel-at-period-end), `invoice.paid` → `STRIPE_WEBHOOK_SECRET`
    - Locally, `stripe listen --forward-to localhost:8000/billing/webhook` is easiest
-5. **Bypass yourself while testing** — `AUTH_BYPASS_EMAILS=you@gmail.com` on the backend
+5. **VIP / complimentary Pro** — `AUTH_BYPASS_EMAILS=friend@gmail.com` on the backend (Pro without Stripe; not admin)
 6. **Turn the gate on** (both sides):
    - backend: `PAYWALL_ENABLED=true`, `PUBLIC_APP_URL=http://localhost:3000`
    - frontend: `NEXT_PUBLIC_PAYWALL_ENABLED=true`

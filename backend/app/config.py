@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     # When false (default), API routes stay open so local/dev keeps working
     # without Google/Stripe. Flip true once auth + Stripe are configured.
     paywall_enabled: bool = False
-    # Comma-separated emails that always count as subscribed (your own account
-    # while testing, before a real Stripe subscription).
+    # Comma-separated VIP emails: full Pro (paywall bypass) without Stripe.
+    # Does NOT grant admin (Paper / Learning / Ops). Use ADMIN_EMAILS for that.
     auth_bypass_emails: str = ""
     # Comma-separated emails with admin access (Paper, Learning, playbooks, drift
     # trade plans). Empty = nobody is admin; admin routes return 403.
@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     # Price id for the monthly plan (create in Stripe Dashboard → Products).
     stripe_price_id: str = ""
+    # Every price id that belongs to THIS app, comma-separated (monthly, annual,
+    # legacy/grandfathered, promo). The Stripe account is shared with sibling
+    # products, and Stripe delivers the whole account's event stream to every
+    # endpoint, so price id is the only reliable "is this ours?" discriminator.
+    # stripe_price_id is always included; list the rest here.
+    stripe_price_ids: str = ""
     # Public site origin used to build Checkout success/cancel URLs when the
     # client doesn't pass them (e.g. https://earningsfollower-web.onrender.com).
     public_app_url: str = "http://localhost:3000"
@@ -498,6 +504,13 @@ class Settings(BaseSettings):
     @property
     def stripe_webhook_secret_list(self) -> list[str]:
         return [s.strip() for s in self.stripe_webhook_secret.split(",") if s.strip()]
+
+    @property
+    def stripe_owned_price_ids(self) -> frozenset[str]:
+        """Price ids this app sells. Empty = own nothing (fail closed)."""
+        ids = {self.stripe_price_id.strip()}
+        ids.update(p.strip() for p in self.stripe_price_ids.split(","))
+        return frozenset(p for p in ids if p)
 
     @property
     def auth_bypass_email_set(self) -> set[str]:

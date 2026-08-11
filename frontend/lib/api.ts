@@ -31,6 +31,12 @@ export interface EarningsCard {
   up_rate: number | null;
   beat_streak: number;
   last_move_pct: number | null;
+  /** Frozen pre-print implied move for this event (from snapshots). */
+  priced_in_move_pct?: number | null;
+  /** Close-to-close move for this event once settled. */
+  actual_move_pct?: number | null;
+  /** abs(actual) / priced_in — e.g. 1.4 means printed 1.4× what options priced. */
+  move_vs_implied?: number | null;
   /** Playbook-aligned tier; null when history is too thin to score. */
   conviction?: ConvictionTier | null;
 }

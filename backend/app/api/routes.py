@@ -77,15 +77,22 @@ def get_earnings(
     has_more = False
     updated_at = None
     # Prefer the persisted full-span snapshot (built on refresh / first full load).
-    # Ignore snapshots that predate new card fields (e.g. conviction) so filters
-    # don't silently empty the board until the next cron refresh.
+    # Ignore snapshots that predate new card fields so UI/filters don't go stale
+    # until the next cron refresh.
     snap = board_snapshots.get_snapshot(
         db, "earnings", board_snapshots.earnings_snapshot_key()
     )
     snap_cards = snap.get("cards") if snap else None
     snap_usable = (
         isinstance(snap_cards, list)
-        and (not snap_cards or "conviction" in snap_cards[0])
+        and (
+            not snap_cards
+            or (
+                "conviction" in snap_cards[0]
+                and "actual_move_pct" in snap_cards[0]
+                and "priced_in_move_pct" in snap_cards[0]
+            )
+        )
     )
     if snap_usable:
         cards = list(snap_cards)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EarningsCard } from "@/lib/api";
-import { fmtDate, marketCap, pct, timingLabel } from "@/lib/format";
+import { fmtDate, marketCap, moveClass, pct, signedPct, timingLabel } from "@/lib/format";
 import { ThemePill } from "@/components/ui";
 
 type DayGroup = {
@@ -148,8 +148,10 @@ function TimingSection({
       >
         <span>Ticker</span>
         <span>Name</span>
-        <span className="text-right">Implied</span>
-        <span className="text-right">Avg</span>
+        <span className="text-right">Move</span>
+        <span className="text-right" title="Priced-in implied when reported; historical avg otherwise">
+          Expected
+        </span>
         <span className="text-right">Cap</span>
         <span className="hidden sm:block">Theme</span>
       </div>
@@ -162,7 +164,7 @@ function TimingSection({
   );
 }
 
-function moveCell(value: number | null | undefined): string {
+function bandCell(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "-";
   return `±${pct(Math.abs(value))}`;
 }
@@ -170,6 +172,13 @@ function moveCell(value: number | null | undefined): string {
 function CompanyRow({ card }: { card: EarningsCard }) {
   const theme = card.themes[0];
   const when = timingLabel(card.timing);
+  const reported = card.reported;
+  const moveValue = reported
+    ? card.actual_move_pct
+    : card.implied_move_pct ?? card.avg_abs_move_pct;
+  const pricedIn = reported
+    ? card.priced_in_move_pct
+    : card.avg_abs_move_pct;
 
   return (
     <li>
@@ -181,11 +190,15 @@ function CompanyRow({ card }: { card: EarningsCard }) {
         <span className="min-w-0 truncate text-sm text-[var(--color-muted)]">
           {card.name ?? card.sector ?? when ?? ""}
         </span>
-        <span className="text-sm tabular text-white text-right">
-          {moveCell(card.implied_move_pct)}
+        <span
+          className={`text-sm tabular text-right ${
+            reported ? moveClass(card.actual_move_pct) : "text-white"
+          }`}
+        >
+          {reported ? signedPct(moveValue) : bandCell(moveValue)}
         </span>
         <span className="text-sm tabular text-[var(--color-muted)] text-right">
-          {moveCell(card.avg_abs_move_pct)}
+          {bandCell(pricedIn)}
         </span>
         <span className="text-xs text-[var(--color-muted)] tabular text-right">
           {marketCap(card.market_cap)}

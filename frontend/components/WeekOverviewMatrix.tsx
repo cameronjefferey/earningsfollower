@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Fragment, useMemo } from "react";
 import { EarningsCard } from "@/lib/api";
-import { pct } from "@/lib/format";
+import { moveClass, pct, signedPct } from "@/lib/format";
 
 const TOP_PER_SESSION = 10;
 
@@ -43,11 +43,19 @@ function dayLabel(isoDate: string): string {
   return `${wd} ${d.getDate()}`;
 }
 
-/** Rank for the matrix: biggest implied first, then market cap. */
+/** Magnitude used for ranking: printed move when reported, else implied. */
+function rankMove(card: EarningsCard): number | null {
+  if (card.reported && card.actual_move_pct != null) {
+    return Math.abs(card.actual_move_pct);
+  }
+  return card.implied_move_pct ?? card.avg_abs_move_pct;
+}
+
+/** Rank for the matrix: biggest move first, then market cap. */
 function rankCards(cards: EarningsCard[]): EarningsCard[] {
   return [...cards].sort((a, b) => {
-    const ai = a.implied_move_pct;
-    const bi = b.implied_move_pct;
+    const ai = rankMove(a);
+    const bi = rankMove(b);
     if (ai == null && bi == null) {
       return (b.market_cap ?? 0) - (a.market_cap ?? 0);
     }
@@ -172,8 +180,8 @@ export function WeekOverviewMatrix({
         </tbody>
       </table>
       <p className="px-3 py-2 text-[11px] text-[var(--color-muted)] border-t border-[var(--color-edge)]/50">
-        Top {TOP_PER_SESSION} per session by implied move · filters apply · expand
-        a day below for the full list
+        Top {TOP_PER_SESSION} per session by move size · reported shows printed
+        move · filters apply · expand a day below for the full list
       </p>
     </div>
   );
@@ -200,13 +208,21 @@ function SessionCell({
           title={card.name ?? card.ticker}
         >
           <span className="font-semibold text-white">{card.ticker}</span>
-          <span className="ml-1 text-[11px] tabular text-[var(--color-muted)]">
-            {card.implied_move_pct != null
-              ? `±${pct(Math.abs(card.implied_move_pct))}`
-              : card.avg_abs_move_pct != null
-                ? `±${pct(Math.abs(card.avg_abs_move_pct))}`
-                : ""}
-          </span>
+          {card.reported && card.actual_move_pct != null ? (
+            <span
+              className={`ml-1 text-[11px] tabular ${moveClass(card.actual_move_pct)}`}
+            >
+              {signedPct(card.actual_move_pct)}
+            </span>
+          ) : (
+            <span className="ml-1 text-[11px] tabular text-[var(--color-muted)]">
+              {card.implied_move_pct != null
+                ? `±${pct(Math.abs(card.implied_move_pct))}`
+                : card.avg_abs_move_pct != null
+                  ? `±${pct(Math.abs(card.avg_abs_move_pct))}`
+                  : ""}
+            </span>
+          )}
         </Link>
       ) : (
         <span className="block h-6" aria-hidden />

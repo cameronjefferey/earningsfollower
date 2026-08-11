@@ -31,7 +31,7 @@ const WINDOWS = [
 type SortKey = "date" | "implied_move" | "market_cap";
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "date", label: "Date" },
-  { key: "implied_move", label: "Implied move" },
+  { key: "implied_move", label: "Move size" },
   { key: "market_cap", label: "Market cap" },
 ];
 
@@ -896,26 +896,39 @@ export default function DashboardPage() {
   );
 }
 
-// Order cards within a group (or the flat list). "date" surfaces the soonest
-// reports first (implied move breaks ties); the ranked sorts push missing
+/** Implied for upcoming; abs(printed) once reported so last week's rippers rise. */
+function cardMoveSize(card: EarningsCard): number | null {
+  if (card.reported && card.actual_move_pct != null) {
+    return Math.abs(card.actual_move_pct);
+  }
+  return card.implied_move_pct ?? card.avg_abs_move_pct;
+}
+
+// reports first (move size breaks ties); the ranked sorts push missing
 // values to the bottom so a null never outranks a real number.
 function sortCards(cards: EarningsCard[], sortKey: SortKey): EarningsCard[] {
-  const byDesc = (key: "implied_move_pct" | "market_cap") => (a: EarningsCard, b: EarningsCard) => {
-    const av = a[key];
-    const bv = b[key];
+  const byMoveDesc = (a: EarningsCard, b: EarningsCard) => {
+    const av = cardMoveSize(a);
+    const bv = cardMoveSize(b);
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return bv - av;
+  };
+  const byCapDesc = (a: EarningsCard, b: EarningsCard) => {
+    const av = a.market_cap;
+    const bv = b.market_cap;
     if (av === null && bv === null) return 0;
     if (av === null) return 1;
     if (bv === null) return -1;
     return bv - av;
   };
   const copy = [...cards];
-  if (sortKey === "implied_move") return copy.sort(byDesc("implied_move_pct"));
-  if (sortKey === "market_cap") return copy.sort(byDesc("market_cap"));
+  if (sortKey === "implied_move") return copy.sort(byMoveDesc);
+  if (sortKey === "market_cap") return copy.sort(byCapDesc);
   return copy.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    const am = a.implied_move_pct ?? -Infinity;
-    const bm = b.implied_move_pct ?? -Infinity;
-    return bm - am;
+    return byMoveDesc(a, b);
   });
 }
 

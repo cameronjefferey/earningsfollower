@@ -9,7 +9,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Company, EarningsEvent, ImpliedMove, ThemeMembership
+from app.db.models import (
+    Company,
+    EarningsEvent,
+    ImpliedMove,
+    ImpliedMoveSnapshot,
+    ThemeMembership,
+)
 from app.services.analyst import analyst_payload
 from app.services.implied import compute_vol_edge, implied_payload
 from app.services.peers import shared_themes
@@ -222,6 +228,8 @@ def earnings_cards(
     # Reaction summaries are the expensive bit - once per ticker.
     summary_by: dict[str, object] = {}
     realized_abs_by: dict[str, list[float]] = {}
+    # Per-event close-to-close move for "what happened" on reported cards.
+    actual_by_event: dict[tuple[str, str], float | None] = {}
     for ticker in tickers:
         series = load_price_series(db, ticker)
         reactions = compute_reactions(db, ticker, series=series)
@@ -229,6 +237,25 @@ def earnings_cards(
         realized_abs_by[ticker] = [
             abs(r.move_pct) for r in reactions if r.move_pct is not None
         ]
+        for r in reactions:
+            actual_by_event[(ticker, r.date)] = r.move_pct
+
+    # Latest pre-print implied snapshot per (ticker, event_date) — "what we thought".
+    event_dates = {ev.date for ev in uniq_events}
+    priced_in_by: dict[tuple[str, date], float | None] = {}
+    if event_dates:
+        snap_best: dict[tuple[str, date], date] = {}
+        for row in db.scalars(
+            select(ImpliedMoveSnapshot).where(
+                ImpliedMoveSnapshot.ticker.in_(tickers),
+                ImpliedMoveSnapshot.event_date.in_(event_dates),
+            )
+        ).all():
+            key = (row.ticker.upper(), row.event_date)
+            prev_day = snap_best.get(key)
+            if prev_day is None or row.snapshot_date >= prev_day:
+                snap_best[key] = row.snapshot_date
+                priced_in_by[key] = row.expected_move_pct
 
     cards: list[dict] = []
     for ev in uniq_events:
@@ -249,25 +276,44 @@ def earnings_cards(
             "verdict": _verdict_for(avg_abs, expected),
             **edge,
         }
+        reported = ev.date <= date.today() and ev.eps_actual is not None
+        event_key = ev.date.isoformat()
+        actual_move = actual_by_event.get((ticker, event_key))
+        priced_in = priced_in_by.get((ticker, ev.date))
+        move_vs_implied = None
+        if (
+            actual_move is not None
+            and priced_in is not None
+            and priced_in > 0
+        ):
+            move_vs_implied = round(abs(actual_move) / priced_in, 2)
         cards.append(
             {
                 "ticker": ticker,
                 "name": company.name if company else None,
                 "sector": company.sector if company else None,
                 "market_cap": company.market_cap if company else None,
-                "date": ev.date.isoformat(),
+                "date": event_key,
                 "timing": ev.timing,
                 "eps_estimate": ev.eps_estimate,
                 "eps_actual": ev.eps_actual,
-                "reported": ev.date <= date.today() and ev.eps_actual is not None,
+                "reported": reported,
                 "themes": themes_by.get(ticker, []),
                 "implied_move_pct": expected,
-                "implied_verdict": _verdict_for(avg_abs, expected),
+                "implied_verdict": None if reported else _verdict_for(avg_abs, expected),
                 "avg_abs_move_pct": avg_abs,
                 "up_rate": summary.up_rate,
                 "beat_streak": summary.beat_streak,
                 "last_move_pct": summary.last_move_pct,
-                "conviction": calendar_conviction(asdict(summary), implied_ctx),
+                # Post-print authenticity: freeze priced-in vs this event's move.
+                "priced_in_move_pct": priced_in,
+                "actual_move_pct": actual_move,
+                "move_vs_implied": move_vs_implied,
+                "conviction": (
+                    None
+                    if reported
+                    else calendar_conviction(asdict(summary), implied_ctx)
+                ),
             }
         )
     return cards, has_more

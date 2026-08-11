@@ -21,12 +21,30 @@ const CONVICTION_STYLE: Record<
   },
 };
 
+function vsImpliedLabel(ratio: number | null | undefined): string | null {
+  if (ratio == null || Number.isNaN(ratio)) return null;
+  if (ratio >= 1.15) return `${ratio.toFixed(1)}× priced-in`;
+  if (ratio <= 0.85) return `${ratio.toFixed(1)}× priced-in`;
+  return "Inline with priced-in";
+}
+
 export function EarningsCardItem({ card }: { card: EarningsCard }) {
-  const primary = card.implied_move_pct ?? card.avg_abs_move_pct;
-  const primaryLabel = card.implied_move_pct ? "Implied" : "Avg move";
   const theme = card.themes[0];
   const conviction = card.conviction ? CONVICTION_STYLE[card.conviction] : null;
   const when = timingLabel(card.timing);
+  const reported = card.reported;
+  const actual = card.actual_move_pct;
+  const pricedIn = card.priced_in_move_pct;
+  const vsLabel = vsImpliedLabel(card.move_vs_implied);
+
+  const primary = reported
+    ? actual
+    : card.implied_move_pct ?? card.avg_abs_move_pct;
+  const primaryLabel = reported
+    ? "Printed"
+    : card.implied_move_pct
+      ? "Implied"
+      : "Avg move";
 
   return (
     <Link href={`/company/${card.ticker}`} className="group block h-full">
@@ -35,12 +53,12 @@ export function EarningsCardItem({ card }: { card: EarningsCard }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xl font-semibold tracking-tight">{card.ticker}</span>
-              {card.reported ? (
+              {reported ? (
                 <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-[var(--color-panel-2)] text-[var(--color-muted)]">
                   Reported
                 </span>
               ) : null}
-              {conviction ? (
+              {!reported && conviction ? (
                 <span
                   className={`text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${conviction.className}`}
                 >
@@ -65,30 +83,59 @@ export function EarningsCardItem({ card }: { card: EarningsCard }) {
             <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)] mb-1">
               {primaryLabel}
             </div>
-            <div className="text-2xl font-semibold tabular leading-none">
-              {pct(primary)}
+            <div
+              className={`text-2xl font-semibold tabular leading-none ${
+                reported ? moveClass(actual) : ""
+              }`}
+            >
+              {reported ? signedPct(actual) : pct(primary)}
             </div>
             <div className="mt-1.5">
-              <VerdictPill verdict={card.implied_verdict} />
+              {reported ? (
+                vsLabel ? (
+                  <span className="text-[11px] text-[var(--color-muted)]">{vsLabel}</span>
+                ) : actual == null ? (
+                  <span className="text-[11px] text-[var(--color-muted)]">
+                    Awaiting session settle
+                  </span>
+                ) : null
+              ) : (
+                <VerdictPill verdict={card.implied_verdict} />
+              )}
             </div>
           </div>
           <div className="text-right space-y-1">
-            <div className="text-xs text-[var(--color-muted)]">
-              {card.reported ? "Last move" : "Up rate"}{" "}
-              <span
-                className={`font-medium tabular ${
-                  card.reported ? moveClass(card.last_move_pct) : "text-white"
-                }`}
-              >
-                {card.reported ? signedPct(card.last_move_pct) : pct(card.up_rate, 0)}
-              </span>
-            </div>
-            <div className="text-xs text-[var(--color-muted)]">
-              Beat streak{" "}
-              <span className="font-medium text-white tabular">
-                {card.beat_streak > 0 ? `${card.beat_streak}Q` : "-"}
-              </span>
-            </div>
+            {reported ? (
+              <>
+                <div className="text-xs text-[var(--color-muted)]">
+                  Priced in{" "}
+                  <span className="font-medium text-white tabular">
+                    {pricedIn != null ? `±${pct(Math.abs(pricedIn))}` : "—"}
+                  </span>
+                </div>
+                <div className="text-xs text-[var(--color-muted)]">
+                  Beat streak{" "}
+                  <span className="font-medium text-white tabular">
+                    {card.beat_streak > 0 ? `${card.beat_streak}Q` : "-"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs text-[var(--color-muted)]">
+                  Up rate{" "}
+                  <span className="font-medium tabular text-white">
+                    {pct(card.up_rate, 0)}
+                  </span>
+                </div>
+                <div className="text-xs text-[var(--color-muted)]">
+                  Beat streak{" "}
+                  <span className="font-medium text-white tabular">
+                    {card.beat_streak > 0 ? `${card.beat_streak}Q` : "-"}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

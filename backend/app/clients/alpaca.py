@@ -300,3 +300,23 @@ class AlpacaClient:
 
     def list_positions(self) -> list[dict[str, Any]]:
         return self._request("GET", self.trading_base, "/v2/positions") or []
+
+    def portfolio_history(
+        self,
+        *,
+        period: str = "1A",
+        timeframe: str = "1D",
+    ) -> dict[str, Any]:
+        """Daily (or finer) equity curve for the paper account."""
+        return (
+            self._request(
+                "GET",
+                self.trading_base,
+                "/v2/account/portfolio/history",
+                params={
+                    "period": period,
+                    "timeframe": timeframe,
+                },
+            )
+            or {}
+        )

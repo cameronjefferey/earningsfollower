@@ -764,6 +764,55 @@ export interface LiveStopPolicy {
   note: string;
 }
 
+export interface EquityPathPoint {
+  date: string;
+  actual: number;
+  allowed?: number;
+  all_realized?: number;
+}
+
+export interface EquityPathEvent {
+  date: string;
+  chart_date: string;
+  kind: "fix" | "add" | "guard" | "retire" | string;
+  title: string;
+  detail: string;
+}
+
+export interface EquityPathBook {
+  book: string;
+  label: string;
+  allowed: boolean;
+  n: number;
+  wins: number;
+  win_rate: number | null;
+  total_pnl: number;
+}
+
+export interface EquityPathSummary {
+  n: number;
+  wins: number;
+  win_rate: number | null;
+  total_pnl: number;
+}
+
+export interface EquityPathResponse {
+  generated_at: string;
+  starting_equity: number;
+  actual_source: "alpaca" | "journal";
+  allowed_books: string[];
+  allowed_labels: string[];
+  points: EquityPathPoint[];
+  events: EquityPathEvent[];
+  by_book: EquityPathBook[];
+  all: EquityPathSummary;
+  allowed: EquityPathSummary;
+  retired: EquityPathSummary;
+  latest_actual: number | null;
+  latest_allowed: number | null;
+  window_note: string;
+}
+
 async function authHeaders(accessToken?: string | null): Promise<HeadersInit> {
   // Only attach a bearer when the caller already resolved one via useAuthReady.
   // Do NOT call getSession() here - that hits /api/auth/session on every public
@@ -981,4 +1030,6 @@ export const api = {
     ),
   paperProgress: (weeks = 8, accessToken?: string | null) =>
     getJSON<ProgressResponse>(`/paper/progress?weeks=${weeks}`, accessToken),
+  paperEquityPath: (accessToken?: string | null) =>
+    getJSON<EquityPathResponse>("/paper/equity-path", accessToken),
 };

@@ -15,6 +15,7 @@ from app.research.attribution import attribution_report
 from app.research.execution import execution_report
 from app.research.progress import progress_series
 from app.services.paper.exit_learning import exit_policy_state, stop_policy_state
+from app.services.paper.equity_path import equity_path_report
 from app.services import (
     board_snapshots,
     brief as brief_svc,
@@ -503,6 +504,17 @@ def get_paper_execution(
     report["live_exit_policy"] = exit_policy_state(db, settings)
     report["live_stop_policy"] = stop_policy_state(settings)
     return report
+
+
+@router.get("/paper/equity-path", tags=["paper"])
+def get_paper_equity_path(
+    _: Admin,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Actual paper-account equity vs. a closed-trade counterfactual of only
+    the books still allowed to open (earnings sell-vol + earnings stock)."""
+    return equity_path_report(db, settings)
 
 
 @router.get("/paper/narrative", tags=["paper"])

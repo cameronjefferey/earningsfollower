@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   api,
   AttributionResponse,
+  EquityPathResponse,
   ExecutionResponse,
   NarrativeResponse,
   ProgressResponse,
@@ -16,12 +17,14 @@ import { Narrative } from "@/components/Narrative";
 import { Attribution } from "@/components/Attribution";
 import { ExecutionQuality } from "@/components/ExecutionQuality";
 import { LearningTakeaways } from "@/components/LearningTakeaways";
+import { EquityPathCharts } from "@/components/EquityPathCharts";
 
 export default function LearningPage() {
   const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
   const [narrative, setNarrative] = useState<NarrativeResponse | null>(null);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [execution, setExecution] = useState<ExecutionResponse | null>(null);
+  const [equityPath, setEquityPath] = useState<EquityPathResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showNumbers, setShowNumbers] = useState(false);
@@ -36,6 +39,7 @@ export default function LearningPage() {
       api.paperNarrative(accessToken).then(setNarrative),
       api.paperAttribution(5, accessToken).then(setAttribution),
       api.paperExecution(5, 8, accessToken).then(setExecution),
+      api.paperEquityPath(accessToken).then(setEquityPath),
     ]).then((results) => {
       if (results.every((r) => r.status === "rejected")) setError(true);
       setLoading(false);
@@ -53,7 +57,8 @@ export default function LearningPage() {
   const hasNarrative = Boolean(narrative && narrative.source !== "empty");
   const hasAttribution = Boolean(attribution && attribution.graded_trades > 0);
   const hasExecution = Boolean(execution && execution.graded_signals > 0);
-  const hasAnyData = hasProgress || hasNarrative || hasAttribution || hasExecution;
+  const hasEquity = Boolean(equityPath && equityPath.points.length >= 2);
+  const hasAnyData = hasProgress || hasNarrative || hasAttribution || hasExecution || hasEquity;
 
   return (
     <div>
@@ -77,6 +82,7 @@ export default function LearningPage() {
             attribution={attribution}
             execution={execution}
           />
+          <EquityPathCharts report={equityPath} />
           <Narrative report={narrative} />
           <WeeklyProgress report={progress} />
 

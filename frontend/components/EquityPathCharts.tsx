@@ -91,12 +91,12 @@ function PathTooltip({
         <div style={{ color: ACCENT }}>
           Actual {dollars(byKey.get("actual")?.value)}
         </div>
-      )}
+      ) : null}
       {showAllowed && byKey.has("allowed") ? (
         <div style={{ color: PROFIT }}>
           Today&apos;s book {dollars(byKey.get("allowed")?.value)}
         </div>
-      )}
+      ) : null}
       {marks.map((e) => (
         <div key={e.title} className="mt-1.5 max-w-56 leading-snug">
           <span style={{ color: KIND_COLOR[e.kind] ?? WARN }}>{e.title}</span>

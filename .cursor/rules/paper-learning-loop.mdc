@@ -1,0 +1,16 @@
+---
+description: Act on paper-book evidence without waiting to be asked
+alwaysApply: true
+---
+
+# Paper book improves itself
+
+When paper P&L, fills, or Learning stats show a clear failure, change the live policy in the same turn. Do not wait for a weekly recap or a "should we?" prompt.
+
+- **Retire a book** the way Reddit was retired: default off, Render env off, knobs kept so open trades still manage. Do not keep funding a structure with a 0-for-N live sample (post-print debit spreads, thin-book dumps).
+- **Flip guards that already exist.** Stops, calibration, economics gates, and exit learning are useless while their flags are false. If the journal is thick enough, turn them on.
+- **Do not force-flatten** open option spreads into a paper book. Let strategy exits run.
+- **Ship it.** Policy changes go to `config.py`, `render.yaml`, `.env.example`, and production env on the paper cron in the same change. Commit and push when the user asked to make the update, or when they have already told you to keep the book improving on its own.
+- Earnings **stock** is the control group. Do not disable it because option debits failed.
+
+Example: 0 wins on 12 drift/wave debit spreads → `PAPER_DRIFT_ENABLED=false`, `PAPER_WAVES_ENABLED=false`, calibration on — not another week of the same entries.

@@ -246,10 +246,10 @@ class Settings(BaseSettings):
     # --- Calibration feedback (learning loop closes the loop) -----------------
     # Feed the realized-vs-predicted win rate learned from the trade-decision
     # store back into the entry EV gate: recalibrate each strategy's model
-    # win-probability by how optimistic/pessimistic it has actually been. Off by
-    # default -- gather data first, then flip it on once the calibration is
-    # meaningful. Sizing stays conviction-based; this only nudges the +EV gate.
-    paper_calibration_enabled: bool = False
+    # win-probability by how optimistic/pessimistic it has actually been. On
+    # now that the journal has enough graded trades to be more than noise.
+    # Sizing stays conviction-based; this only nudges the +EV gate (capped).
+    paper_calibration_enabled: bool = True
     # Require at least this many graded (closed) trades in a strategy before its
     # calibration is trusted enough to apply.
     paper_calibration_min_samples: int = 20
@@ -304,15 +304,14 @@ class Settings(BaseSettings):
     paper_earnings_equity_take_profit_pct: float = 0.10
     paper_earnings_equity_stop_pct: float = 0.07
 
-    # --- Waves strategy (peer-earnings sympathy ride) -------------------------
-    # A separate, directional strategy: when a tracked peer reports a strong
-    # earnings move, buy a themed name that historically drifts in sympathy, ride
-    # the pop for a couple of days, and get out. This is decoupled from the
-    # target's *own* earnings date - the catalyst is the peer's print, not the
-    # target's - so we enter as early as the peer reports and hold a short, fixed
-    # window. (A debit spread - not a naked long option - keeps high-priced names
-    # like TSM/ASML affordable on a small budget and caps the risk.)
-    paper_waves_enabled: bool = True
+    # --- Waves strategy (RETIRED as option debit spreads) ---------------------
+    # Peer-sympathy is real on the underlying, but expressing it as a debit
+    # spread after a vol event has been 0-for-N live: theta + IV crush eat the
+    # debit, then the hold-window dumps the spread at a fraction of what we paid.
+    # Same pattern that retired Reddit. Keep the knobs so open trades still
+    # manage and history still deserializes; do not open new wave option entries.
+    # Next experiment, if any, should be equity (like the earnings-equity book).
+    paper_waves_enabled: bool = False
     # Only trigger on a peer that reported within this many days (be early: the
     # sympathy pop is a few-day move right after the peer's print).
     paper_wave_trigger_max_age_days: int = 2
@@ -342,12 +341,13 @@ class Settings(BaseSettings):
     paper_wave_risk_frac: float = 0.02
     paper_wave_max_open: int = 6
 
-    # --- Drift (PEAD) strategy ------------------------------------------------
-    # Post-earnings announcement drift: after a name reports, beats (or misses)
-    # and reacts strongly, it tends to keep drifting in the surprise direction
-    # for ~5 trading days. We express that as a directional debit spread (defined
-    # risk) and exit on a time horizon, a take-profit, or a broken-thesis stop.
-    paper_drift_enabled: bool = True
+    # --- Drift (PEAD) strategy (RETIRED as option debit spreads) --------------
+    # Post-print drift on the stock is the thesis; the vehicle was the problem.
+    # Three weeks of live fills: 0 wins on closed drift debit spreads. We pay
+    # elevated IV into the print, then hold 7 days while crush + theta work
+    # against a long vega debit, and time-exit into a wide book. Retired the
+    # same way as Reddit. Open drift positions still exit on their own rules.
+    paper_drift_enabled: bool = False
     # Max-loss budget per drift trade (the net debit), as a fraction of equity.
     paper_drift_risk_frac: float = 0.015
     paper_drift_max_open: int = 8

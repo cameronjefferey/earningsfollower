@@ -156,17 +156,19 @@ services:
         value: "0.20"
       - key: PAPER_LATE_STOP_FRAC
         value: "0.10"
-      # Waves: directional sympathy-drift trades with an underlying-move bracket.
-      - key: PAPER_WAVES_ENABLED
+      # Calibration: nudge the +EV gate with realized-vs-predicted win rates.
+      - key: PAPER_CALIBRATION_ENABLED
         value: "true"
+      # Waves / drift option debit books retired (Aug 2026): 0-for-N live after
+      # post-print IV crush. Open positions still manage; no new entries.
+      - key: PAPER_WAVES_ENABLED
+        value: "false"
       - key: PAPER_WAVE_GAIN_PCT
         value: "0.10"
       - key: PAPER_WAVE_LOSS_PCT
         value: "0.05"
-      # Drift (PEAD): post-earnings drift via a directional debit spread, exited
-      # on a time horizon, take-profit, or broken-thesis stop.
       - key: PAPER_DRIFT_ENABLED
-        value: "true"
+        value: "false"
       - key: PAPER_DRIFT_RISK_FRAC
         value: "0.015"
       - key: PAPER_DRIFT_HOLD_DAYS

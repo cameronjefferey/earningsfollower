@@ -8,7 +8,7 @@ EV gate consumes, so the trader gradually stops taking trades its own track
 record says are mispriced - and takes more of the ones it has underrated.
 
 Heavily guardrailed on purpose (it changes what we trade):
-  - opt-in via ``paper_calibration_enabled`` (default off),
+  - opt-in via ``paper_calibration_enabled`` (on once the journal is thick enough),
   - only applied once a strategy has ``paper_calibration_min_samples`` graded
     trades (below that the ratio is noise and is ignored),
   - the multiplier itself is clamped to a sane band, and

@@ -1741,6 +1741,7 @@ def _scan_wave_entries(
     calib: dict | None = None,
 ) -> tuple[int, list]:
     if not settings.paper_waves_enabled:
+        logger.info("waves scan: disabled (paper_waves_enabled=False)")
         return 0, []
     today = date.today()
     regime = regime_snapshot(settings)
@@ -1812,15 +1813,25 @@ def _scan_wave_entries(
                 )
                 continue
 
-        # One open wave trade per ticker at a time (re-entry allowed once closed).
+        # One attempt per ticker: an already-closed wave still blocks re-entry
+        # for a cooldown so we don't buy back the same name the day after a dump
+        # (APTV Aug 20 close / Aug 21 reopen).
+        cooldown = datetime.utcnow() - timedelta(days=settings.paper_wave_hold_days + 7)
         existing = db.scalars(
             select(PaperTrade).where(
                 PaperTrade.ticker == target,
                 PaperTrade.strategy == "waves",
-                PaperTrade.status.in_(OPEN_STATES),
+                PaperTrade.status.in_(OPEN_STATES + ("closed",)),
             )
         ).first()
-        if existing:
+        if existing and (
+            existing.status in OPEN_STATES
+            or (existing.opened_at and existing.opened_at >= cooldown)
+        ):
+            logger.info(
+                "waves scan: %s already has a %s wave trade; skipping",
+                target, existing.status,
+            )
             continue
 
         budget = equity * settings.paper_wave_risk_frac

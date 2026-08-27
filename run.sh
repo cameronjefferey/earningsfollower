@@ -19,6 +19,24 @@ FRONTEND="$ROOT/frontend"
 VENV="$BACKEND/.venv"
 PY="$VENV/bin/python"
 
+# Prefer Homebrew Python 3.10+; macOS /usr/bin/python3 is still 3.9 and
+# breaks SQLAlchemy Mapped[str | None] annotations.
+resolve_python() {
+  local candidate
+  for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      local ver
+      ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+      if [ "$(printf '%s\n' "$ver" "3.10" | sort -V | head -n1)" = "3.10" ]; then
+        echo "$candidate"
+        return 0
+      fi
+    fi
+  done
+  echo "Need Python 3.10+ (found only $(command -v python3 || true)). Try: brew install python@3.13" >&2
+  exit 1
+}
+
 ensure_venv() {
   if [ ! -x "$PY" ]; then
     echo "No virtualenv found. Run: ./run.sh setup" >&2
@@ -31,8 +49,9 @@ shift || true
 
 case "$cmd" in
   setup)
-    echo "==> Creating backend virtualenv"
-    python3 -m venv "$VENV"
+    PY_CMD="$(resolve_python)"
+    echo "==> Creating backend virtualenv with $PY_CMD ($($PY_CMD --version))"
+    "$PY_CMD" -m venv "$VENV"
     "$PY" -m pip install --upgrade pip
     "$PY" -m pip install -r "$BACKEND/requirements.txt"
     [ -f "$BACKEND/.env" ] || cp "$BACKEND/.env.example" "$BACKEND/.env"

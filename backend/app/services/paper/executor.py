@@ -37,6 +37,8 @@ from app.services.paper.exit_learning import (
     effective_take_profit,
 )
 from app.services.paper.decisions import (
+    attach_context_features,
+    backfill_from_paper_trades,
     drift_features,
     earnings_features,
     record_decision,
@@ -45,6 +47,7 @@ from app.services.paper.decisions import (
     sync_labels,
     wave_features,
 )
+from app.services.paper.entry_model import fit_entry_model, resolve_entry_probability
 from app.services.paper.economics import evaluate_entry, fill_within_plan
 from app.services.paper.risk import DEBIT_STRATEGIES, defined_risk_max_loss
 from app.services.paper.drift_trader import DriftSpec, build_drift_spec, drift_conviction
@@ -151,10 +154,15 @@ def run(db: Session, dry_run: bool = False) -> dict:
         # Fill in realized labels for past decisions whose trades have since
         # closed or aged (best-effort; never let the learning journal break a run).
         # Runs every cycle, including closed-market ones, so labels stay fresh.
+        # Catch the journal up with any paper fills that predate live recording,
+        # then grade closed trades so the entry model / calibration see history.
         try:
+            created = backfill_from_paper_trades(db)
             labeled = sync_labels(db)
-            if labeled and not dry_run:
+            if (created or labeled) and not dry_run:
                 db.commit()
+            if created:
+                summary["backfilled"] = created
             summary["labeled"] = labeled
         except Exception as e:  # noqa: BLE001
             logger.warning("label sync failed: %s", e)
@@ -196,19 +204,37 @@ def run(db: Session, dry_run: bool = False) -> dict:
         if calib:
             summary["calibration"] = {s: e.multiplier for s, e in calib.items()}
 
+        # Joint entry model: fit on the graded journal, then score candidates
+        # in front of the EV / conviction gates. No-op stub when the sample is
+        # too thin or AUC is a coin flip - never let a fit error break the run.
+        try:
+            entry_model = fit_entry_model(db, settings)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("entry-model fit failed: %s", e)
+            entry_model = None
+        if entry_model is not None:
+            summary["entry_model"] = {
+                "applicable": entry_model.applicable,
+                "n": entry_model.n,
+                "cv_auc": entry_model.cv_auc,
+                "reason": entry_model.reason,
+            }
+
         # Each book scans independently - a bad underlying in one strategy must
         # not prevent the others from opening trades the same cycle.
         scan_results: list[tuple[int, list]] = []
         for label, fn in (
-            ("earnings", lambda: _scan_entries(db, client, equity, settings, dry_run, calib)),
-            ("waves", lambda: _scan_wave_entries(db, client, equity, settings, dry_run, calib)),
-            ("drift", lambda: _scan_drift_entries(db, client, equity, settings, dry_run, calib)),
+            ("earnings", lambda: _scan_entries(db, client, equity, settings, dry_run, calib, entry_model)),
+            ("waves", lambda: _scan_wave_entries(db, client, equity, settings, dry_run, calib, entry_model)),
+            ("drift", lambda: _scan_drift_entries(db, client, equity, settings, dry_run, calib, entry_model)),
             # Reddit sentiment book retired - do not scan for new entries.
             # Earnings-equity runs after the options scan so it can size a twin
             # to the spread that just opened (or stand alone otherwise).
             (
                 "earnings_equity",
-                lambda: _scan_earnings_equity_entries(db, client, equity, settings, dry_run),
+                lambda: _scan_earnings_equity_entries(
+                    db, client, equity, settings, dry_run, entry_model, calib
+                ),
             ),
         ):
             try:
@@ -619,9 +645,35 @@ def _breached_short(legs: list[dict], spot: float) -> bool:
 # --- entries -----------------------------------------------------------------
 
 
+def _score_setup(
+    db: Session,
+    ticker: str,
+    feats: dict,
+    strategy: str,
+    model,
+    calib: dict | None,
+    settings,
+) -> tuple[dict, float | None, str | None]:
+    """Attach size/liquidity, score with the entry model, annotate feats.
+
+    Returns ``(feats, gate_win_prob, skip_reason)``. ``skip_reason`` is set when
+    the model vetoes; ``gate_win_prob`` is what the EV gate should consume
+    (model p when live, calibrated heuristic otherwise).
+    """
+    feats = attach_context_features(db, ticker, feats, as_of=date.today())
+    heuristic = feats.get("win_prob")
+    gate_p, skip, model_p = resolve_entry_probability(
+        heuristic, feats, strategy, model, calib, settings,
+    )
+    if model_p is not None:
+        feats["model_win_prob"] = model_p
+    return feats, gate_p, skip
+
+
 def _scan_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
     calib: dict | None = None,
+    model=None,
 ) -> tuple[int, list]:
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
@@ -655,7 +707,7 @@ def _scan_entries(
         seen.add(ticker)
         try:
             opened_one, skip = _try_earnings_entry(
-                db, client, equity, settings, dry_run, calib,
+                db, client, equity, settings, dry_run, calib, model,
                 ev=ev, ticker=ticker, open_n=open_n, opened=opened, regime=regime,
             )
         except AlpacaError as e:
@@ -685,6 +737,7 @@ def _try_earnings_entry(
     settings,
     dry_run: bool,
     calib: dict | None,
+    model=None,
     *,
     ev: EarningsEvent,
     ticker: str,
@@ -772,6 +825,18 @@ def _try_earnings_entry(
     feats = earnings_features(
         pb, im, spec=spec, contracts=contracts, risk_frac=risk_frac, equity=equity
     )
+    feats, win_prob, model_skip = _score_setup(
+        db, ticker, feats, "earnings", model, calib, settings,
+    )
+    if model_skip:
+        trade.status = "canceled"
+        trade.note = f"skipped: {model_skip}"
+        record_decision(
+            db, strategy="earnings", ticker=ticker, decision="skipped",
+            earnings_date=ev.date, skip_reason=model_skip, regime=regime,
+            features=feats,
+        )
+        return 0, {"ticker": ticker, "reason": model_skip}
 
     if dry_run:
         logger.info(
@@ -796,14 +861,9 @@ def _try_earnings_entry(
         }
         for l in spec.legs
     ]
-    # Sell-vol win probability = how often the realized move historically
-    # stayed inside the strike we actually sell. Since the short is pulled in
-    # to frac x EM, use the strike-level edge (1 - exceed_rate_at_strike);
-    # fall back to the full-move seller_edge if the strike-level recompute
-    # wasn't available. This keeps the EV gate honest for the closer strike.
-    basis = pb.get("conviction_basis") or {}
-    win_prob = basis.get("seller_edge_at_strike") or basis.get("seller_edge")
-    win_prob = adjust_win_prob(win_prob, "earnings", calib, settings)
+    # Sell-vol win probability: the entry model (when live) jointly weights
+    # size / implied vol / history; otherwise the strike-level seller edge,
+    # recalibrated by the strategy's track record.
     limit, reason = _gate_entry(
         client, order_legs, is_credit=True, mid=spec.net_credit,
         width=spec.width, win_prob=win_prob, settings=settings,
@@ -1255,7 +1315,8 @@ def _earnings_equity_shares(notional: float | None, spot: float | None) -> int:
 
 
 def _scan_earnings_equity_entries(
-    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
+    model=None, calib: dict | None = None,
 ) -> tuple[int, list]:
     """Directional equity book that shadows the earnings options play, so we can
     compare whether the shares beat the options on the same signal.
@@ -1429,6 +1490,19 @@ def _scan_earnings_equity_entries(
             "spot": round(spot, 2),
             "modeled_price": round(spot, 2),
         })
+        feats, _gate_p, model_skip = _score_setup(
+            db, ticker, feats, "earnings_equity", model, calib, settings,
+        )
+        if model_skip:
+            trade.status = "canceled"
+            trade.note = f"skipped: {model_skip}"
+            skipped.append({"ticker": ticker, "reason": model_skip})
+            record_decision(
+                db, strategy="earnings_equity", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=model_skip, regime=regime,
+                features=feats,
+            )
+            continue
         side = "buy" if direction == "bullish" else "sell"
         if dry_run:
             logger.info(
@@ -1739,6 +1813,7 @@ def _wave_exit_reason(
 def _scan_wave_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
     calib: dict | None = None,
+    model=None,
 ) -> tuple[int, list]:
     if not settings.paper_waves_enabled:
         logger.info("waves scan: disabled (paper_waves_enabled=False)")
@@ -1874,6 +1949,19 @@ def _scan_wave_entries(
             sig, conviction=conv, spec=spec, contracts=contracts,
             risk_frac=settings.paper_wave_risk_frac, equity=equity,
         )
+        feats, win_prob, model_skip = _score_setup(
+            db, target, feats, "waves", model, calib, settings,
+        )
+        if model_skip:
+            trade.status = "canceled"
+            trade.note = f"skipped: {model_skip}"
+            skipped.append({"ticker": target, "reason": model_skip})
+            record_decision(
+                db, strategy="waves", ticker=target, decision="skipped",
+                earnings_date=tgt_date, skip_reason=model_skip, regime=regime,
+                features=feats,
+            )
+            continue
         if dry_run:
             logger.info(
                 "[dry-run] WAVE %s %s spread x%d @ debit %.2f (trigger %s)",
@@ -1897,9 +1985,9 @@ def _scan_wave_entries(
             }
             for l in spec.legs
         ]
-        # wr is the historical sympathy win rate gated above -- feed it to the EV
-        # gate so a rich debit only clears when the edge actually supports it.
-        win_prob = adjust_win_prob(wr, "waves", calib, settings)
+        # wr is the historical sympathy win rate gated above. The entry model
+        # jointly reweights it with size / implied vol when live; otherwise the
+        # calibrated historical rate feeds the EV gate.
         limit, reason = _gate_entry(
             client, order_legs, is_credit=False, mid=spec.net_debit,
             width=spec.width, win_prob=win_prob, settings=settings,
@@ -2133,6 +2221,7 @@ def _drift_exit_reason(
 def _scan_drift_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
     calib: dict | None = None,
+    model=None,
 ) -> tuple[int, list]:
     if not settings.paper_drift_enabled:
         logger.info("drift scan: disabled (paper_drift_enabled=False)")
@@ -2254,6 +2343,19 @@ def _scan_drift_entries(
             setup, conviction=conv, spec=spec, contracts=contracts,
             risk_frac=settings.paper_drift_risk_frac, equity=equity,
         )
+        feats, win_prob, model_skip = _score_setup(
+            db, ticker, feats, "drift", model, calib, settings,
+        )
+        if model_skip:
+            trade.status = "canceled"
+            trade.note = f"skipped: {model_skip}"
+            skipped.append({"ticker": ticker, "reason": model_skip})
+            record_decision(
+                db, strategy="drift", ticker=ticker, decision="skipped",
+                earnings_date=report_date, skip_reason=model_skip, regime=regime,
+                features=feats,
+            )
+            continue
         if dry_run:
             logger.info(
                 "[dry-run] DRIFT %s %s spread x%d @ debit %.2f (edge %s)",
@@ -2278,8 +2380,6 @@ def _scan_drift_entries(
             }
             for l in spec.legs
         ]
-        win_prob = (setup.get("history") or {}).get("win_rate_5d")
-        win_prob = adjust_win_prob(win_prob, "drift", calib, settings)
         limit, reason = _gate_entry(
             client, order_legs, is_credit=False, mid=spec.net_debit,
             width=spec.width, win_prob=win_prob, settings=settings,

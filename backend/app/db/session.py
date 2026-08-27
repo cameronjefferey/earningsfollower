@@ -41,6 +41,7 @@ def init_db() -> None:
     models.Base.metadata.create_all(bind=engine)
     _ensure_paper_trade_columns()
     _ensure_user_columns()
+    _ensure_trade_decision_columns()
     _backfill_paper_trade_max_risk()
     _seed_trade_decisions()
 
@@ -78,6 +79,46 @@ def _ensure_paper_trade_columns() -> None:
     with engine.begin() as conn:
         for col, typ in missing.items():
             conn.execute(text(f"ALTER TABLE paper_trades ADD COLUMN {col} {typ}"))
+
+
+# Columns added to trade_decisions after the feature journal first shipped
+# (size/liquidity + the fitted entry model's probability).
+_TRADE_DECISION_ADDED_COLUMNS = {
+    "market_cap": "FLOAT",
+    "avg_volume": "FLOAT",
+    "dollar_volume": "FLOAT",
+    "rel_volume": "FLOAT",
+    "realized_vol_20d": "FLOAT",
+    "trend_60d": "FLOAT",
+    "up_rate": "FLOAT",
+    "last_move_pct": "FLOAT",
+    "beat_rate": "FLOAT",
+    "continuation_rate": "FLOAT",
+    "analyst_upside": "FLOAT",
+    "analyst_bullish_pct": "FLOAT",
+    "days_to_event": "INTEGER",
+    "earnings_timing": "VARCHAR(16)",
+    "model_win_prob": "FLOAT",
+}
+
+
+def _ensure_trade_decision_columns() -> None:
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "trade_decisions" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("trade_decisions")}
+    missing = {
+        col: typ
+        for col, typ in _TRADE_DECISION_ADDED_COLUMNS.items()
+        if col not in existing
+    }
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for col, typ in missing.items():
+            conn.execute(text(f"ALTER TABLE trade_decisions ADD COLUMN {col} {typ}"))
 
 
 # Columns added to users after Google-only auth shipped.
@@ -135,37 +176,36 @@ def _backfill_paper_trade_max_risk() -> None:
 
 
 def _seed_trade_decisions() -> None:
-    """One-time seed of the trade_decisions feature store from existing trades.
+    """Keep the trade_decisions journal caught up with paper_trades.
 
-    Runs only when the table is still empty but there are historical trades to
-    learn from (i.e. right after this feature first ships), so the learning
-    journal isn't blind to everything placed before it existed. Cheap no-op on
-    every boot thereafter (two COUNT queries). Going forward the executor writes
-    decisions live; this just closes the gap on history."""
+    Idempotent: only inserts rows for signal_ids that aren't journaled yet, then
+    labels anything that's since closed. Used to run only when the table was
+    empty, which left the learning loop blind to history once a single live
+    decision had been written. Cheap no-op when already caught up."""
     import logging
 
-    from sqlalchemy import func, select
-
-    from app.db.models import PaperTrade, TradeDecision
+    from app.db.models import PaperTrade
 
     with SessionLocal() as db:
         try:
-            if db.scalar(select(func.count()).select_from(TradeDecision)):
-                return  # already populated (seeded or written live)
-            if not db.scalar(select(func.count()).select_from(PaperTrade)):
-                return  # nothing to seed from
+            from sqlalchemy import func, select as sel
+
+            if not db.scalar(sel(func.count()).select_from(PaperTrade)):
+                return
             from app.services.paper.decisions import (
                 backfill_from_paper_trades,
                 sync_labels,
             )
 
             created = backfill_from_paper_trades(db)
-            db.commit()
-            sync_labels(db)
-            db.commit()
+            if created:
+                db.commit()
+            labeled = sync_labels(db)
+            if created or labeled:
+                db.commit()
             if created:
                 logging.getLogger("earningsfollower").info(
-                    "Seeded %d trade decision(s) from history.", created
+                    "Backfilled %d trade decision(s) from paper history.", created
                 )
         except Exception as e:  # noqa: BLE001 - seeding must never block startup
             db.rollback()

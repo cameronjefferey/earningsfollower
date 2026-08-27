@@ -29,6 +29,7 @@ from app.services import (
 from app.services.ingest import refresh_all
 from app.services.paper import report as paper_report
 from app.services.paper.calibration import calibration_state
+from app.services.paper.entry_model import entry_model_state
 from app.services.paper.narrator import build_narrative
 from app.services.preview_demo import (
     demo_drift,
@@ -456,6 +457,7 @@ def get_paper(
     card = paper_report.scorecard(db)
     card["live_stop_policy"] = stop_policy_state(settings)
     card["live_exit_policy"] = exit_policy_state(db, settings)
+    card["entry_model"] = entry_model_state(db, settings)
     return card
 
 
@@ -521,10 +523,11 @@ def get_paper_equity_path(
 def get_paper_narrative(_: Admin, db: Session = Depends(get_db)) -> dict:
     """A plain-English post-mortem of the attribution numbers (LLM when a key is
     configured, deterministic heuristic otherwise), plus the current calibration
-    state feeding back into the entry gate."""
+    state and the fitted entry model feeding back into the entry gate."""
     settings = get_settings()
     report = attribution_report(db)
     calib = calibration_state(db, settings)
+    model = entry_model_state(db, settings)
     stops = stop_policy_state(settings)
     exits = exit_policy_state(db, settings)
     narrative = build_narrative(
@@ -533,6 +536,7 @@ def get_paper_narrative(_: Admin, db: Session = Depends(get_db)) -> dict:
     return {
         **narrative,
         "calibration": calib,
+        "entry_model": model,
         "live_stop_policy": stops,
         "live_exit_policy": exits,
     }

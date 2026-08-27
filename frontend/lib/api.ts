@@ -566,6 +566,27 @@ export interface CalibrationState {
   strategies: CalibrationStrategy[];
 }
 
+export interface EntryModelCoefficient {
+  feature: string;
+  label: string;
+  weight: number;
+}
+
+export interface EntryModelState {
+  enabled: boolean;
+  applicable: boolean;
+  n: number;
+  n_wins?: number;
+  n_losses?: number;
+  cv_auc: number | null;
+  in_sample_auc?: number | null;
+  reason: string;
+  coefficients: EntryModelCoefficient[];
+  intercept?: number;
+  min_prob?: number;
+  min_samples?: number;
+}
+
 export interface NarrativeResponse {
   source: "llm" | "heuristic" | "empty";
   generated_at: string;
@@ -574,6 +595,7 @@ export interface NarrativeResponse {
   hypotheses: string[];
   caveats: string[];
   calibration: CalibrationState;
+  entry_model?: EntryModelState | null;
   live_stop_policy?: LiveStopPolicy | null;
   live_exit_policy?: LiveExitPolicy | null;
 }

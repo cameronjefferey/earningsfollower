@@ -159,6 +159,12 @@ services:
       # Calibration: nudge the +EV gate with realized-vs-predicted win rates.
       - key: PAPER_CALIBRATION_ENABLED
         value: "true"
+      # Joint logistic over market cap, ADV$, implied move, and history.
+      # Vetoes names scored below 0.45; otherwise P(win) feeds the +EV gate.
+      - key: PAPER_ENTRY_MODEL_ENABLED
+        value: "true"
+      - key: PAPER_ENTRY_MODEL_MIN_PROB
+        value: "0.45"
       # Waves / drift option debit books retired (Aug 2026): 0-for-N live after
       # post-print IV crush. Open positions still manage; no new entries.
       - key: PAPER_WAVES_ENABLED

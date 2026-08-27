@@ -38,7 +38,10 @@ logger = logging.getLogger(__name__)
 #   1 -> initial journal.
 #   2 -> global underlying take-profit turned on across the directional books
 #        (exit discipline changed materially, so pre/post capture isn't comparable).
-PLAYBOOK_VERSION = "2"
+#   3 -> size/liquidity features (market cap, ADV, dollar volume) journaled and
+#        a fitted logistic entry model scores setups in front of the gates.
+#   4 -> reaction / analyst / realized-vol / timing context added to the model.
+PLAYBOOK_VERSION = "4"
 
 # The tunable knobs that shape which trades open and how they're sized. Snapshotted
 # with every decision so results can be attributed to a specific config regime.
@@ -65,6 +68,8 @@ _REGIME_KEYS = (
     "paper_take_profit_enabled",
     "paper_take_profit_pct",
     "paper_exit_learning_enabled",
+    "paper_entry_model_enabled",
+    "paper_entry_model_min_prob",
 )
 
 
@@ -235,6 +240,207 @@ def _apply_spec(feats: dict, spec, contracts: int | None, is_credit: bool) -> No
             feats["max_risk"] = round(debit * 100 * contracts, 2)
 
 
+# --- size / liquidity / research context -------------------------------------
+
+_ADV_LOOKBACK = 20
+_TREND_LOOKBACK = 60
+_BAR_FETCH = _TREND_LOOKBACK + 2
+
+_CONTEXT_KEYS = (
+    "market_cap", "avg_volume", "dollar_volume", "rel_volume",
+    "realized_vol_20d", "trend_60d", "up_rate", "last_move_pct",
+    "beat_rate", "continuation_rate", "analyst_upside", "analyst_bullish_pct",
+    "days_to_event", "earnings_timing", "seller_edge", "richness",
+    "expected_move_pct", "exceed_rate", "edge_sample",
+)
+
+
+def liquidity_snapshot(
+    db: Session,
+    ticker: str,
+    *,
+    spot: float | None = None,
+    as_of: date | None = None,
+) -> dict:
+    """Market cap, ADV, realized vol, and 60d trend as of ``as_of`` (or now)."""
+    from app.db.models import Company, PriceBar
+
+    ticker = (ticker or "").upper()
+    out: dict = {
+        "market_cap": None, "avg_volume": None, "dollar_volume": None,
+        "rel_volume": None, "realized_vol_20d": None, "trend_60d": None,
+    }
+    if not ticker:
+        return out
+    try:
+        company = db.get(Company, ticker)
+        if company and company.market_cap:
+            out["market_cap"] = _num(company.market_cap)
+        q = (
+            select(PriceBar)
+            .where(PriceBar.ticker == ticker)
+            .order_by(PriceBar.date.desc())
+        )
+        if as_of is not None:
+            q = q.where(PriceBar.date <= as_of)
+        bars = db.scalars(q.limit(_BAR_FETCH)).all()
+        vols = [b.volume for b in bars if b.volume and b.volume > 0]
+        if vols:
+            n = min(len(vols), _ADV_LOOKBACK)
+            out["avg_volume"] = round(sum(vols[:n]) / n, 2)
+            if bars[0].volume and bars[0].volume > 0 and out["avg_volume"]:
+                out["rel_volume"] = round(float(bars[0].volume) / out["avg_volume"], 4)
+        close = _num(spot)
+        if close is None:
+            for b in bars:
+                if b.close and b.close > 0:
+                    close = float(b.close)
+                    break
+        if out["avg_volume"] is not None and close:
+            out["dollar_volume"] = round(out["avg_volume"] * close, 2)
+        closes = [float(b.close) for b in bars if b.close and b.close > 0]
+        if len(closes) >= 12:
+            look = min(_TREND_LOOKBACK, len(closes) - 1)
+            past = closes[look]
+            if past:
+                out["trend_60d"] = round(closes[0] / past - 1.0, 4)
+        if len(closes) >= 11:
+            rets = []
+            for i in range(min(_ADV_LOOKBACK, len(closes) - 1)):
+                if closes[i + 1]:
+                    rets.append(closes[i] / closes[i + 1] - 1.0)
+            if len(rets) >= 8:
+                mean = sum(rets) / len(rets)
+                var = sum((r - mean) ** 2 for r in rets) / len(rets)
+                out["realized_vol_20d"] = round(var ** 0.5, 5)
+    except Exception as e:  # noqa: BLE001 - never break the trader for a snapshot
+        logger.warning("liquidity snapshot failed for %s: %s", ticker, e)
+    return out
+
+
+def _research_snapshot(
+    db: Session,
+    ticker: str,
+    *,
+    spot: float | None = None,
+    as_of: date | None = None,
+    earnings_date: date | None = None,
+) -> dict:
+    """Reaction history, analyst, implied, and calendar timing. Best-effort."""
+    from app.db.models import EarningsEvent
+
+    out: dict = {
+        "up_rate": None, "last_move_pct": None, "beat_rate": None,
+        "continuation_rate": None, "analyst_upside": None,
+        "analyst_bullish_pct": None, "days_to_event": None,
+        "earnings_timing": None, "seller_edge": None, "richness": None,
+        "expected_move_pct": None, "exceed_rate": None, "edge_sample": None,
+    }
+    ticker = (ticker or "").upper()
+    if not ticker:
+        return out
+    cutoff = earnings_date or as_of or date.today()
+    try:
+        from app.services.reactions import compute_reactions, summarize
+
+        rx = compute_reactions(db, ticker)
+        prior = []
+        for r in rx:
+            try:
+                d = date.fromisoformat(str(r.date)[:10])
+            except ValueError:
+                continue
+            if d < cutoff:
+                prior.append(r)
+        summary = summarize(prior)
+        out["up_rate"] = _num(summary.up_rate)
+        out["last_move_pct"] = _num(summary.last_move_pct)
+        out["beat_rate"] = _num(summary.beat_rate)
+        out["continuation_rate"] = _num(summary.continuation_rate)
+        if summary.sample_size:
+            out["edge_sample"] = int(summary.sample_size)
+        avg_abs = summary.avg_abs_move_pct
+        from app.services.implied import implied_payload
+
+        im = implied_payload(db, ticker, avg_abs, [
+            abs(r.move_pct) for r in prior if r.move_pct is not None
+        ])
+        if im:
+            out["expected_move_pct"] = _num(im.get("expected_move_pct"))
+            out["richness"] = _num(im.get("richness"))
+            out["exceed_rate"] = _num(im.get("exceed_rate"))
+            if im.get("exceed_rate") is not None:
+                out["seller_edge"] = round(1.0 - float(im["exceed_rate"]), 4)
+            if im.get("edge_sample") is not None:
+                out["edge_sample"] = im.get("edge_sample")
+            if spot is None:
+                spot = _num(im.get("underlying_price"))
+        from app.services.analyst import analyst_payload
+
+        an = analyst_payload(db, ticker, spot)
+        if an:
+            out["analyst_upside"] = _num(an.get("upside_pct"))
+            out["analyst_bullish_pct"] = _num(an.get("bullish_pct"))
+        ev = None
+        if earnings_date is not None:
+            ev = db.scalars(
+                select(EarningsEvent).where(
+                    EarningsEvent.ticker == ticker,
+                    EarningsEvent.date == earnings_date,
+                )
+            ).first()
+        if ev is None:
+            ev = db.scalars(
+                select(EarningsEvent)
+                .where(EarningsEvent.ticker == ticker, EarningsEvent.date >= cutoff)
+                .order_by(EarningsEvent.date.asc())
+            ).first()
+        if ev is not None:
+            out["earnings_timing"] = ev.timing or "unknown"
+            if as_of is not None:
+                out["days_to_event"] = (ev.date - as_of).days
+            elif earnings_date is not None:
+                out["days_to_event"] = (ev.date - date.today()).days
+    except Exception as e:  # noqa: BLE001
+        logger.warning("research snapshot failed for %s: %s", ticker, e)
+    return out
+
+
+def attach_context_features(
+    db: Session,
+    ticker: str,
+    feats: dict | None,
+    *,
+    as_of: date | None = None,
+    earnings_date: date | None = None,
+) -> dict:
+    """Fill size, vol, reaction, analyst, and calendar fields when missing."""
+    feats = dict(feats or {})
+    need_mkt = any(feats.get(k) is None for k in (
+        "market_cap", "avg_volume", "dollar_volume", "rel_volume",
+        "realized_vol_20d", "trend_60d",
+    ))
+    if need_mkt:
+        liq = liquidity_snapshot(db, ticker, spot=feats.get("spot"), as_of=as_of)
+        for key, val in liq.items():
+            if feats.get(key) is None and val is not None:
+                feats[key] = val
+    need_research = any(feats.get(k) is None for k in (
+        "up_rate", "last_move_pct", "beat_rate", "continuation_rate",
+        "analyst_upside", "analyst_bullish_pct", "days_to_event",
+        "earnings_timing",
+    ))
+    if need_research:
+        research = _research_snapshot(
+            db, ticker, spot=feats.get("spot"), as_of=as_of,
+            earnings_date=earnings_date or feats.get("earnings_date"),
+        )
+        for key, val in research.items():
+            if feats.get(key) is None and val is not None:
+                feats[key] = val
+    return feats
+
+
 # --- recording ---------------------------------------------------------------
 
 # The subset of feature keys that map to typed TradeDecision columns. Anything
@@ -248,6 +454,10 @@ _COLUMN_KEYS = {
     "expected_runup_pct", "surprise_pct", "move_pct", "drift_edge_5d",
     "drift_score", "hist_win_rate", "hist_samples", "sentiment",
     "mention_count", "mention_velocity", "pump_risk", "scored_by",
+    "market_cap", "avg_volume", "dollar_volume", "rel_volume",
+    "realized_vol_20d", "trend_60d", "up_rate", "last_move_pct",
+    "beat_rate", "continuation_rate", "analyst_upside", "analyst_bullish_pct",
+    "days_to_event", "earnings_timing", "model_win_prob",
 }
 
 
@@ -272,7 +482,11 @@ def record_decision(
     wrapped in a SAVEPOINT so a bad row rolls back only itself, never the
     surrounding scan's other (uncommitted) trades and decisions."""
     try:
-        feats = dict(features or {})
+        feats = attach_context_features(
+            db, ticker, dict(features or {}),
+            as_of=decision_date or date.today(),
+            earnings_date=earnings_date,
+        )
         row = TradeDecision(
             decision_date=decision_date or date.today(),
             strategy=strategy,

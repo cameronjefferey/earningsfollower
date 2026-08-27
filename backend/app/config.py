@@ -257,6 +257,24 @@ class Settings(BaseSettings):
     # historical ratio can only nudge the gate, never swing it.
     paper_calibration_max_delta: float = 0.15
 
+    # --- Entry model (joint logistic over size / vol / history) ----------------
+    # Fit a regularized logistic regression on graded trade_decisions each run
+    # and put its P(win) in front of the existing gates: veto names the model
+    # scores below min_prob, and feed the model probability into the +EV gate
+    # instead of the heuristic. Heuristic conviction / direction / liquidity
+    # filters still run first. Falls back to calibrated heuristic when the
+    # journal is too thin or the model's cross-validated AUC is coin-flip.
+    paper_entry_model_enabled: bool = True
+    paper_entry_model_min_samples: int = 30
+    # Need both classes represented or the fit is a tautology.
+    paper_entry_model_min_class: int = 8
+    # Veto floor: skip a setup the model scores below this even if heuristics
+    # like it. 0.45 = only reject the clearly worse-than-a-coin-flip names.
+    paper_entry_model_min_prob: float = 0.45
+    # Don't let the model veto/reprice until leave-one-out (or time-split) AUC
+    # beats a coin flip. Below this it is recorded but not applied.
+    paper_entry_model_min_auc: float = 0.52
+
     # --- Exit discipline: underlying take-profit (learning loop acts) ----------
     # The exit-quality backtest showed our directional books reach a favorable
     # underlying move and then hand most of it back - capturing < 0 of the peak on

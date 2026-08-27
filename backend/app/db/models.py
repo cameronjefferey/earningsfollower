@@ -346,6 +346,24 @@ class TradeDecision(Base):
     hist_win_rate: Mapped[float | None] = mapped_column(Float)
     hist_samples: Mapped[int | None] = mapped_column(Integer)
 
+    # --- Size / liquidity / research context (entry model) ------------------
+    market_cap: Mapped[float | None] = mapped_column(Float)
+    avg_volume: Mapped[float | None] = mapped_column(Float)  # 20d ADV shares
+    dollar_volume: Mapped[float | None] = mapped_column(Float)  # ADV * spot
+    rel_volume: Mapped[float | None] = mapped_column(Float)  # last bar / ADV
+    realized_vol_20d: Mapped[float | None] = mapped_column(Float)
+    trend_60d: Mapped[float | None] = mapped_column(Float)
+    up_rate: Mapped[float | None] = mapped_column(Float)
+    last_move_pct: Mapped[float | None] = mapped_column(Float)
+    beat_rate: Mapped[float | None] = mapped_column(Float)
+    continuation_rate: Mapped[float | None] = mapped_column(Float)
+    analyst_upside: Mapped[float | None] = mapped_column(Float)
+    analyst_bullish_pct: Mapped[float | None] = mapped_column(Float)
+    days_to_event: Mapped[int | None] = mapped_column(Integer)
+    earnings_timing: Mapped[str | None] = mapped_column(String(16))
+    # What the fitted entry model said at decision time (None if not applicable).
+    model_win_prob: Mapped[float | None] = mapped_column(Float)
+
     # --- Reddit (social) features -------------------------------------------
     sentiment: Mapped[float | None] = mapped_column(Float)
     mention_count: Mapped[int | None] = mapped_column(Integer)

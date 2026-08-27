@@ -37,7 +37,8 @@ DEFAULT_MIN_SAMPLES = 5
 # Numeric entry features worth attributing, with a human label. Only those with
 # enough non-null values are reported.
 _NUMERIC_FEATURES: list[tuple[str, str]] = [
-    ("win_prob", "Model win prob"),
+    ("win_prob", "Heuristic win prob"),
+    ("model_win_prob", "Entry-model win prob"),
     ("expected_move_pct", "Implied move %"),
     ("seller_edge", "Seller edge"),
     ("seller_edge_at_strike", "Seller edge @ strike"),
@@ -45,6 +46,19 @@ _NUMERIC_FEATURES: list[tuple[str, str]] = [
     ("richness", "IV richness"),
     ("dir_score", "Direction score"),
     ("edge_sample", "Edge sample size"),
+    ("market_cap", "Market cap"),
+    ("avg_volume", "Avg volume (20d)"),
+    ("dollar_volume", "Dollar volume (ADV$)"),
+    ("rel_volume", "Relative volume"),
+    ("realized_vol_20d", "Realized vol (20d)"),
+    ("trend_60d", "60-day trend"),
+    ("up_rate", "Historical up-rate"),
+    ("last_move_pct", "Last earnings move"),
+    ("beat_rate", "Beat rate"),
+    ("continuation_rate", "Continuation rate"),
+    ("analyst_upside", "Analyst upside"),
+    ("analyst_bullish_pct", "Analyst bullish %"),
+    ("days_to_event", "Days to print"),
     ("drift_edge_5d", "Drift edge 5d"),
     ("surprise_pct", "Earnings surprise %"),
     ("move_pct", "Post-earnings move %"),
@@ -66,6 +80,7 @@ _COHORT_DIMS: list[tuple[str, str]] = [
     ("pump_risk", "Reddit pump risk"),
     ("scored_by", "Reddit scorer"),
     ("playbook_version", "Playbook version"),
+    ("earnings_timing", "Print timing"),
 ]
 
 

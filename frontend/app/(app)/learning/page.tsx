@@ -18,6 +18,7 @@ import { Attribution } from "@/components/Attribution";
 import { ExecutionQuality } from "@/components/ExecutionQuality";
 import { LearningTakeaways } from "@/components/LearningTakeaways";
 import { EquityPathCharts } from "@/components/EquityPathCharts";
+import { EntryModelCharts } from "@/components/EntryModelCharts";
 
 export default function LearningPage() {
   const [attribution, setAttribution] = useState<AttributionResponse | null>(null);
@@ -58,7 +59,14 @@ export default function LearningPage() {
   const hasAttribution = Boolean(attribution && attribution.graded_trades > 0);
   const hasExecution = Boolean(execution && execution.graded_signals > 0);
   const hasEquity = Boolean(equityPath && equityPath.points.length >= 2);
-  const hasAnyData = hasProgress || hasNarrative || hasAttribution || hasExecution || hasEquity;
+  const hasModel = Boolean(narrative?.entry_model);
+  const hasAnyData =
+    hasProgress ||
+    hasNarrative ||
+    hasAttribution ||
+    hasExecution ||
+    hasEquity ||
+    hasModel;
 
   return (
     <div>
@@ -83,6 +91,10 @@ export default function LearningPage() {
             execution={execution}
           />
           <EquityPathCharts report={equityPath} />
+          <EntryModelCharts
+            model={narrative?.entry_model}
+            features={attribution?.numeric_features}
+          />
           <Narrative report={narrative} />
           <WeeklyProgress report={progress} />
 

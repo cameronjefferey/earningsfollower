@@ -5,6 +5,7 @@ Prefer false positives: better a noisy Telegram than a silent empty book.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -18,11 +19,45 @@ from app.services.job_runs import (
 )
 from app.services.notify import send_telegram, telegram_configured
 
-# Paper cron is every 30m in market hours. Alert if we haven't had a healthy
-# run in longer than that with buffer - cron may have been skipped or stuck.
+# Must match render.yaml earningsfollower-paper: ``*/30 13-20 * * 1-5``.
+# First fire 13:00 UTC (6am PT), last fire 20:30 UTC (1:30pm PT). Overnight and
+# weekend silence is expected - do not page it as a dead cron.
+PAPER_CRON_START_HOUR_UTC = 13
+PAPER_CRON_END_HOUR_UTC = 20  # inclusive; 20:00 and 20:30 both fire
 PAPER_STALE_MINUTES = 90
 # Daily refresh should land every morning; alert if older than ~36h.
 REFRESH_STALE_MINUTES = 36 * 60
+
+
+def _is_paper_cron_slot(dt: datetime) -> bool:
+    if dt.weekday() >= 5:
+        return False
+    if dt.minute not in (0, 30):
+        return False
+    return PAPER_CRON_START_HOUR_UTC <= dt.hour <= PAPER_CRON_END_HOUR_UTC
+
+
+def previous_paper_cron_slot(now: datetime) -> datetime:
+    """Most recent scheduled paper fire strictly before the current half-hour.
+
+    At 13:00 UTC Tuesday this is Monday 20:30, not "90 minutes ago" - the
+    overnight/weekend gap is closed market, not a missed cron.
+    """
+    t = now.replace(second=0, microsecond=0)
+    t = t.replace(minute=30 if t.minute >= 30 else 0)
+    t -= timedelta(minutes=30)
+    for _ in range(48 * 5):
+        if _is_paper_cron_slot(t):
+            return t
+        t -= timedelta(minutes=30)
+    raise RuntimeError("no paper cron slot in the last 5 days")
+
+
+def heartbeat_is_stale(last_healthy_at: datetime, now: datetime) -> bool:
+    """True when a scheduled slot was missed, not when the market was closed."""
+    prior = previous_paper_cron_slot(now)
+    lag_min = (prior - last_healthy_at).total_seconds() / 60.0
+    return lag_min > PAPER_STALE_MINUTES
 
 
 def collect_anomalies(
@@ -119,8 +154,15 @@ def notify_paper_health(result: dict[str, Any], settings: Settings | None = None
     )
 
 
-def paper_heartbeat_anomalies(db: Session) -> list[str]:
-    """Call at the *start* of a live paper run to catch missed prior crons."""
+def paper_heartbeat_anomalies(
+    db: Session, *, now: datetime | None = None
+) -> list[str]:
+    """Call at the *start* of a live paper run to catch missed prior crons.
+
+    Overnight / weekend gaps (last run yesterday 20:30 UTC, first fire 13:00)
+    are expected and must not Telegram. A miss *inside* the weekday window
+    still pages.
+    """
     healthy = latest_healthy_job_run(db, "paper")
     if healthy is None:
         # First ever run after deploy - not an anomaly yet.
@@ -128,6 +170,12 @@ def paper_heartbeat_anomalies(db: Session) -> list[str]:
         if prior is None:
             return []
         return collect_anomalies({}, never_ran=True)
+    finished = healthy.finished_at or healthy.started_at
+    if finished is None:
+        return []
+    now = now or datetime.utcnow()
+    if not heartbeat_is_stale(finished, now):
+        return []
     age = minutes_since(healthy)
     return collect_anomalies({}, stale_healthy_minutes=age)
 

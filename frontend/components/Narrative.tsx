@@ -74,37 +74,22 @@ function EntryModelStatus({ report }: { report: NarrativeResponse }) {
   const m = report.entry_model;
   if (!m) return null;
   const live = m.enabled && m.applicable;
-  const top = (m.coefficients || []).slice(0, 4);
-  const auc =
-    m.cv_auc != null ? `out-of-sample accuracy ${(m.cv_auc * 100).toFixed(0)}%` : null;
   return (
     <div className="mt-2 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel-2)] px-3 py-2 text-[11px]">
       <span className="uppercase tracking-wide text-[var(--color-muted)]">
-        Entry model
+        Name scorer
       </span>
-      <InfoTip text="A logistic model fit on closed paper trades. It jointly weights market cap, trading volume, implied move, and prior performance, then vetoes names it scores poorly before the usual gates run. Off or 'warming up' means we still use the older rule-based odds." />
       <span
         className="ml-2 font-semibold"
         style={{ color: live ? PROFIT : "#8a97b1" }}
       >
-        {live ? "on" : m.enabled ? "warming up" : "off"}
+        {live ? "live" : "not live"}
       </span>
       <span className="ml-2 text-[var(--color-muted)]">
         {live
-          ? [auc, m.n ? `${m.n} closed trades` : null].filter(Boolean).join(" · ")
-          : m.reason || "not enough closed trades yet"}
+          ? `Skipping weak names, from ${m.n} closed trades.`
+          : m.reason || "Regular playbook only until the closed book is thicker."}
       </span>
-      {live && top.length ? (
-        <div className="mt-1 text-[var(--color-muted)]">
-          Weighs{" "}
-          {top
-            .map((c) => {
-              const lean = c.weight > 0 ? "helps" : "hurts";
-              return `${c.label} (${lean})`;
-            })
-            .join(" · ")}
-        </div>
-      ) : null}
     </div>
   );
 }

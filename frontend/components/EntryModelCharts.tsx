@@ -1,69 +1,110 @@
 "use client";
 
-import {
-  Bar,
-  BarChart,
-  Cell,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { AttrNumericFeature, EntryModelState } from "@/lib/api";
-import { Card, Stat } from "./ui";
-import { InfoTip } from "./InfoTip";
+import { AttrNumericFeature, EntryModelCoefficient, EntryModelState } from "@/lib/api";
+import { Card } from "./ui";
 
 const PROFIT = "#28c08a";
 const LOSS = "#f0556d";
-const ACCENT = "#5b8cff";
 const MUTED = "#8a97b1";
 
-function pct(v: number | null | undefined, digits = 0): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "-";
-  return `${(v * 100).toFixed(digits)}%`;
+const SKIP_FEATURE = /wave|reddit|drift|mention|sentiment|trigger|run-?up|pump/i;
+
+const LABEL: Record<string, string> = {
+  "Book: earnings equity": "Earnings stock trades",
+  "Book: earnings": "Earnings option trades",
+  "Book: waves": "Wave trades",
+  "Book: drift": "Drift trades",
+  "Book: reddit": "Reddit trades",
+  "Direction: bullish": "Bullish setups",
+  "Direction: bearish": "Bearish setups",
+  "Direction: neutral": "Neutral setups",
+  "Conviction: high": "High-conviction names",
+  "Conviction: medium": "Medium-conviction names",
+  "Conviction: low": "Low-conviction names",
+};
+
+function pct(v: number): string {
+  return `${Math.round(v * 100)}%`;
 }
 
-function WeightTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload?: { label: string; weight: number } }>;
-}) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
-  if (!row) return null;
+function niceLabel(c: EntryModelCoefficient): string {
+  return LABEL[c.label] || c.label;
+}
+
+function status(model: EntryModelState | null | undefined): {
+  title: string;
+  detail: string;
+  live: boolean;
+} | null {
+  if (!model) return null;
+  if (model.enabled && model.applicable) {
+    return {
+      live: true,
+      title: "Scoring new names",
+      detail: `Learned from ${model.n} closed trades. Names it scores poorly get skipped.`,
+    };
+  }
+  if (model.enabled) {
+    return {
+      live: false,
+      title: "Not scoring yet",
+      detail: model.reason || "Need more closed trades before the scorer can be trusted.",
+    };
+  }
+  return {
+    live: false,
+    title: "Not scoring names",
+    detail: "Still using the regular playbook only.",
+  };
+}
+
+function splitWeights(model: EntryModelState | null | undefined) {
+  const ranked = [...(model?.coefficients ?? [])]
+    .filter((c) => Number.isFinite(c.weight) && Math.abs(c.weight) >= 0.15)
+    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
+  const helps = ranked.filter((c) => c.weight > 0).slice(0, 4);
+  const hurts = ranked.filter((c) => c.weight < 0).slice(0, 4);
+  return { helps, hurts };
+}
+
+function comparisons(features: AttrNumericFeature[] | null | undefined) {
+  const rows: {
+    label: string;
+    highPct: number;
+    lowPct: number;
+    highWins: boolean;
+    delta: number;
+  }[] = [];
+  for (const f of features ?? []) {
+    if (SKIP_FEATURE.test(f.feature) || SKIP_FEATURE.test(f.label)) continue;
+    const low = f.terciles.find((t) => t.band === "low");
+    const high = f.terciles.find((t) => t.band === "high");
+    if (!low || !high || low.n < 5 || high.n < 5) continue;
+    const delta = high.win_rate - low.win_rate;
+    if (!Number.isFinite(delta) || Math.abs(delta) < 0.06) continue;
+    rows.push({
+      label: f.label,
+      highPct: high.win_rate,
+      lowPct: low.win_rate,
+      highWins: delta > 0,
+      delta: Math.abs(delta),
+    });
+  }
+  return rows.sort((a, b) => b.delta - a.delta).slice(0, 5);
+}
+
+function WinBar({ value, color }: { value: number; color: string }) {
   return (
-    <div className="rounded-lg border border-[var(--color-edge)] bg-[#121826] px-3 py-2 text-xs text-[#e8edf7] shadow-xl">
-      <div className="font-semibold">{row.label}</div>
-      <div style={{ color: row.weight >= 0 ? PROFIT : LOSS }}>
-        {row.weight >= 0 ? "helps wins" : "hurts wins"} · weight{" "}
-        {row.weight > 0 ? "+" : ""}
-        {row.weight.toFixed(2)}
+    <div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-edge)]">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${Math.max(4, Math.min(100, value * 100))}%`, background: color }}
+        />
       </div>
-    </div>
-  );
-}
-
-function TercileTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ dataKey?: string; value?: number; color?: string }>;
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-lg border border-[var(--color-edge)] bg-[#121826] px-3 py-2 text-xs text-[#e8edf7] shadow-xl">
-      <div className="mb-1 font-semibold">{label}</div>
-      {payload.map((p) => (
-        <div key={String(p.dataKey)} style={{ color: p.color }}>
-          {p.dataKey} {pct(p.value, 0)} win
-        </div>
-      ))}
+      <div className="mt-0.5 text-[11px] tabular-nums text-[var(--color-muted)]">
+        {pct(value)} won
+      </div>
     </div>
   );
 }
@@ -75,190 +116,94 @@ export function EntryModelCharts({
   model: EntryModelState | null | undefined;
   features: AttrNumericFeature[] | null | undefined;
 }) {
-  if (!model && !features?.length) return null;
-
-  const live = Boolean(model?.enabled && model?.applicable);
-  const weights = [...(model?.coefficients ?? [])]
-    .filter((c) => Number.isFinite(c.weight) && Math.abs(c.weight) >= 0.02)
-    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
-    .slice(0, 12)
-    .reverse();
-
-  const tercileRows = (features ?? [])
-    .filter((f) => f.terciles.length === 3)
-    .sort(
-      (a, b) =>
-        Math.abs(b.corr_pnl?.r ?? 0) - Math.abs(a.corr_pnl?.r ?? 0)
-    )
-    .slice(0, 8)
-    .map((f) => {
-      const byBand = Object.fromEntries(f.terciles.map((t) => [t.band, t]));
-      return {
-        label: f.label,
-        low: byBand.low?.win_rate ?? null,
-        mid: byBand.mid?.win_rate ?? null,
-        high: byBand.high?.win_rate ?? null,
-      };
-    });
-
-  if (!weights.length && !tercileRows.length && !model) return null;
-
-  const statusColor = live ? PROFIT : MUTED;
-  const statusLabel = live ? "on" : model?.enabled ? "warming up" : "off";
-  const barH = Math.max(160, weights.length * 28 + 24);
+  const st = status(model);
+  const { helps, hurts } = splitWeights(model);
+  const rows = comparisons(features);
+  if (!st && !rows.length) return null;
 
   return (
-    <div className="mb-8 space-y-4">
-      <Card className="p-4">
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+    <Card className="mb-8 p-4">
+      <h2 className="text-lg font-semibold tracking-tight">How names get picked</h2>
+      {st ? (
+        <p className="mt-1 text-sm leading-relaxed text-[var(--color-muted)]">
+          <span
+            className="font-semibold"
+            style={{ color: st.live ? PROFIT : MUTED }}
+          >
+            {st.title}.
+          </span>{" "}
+          {st.detail}
+        </p>
+      ) : null}
+
+      {helps.length || hurts.length ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">
-              What the model is weighing
-              <InfoTip text="Logistic weights from closed paper trades. Positive = that factor historically lined up with winners. The model refits every run. Sparse factors drop out until the sample is thick enough." />
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--color-muted)] leading-relaxed">
-              Joint fit on size, implied vs realized vol, earnings history,
-              analyst positioning, trend, and days-to-print — then it vetoes
-              names it scores poorly before the usual gates.
-            </p>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+              Helped winners
+            </div>
+            {helps.length ? (
+              <ul className="space-y-1">
+                {helps.map((c) => (
+                  <li key={c.feature} className="text-sm text-[#c9d2e3]">
+                    {niceLabel(c)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-[var(--color-muted)]">Nothing clear yet.</p>
+            )}
           </div>
-          <div className="text-right">
-            <div className="text-xl font-semibold" style={{ color: statusColor }}>
-              {statusLabel}
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+              Showed up more in losers
             </div>
-            <div className="text-xs text-[var(--color-muted)]">
-              {live
-                ? `${model?.n ?? 0} closed · out-of-sample ${
-                    model?.cv_auc != null ? model.cv_auc.toFixed(2) : "-"
-                  }`
-                : model?.reason || "not enough closed trades yet"}
-            </div>
+            {hurts.length ? (
+              <ul className="space-y-1">
+                {hurts.map((c) => (
+                  <li key={c.feature} className="text-sm text-[#c9d2e3]">
+                    {niceLabel(c)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-[var(--color-muted)]">Nothing clear yet.</p>
+            )}
           </div>
         </div>
-
-        {model ? (
-          <div className="mb-4 grid gap-2 sm:grid-cols-3">
-            <Stat
-              label="Closed sample"
-              value={`${model.n}`}
-              sub={
-                model.n_wins != null && model.n_losses != null
-                  ? `${model.n_wins} wins · ${model.n_losses} losses`
-                  : "from the paper book"
-              }
-            />
-            <Stat
-              label="Out-of-sample AUC"
-              value={model.cv_auc != null ? model.cv_auc.toFixed(2) : "-"}
-              valueClass={
-                model.cv_auc != null && model.cv_auc >= 0.52
-                  ? "text-[#28c08a]"
-                  : ""
-              }
-              sub="Must clear 0.52 before it can veto"
-              info="Chance a random winner scores higher than a random loser. 0.50 is a coin flip."
-            />
-            <Stat
-              label="Veto floor"
-              value={pct(model.min_prob ?? 0.45)}
-              sub="Skip names scored below this"
-            />
-          </div>
-        ) : null}
-
-        {weights.length ? (
-          <ResponsiveContainer width="100%" height={barH}>
-            <BarChart
-              data={weights}
-              layout="vertical"
-              margin={{ top: 4, right: 16, left: 8, bottom: 0 }}
-            >
-              <XAxis
-                type="number"
-                tick={{ fill: MUTED, fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="label"
-                width={148}
-                tick={{ fill: MUTED, fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                cursor={{ fill: "#ffffff08" }}
-                content={<WeightTooltip />}
-              />
-              <ReferenceLine x={0} stroke="#243049" />
-              <Bar dataKey="weight" radius={[0, 3, 3, 0]} maxBarSize={14}>
-                {weights.map((w) => (
-                  <Cell
-                    key={w.feature}
-                    fill={w.weight >= 0 ? PROFIT : LOSS}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <p className="text-sm text-[var(--color-muted)]">
-            Weights show up once the closed book is thick enough to fit.
-          </p>
-        )}
-      </Card>
-
-      {tercileRows.length ? (
-        <Card className="p-4">
-          <div className="mb-3">
-            <h2 className="text-lg font-semibold tracking-tight">
-              Win rate by feature level
-              <InfoTip text="For each factor, closed trades are split into low / mid / high thirds. Taller green is a higher win rate in that third. This is the raw journal, not the model weights." />
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--color-muted)] leading-relaxed">
-              Low → mid → high of each factor at entry. If high implied move
-              wins less often than low, richness is hurting, not helping.
-            </p>
-          </div>
-          <ResponsiveContainer width="100%" height={Math.max(220, tercileRows.length * 36)}>
-            <BarChart
-              data={tercileRows}
-              layout="vertical"
-              margin={{ top: 4, right: 16, left: 8, bottom: 0 }}
-            >
-              <XAxis
-                type="number"
-                domain={[0, 1]}
-                tick={{ fill: MUTED, fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v) => `${Math.round(v * 100)}%`}
-              />
-              <YAxis
-                type="category"
-                dataKey="label"
-                width={148}
-                tick={{ fill: MUTED, fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                cursor={{ fill: "#ffffff08" }}
-                content={<TercileTooltip />}
-              />
-              <Bar dataKey="low" name="low" fill={MUTED} maxBarSize={8} radius={[0, 2, 2, 0]} />
-              <Bar dataKey="mid" name="mid" fill={ACCENT} maxBarSize={8} radius={[0, 2, 2, 0]} />
-              <Bar dataKey="high" name="high" fill={PROFIT} maxBarSize={8} radius={[0, 2, 2, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="mt-2 flex gap-4 text-[11px] text-[var(--color-muted)]">
-            <span><span className="inline-block h-2 w-2 rounded-sm mr-1" style={{ background: MUTED }} />low third</span>
-            <span><span className="inline-block h-2 w-2 rounded-sm mr-1" style={{ background: ACCENT }} />mid</span>
-            <span><span className="inline-block h-2 w-2 rounded-sm mr-1" style={{ background: PROFIT }} />high third</span>
-          </div>
-        </Card>
       ) : null}
-    </div>
+
+      {rows.length ? (
+        <div className="mt-5">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+            On closed trades
+          </div>
+          <p className="mb-3 text-sm text-[var(--color-muted)]">
+            Each row is one factor at entry. Compare the bottom third vs the top
+            third — whichever bar is longer won more often.
+          </p>
+          <div className="space-y-3">
+            {rows.map((r) => (
+              <div key={r.label}>
+                <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-sm text-[#e8edf7]">{r.label}</span>
+                  <span className="text-[11px] text-[var(--color-muted)]">
+                    {r.highWins ? "higher values won more" : "lower values won more"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <WinBar value={r.lowPct} color={r.highWins ? MUTED : PROFIT} />
+                  <WinBar value={r.highPct} color={r.highWins ? PROFIT : MUTED} />
+                </div>
+                <div className="mt-0.5 grid grid-cols-2 gap-3 text-[10px] text-[var(--color-muted)]">
+                  <span>Lower</span>
+                  <span>Higher</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </Card>
   );
 }

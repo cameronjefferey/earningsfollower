@@ -184,13 +184,15 @@ services:
       - key: PAPER_DRIFT_STOP_BUFFER
         value: "0.015"
       # 5-day loser weekly: long the worst 5-session S&P names, hold 5
-      # sessions, skip earnings ±5 sessions. Fixed hold; no take-profit.
+      # sessions or take-profit at +10%, skip earnings ±5 sessions.
       - key: PAPER_REVERSAL_ENABLED
         value: "true"
       - key: PAPER_REVERSAL_TOP_N
         value: "5"
       - key: PAPER_REVERSAL_HOLD_DAYS
         value: "5"
+      - key: PAPER_REVERSAL_TAKE_PROFIT_PCT
+        value: "0.10"
       - key: PAPER_REVERSAL_RISK_FRAC
         value: "0.02"
       - key: PAPER_REVERSAL_MAX_OPEN

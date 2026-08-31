@@ -692,8 +692,8 @@ function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
             5-day losers
           </div>
           <p className="text-xs text-[var(--color-muted)] mt-0.5">
-            Worst 5-session S&amp;P names through {asOf}, hold 5 sessions, earnings
-            ±5 sessions out.
+            Worst 5-session S&amp;P names through {asOf}, hold 5 sessions or +10%,
+            earnings ±5 sessions out.
             {watch.holding ? " Cohort already open — next rebalance after the hold." : ""}
           </p>
         </div>
@@ -944,7 +944,8 @@ export default function PaperPage() {
           harvest the crush), <span className="text-white">earnings stock</span> (same
           directional lean as shares), and{" "}
           <span className="text-white">5-day losers</span> (long the week&apos;s worst
-          S&amp;P 500 names for a 5-session hold, earnings ±5 sessions out). Waves and
+          S&amp;P 500 names for a 5-session hold or a +10% take-profit, earnings ±5
+          sessions out). Waves and
           drift option debits are retired. Each trade is sized by conviction (or a
           fixed 2% sleeve for losers) and journaled with a unique signal id. This is
           the live scorecard - head to the{" "}

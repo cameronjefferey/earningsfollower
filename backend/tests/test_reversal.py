@@ -124,17 +124,39 @@ def test_exit_after_five_sessions_not_sooner():
     settings = SimpleNamespace(
         paper_force_close_id_set=set(),
         paper_reversal_hold_days=5,
+        paper_reversal_take_profit_pct=0.10,
     )
     t = SimpleNamespace(
         signal_id="RV-1",
         note=None,
         opened_at=datetime(2026, 8, 24, 14, 0),  # Monday
         created_at=None,
+        entry_credit=50.0,
+        spot_entry=50.0,
     )
-    assert reversal_exit_reason(t, date(2026, 8, 25), settings) is None  # Tue
-    assert reversal_exit_reason(t, date(2026, 8, 28), settings) is None  # Fri
-    reason = reversal_exit_reason(t, date(2026, 8, 31), settings)  # next Mon
+    assert reversal_exit_reason(t, date(2026, 8, 25), settings, 51.0) is None  # Tue
+    assert reversal_exit_reason(t, date(2026, 8, 28), settings, 52.0) is None  # Fri
+    reason = reversal_exit_reason(t, date(2026, 8, 31), settings, 52.0)  # next Mon
     assert reason is not None and "hold" in reason
+
+
+def test_take_profit_at_ten_percent_beats_the_hold():
+    settings = SimpleNamespace(
+        paper_force_close_id_set=set(),
+        paper_reversal_hold_days=5,
+        paper_reversal_take_profit_pct=0.10,
+    )
+    t = SimpleNamespace(
+        signal_id="RV-TP",
+        note=None,
+        opened_at=datetime(2026, 8, 24, 14, 0),
+        created_at=None,
+        entry_credit=50.0,
+        spot_entry=50.0,
+    )
+    assert reversal_exit_reason(t, date(2026, 8, 25), settings, 54.9) is None
+    reason = reversal_exit_reason(t, date(2026, 8, 25), settings, 55.0)
+    assert reason is not None and reason.startswith("take-profit")
 
 
 def test_force_close_and_bad_fill_beat_the_hold():
@@ -166,6 +188,7 @@ if __name__ == "__main__":
         test_earnings_window_drops_a_loser,
         test_amc_print_reacts_next_session,
         test_exit_after_five_sessions_not_sooner,
+        test_take_profit_at_ten_percent_beats_the_hold,
         test_force_close_and_bad_fill_beat_the_hold,
     ]
     for fn in tests:

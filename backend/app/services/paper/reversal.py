@@ -1,12 +1,14 @@
 """5-day-loser weekly paper book.
 
-Long the N worst S&P 500 names over the last 5 sessions, hold 5 sessions,
-skip names with earnings ±5 sessions, equal-weight, non-overlapping
-rebalance. Backtest (2019–2026, current S&P, 10 bps): 5-name mean +1.09%
-per hold, t=3.36. Long-only — shorting the winners lost.
+Long the N worst S&P 500 names over the last 5 sessions, hold 5 sessions
+or take-profit at +10%, skip names with earnings ±5 sessions, equal-weight,
+non-overlapping rebalance. Backtest (2019–2026, current S&P, 10 bps):
+5-name mean +1.09%/hold, t=3.36. Long-only — shorting the winners lost.
 
-Fixed hold only. Do not apply learned take-profit, earnings-equity bands,
-or the earnings entry model until this book has its own sample.
+The 10% take-profit is this book's own exit, not the 3% learned clip from
+the earnings directional books (that band maxes at 8% and would bank a
+bounce this sleeve is meant to ride). No earnings-equity stop, no entry
+model until this book has its own sample.
 """
 
 from __future__ import annotations
@@ -75,12 +77,24 @@ def hold_elapsed(opened_on: date, today: date) -> int:
     return trading_days_between(opened_on, today)
 
 
-def reversal_exit_reason(t, today: date, settings) -> str | None:
-    """Fixed 5-session hold, plus operational escapes. No take-profit / stop."""
+def reversal_exit_reason(
+    t, today: date, settings, spot_now: float | None = None
+) -> str | None:
+    """+10% take-profit, then the 5-session hold, plus operational escapes.
+
+    Does not use the global 3% learned take-profit — that clip is for earnings
+    directional books and would flatten a bounce this sleeve is hunting.
+    """
     if t.signal_id in getattr(settings, "paper_force_close_id_set", set()):
         return "manual close"
     if (t.note or "").startswith(BAD_FILL_PREFIX):
         return "flatten: bad entry fill"
+    tp = float(getattr(settings, "paper_reversal_take_profit_pct", 0.10) or 0)
+    entry_px = getattr(t, "entry_credit", None) or getattr(t, "spot_entry", None)
+    if tp > 0 and spot_now and entry_px:
+        move = spot_now / entry_px - 1.0
+        if move >= tp:
+            return f"take-profit ({move:+.1%})"
     opened = t.opened_at or t.created_at
     if opened is None:
         return None

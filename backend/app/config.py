@@ -323,16 +323,18 @@ class Settings(BaseSettings):
     paper_earnings_equity_stop_pct: float = 0.07
 
     # --- 5-day loser weekly reversal (S&P 500, long shares) -------------------
-    # Long the N worst 5-session names, hold 5 sessions, skip earnings ±5
-    # sessions, equal-weight, non-overlapping. Backtest 2019–2026 (current S&P,
-    # $10 / $50M dollar-vol, 10 bps): 5-name mean +1.09%/hold, t=3.36, all 8
-    # years green. Long-only — shorting the winners lost. Kill the book the
-    # same way as waves if live goes 0-for-N; do not apply learned take-profit
-    # or the earnings entry model until this sleeve has its own sample.
+    # Long the N worst 5-session names, hold 5 sessions or take-profit at +10%,
+    # skip earnings ±5 sessions, equal-weight, non-overlapping. Backtest
+    # 2019–2026 (current S&P, $10 / $50M dollar-vol, 10 bps): 5-name mean
+    # +1.09%/hold, t=3.36, all 8 years green. Long-only — shorting the winners
+    # lost. Kill the book the same way as waves if live goes 0-for-N. The 10%
+    # take-profit is this sleeve's own exit, not the 3% learned clip from the
+    # earnings directional books. No entry model until it has its own sample.
     paper_reversal_enabled: bool = True
     paper_reversal_top_n: int = 5
     paper_reversal_lookback_days: int = 5
     paper_reversal_hold_days: int = 5
+    paper_reversal_take_profit_pct: float = 0.10
     paper_reversal_min_price: float = 10.0
     paper_reversal_min_dollar_vol: float = 50_000_000.0
     paper_reversal_earn_buffer_days: int = 5

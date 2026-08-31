@@ -1885,7 +1885,7 @@ def _record_reversal_trade(
         "instrument": "equity",
         "headline": (
             f"5-day loser · {cand.ret_5:+.1%} over 5 sessions through "
-            f"{cand.as_of.isoformat()}, hold 5 sessions"
+            f"{cand.as_of.isoformat()}, hold 5 sessions or +10%"
         ),
         "ret_5": round(cand.ret_5, 4),
         "as_of": cand.as_of.isoformat(),
@@ -1934,7 +1934,7 @@ def _next_reversal_signal_id(db: Session) -> str:
 def _manage_reversal_exits(
     db: Session, client: AlpacaClient, settings, dry_run: bool
 ) -> int:
-    """Close reversal longs after the fixed 5-session hold (or force-close)."""
+    """Close reversal longs on +10% take-profit, the 5-session hold, or force-close."""
     today = date.today()
     closed = 0
     trades = db.scalars(
@@ -1944,11 +1944,11 @@ def _manage_reversal_exits(
         )
     ).all()
     for t in trades:
-        reason = reversal_exit_reason(t, today, settings)
-        if reason is None:
-            continue
         spot_now = client.stock_price(t.ticker)
         if not spot_now:
+            continue
+        reason = reversal_exit_reason(t, today, settings, spot_now)
+        if reason is None:
             continue
         if dry_run:
             logger.info(

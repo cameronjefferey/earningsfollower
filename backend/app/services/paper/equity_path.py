@@ -69,7 +69,7 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "date": "2026-08-31",
         "kind": "add",
         "title": "5-day loser weekly",
-        "detail": "Long the week's worst S&P names for 5 sessions; earnings ±5d out.",
+        "detail": "Long the week's worst S&P names for 5 sessions or +10%; earnings ±5d out.",
     },
 )
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, PaperResponse, PaperTrade, PaperBucket } from "@/lib/api";
+import { api, PaperResponse, PaperTrade, PaperBucket, ReversalWatch } from "@/lib/api";
 import { Card, EmptyState, Spinner, Stat } from "@/components/ui";
 import { fmtDate, moveClass } from "@/lib/format";
 import { useAuthReady } from "@/lib/useAuthReady";
@@ -40,6 +40,7 @@ const STRATEGY_META: Record<string, { label: string; color: string }> = {
   waves: { label: "wave", color: "#b06bff" },
   drift: { label: "drift", color: "#818cf8" },
   reddit: { label: "reddit", color: "#ff6a3d" },
+  reversal: { label: "5-day loser", color: "#fbbf24" },
 };
 
 function strategyMeta(strategy: string | undefined) {
@@ -679,6 +680,58 @@ function FilterSelect({
   );
 }
 
+function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
+  const names = watch.candidates ?? [];
+  const skipped = watch.skipped_earn ?? [];
+  const asOf = watch.as_of ? fmtDate(watch.as_of) : "—";
+  return (
+    <Card className="p-4 mb-6 border-[#fbbf24]/35">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold" style={{ color: "#fbbf24" }}>
+            5-day losers
+          </div>
+          <p className="text-xs text-[var(--color-muted)] mt-0.5">
+            Worst 5-session S&amp;P names through {asOf}, hold 5 sessions, earnings
+            ±5 sessions out.
+            {watch.holding ? " Cohort already open — next rebalance after the hold." : ""}
+          </p>
+        </div>
+        <Pill
+          text={watch.holding ? "holding" : names.length ? "ranked" : "none"}
+          color="#fbbf24"
+        />
+      </div>
+      {names.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {names.map((c) => (
+            <Link
+              key={c.ticker}
+              href={`/company/${c.ticker}`}
+              className="rounded-md border border-[var(--color-edge)] px-2.5 py-1.5 hover:border-[#fbbf24]/60"
+            >
+              <span className="font-mono text-sm font-semibold">{c.ticker}</span>
+              <span className="ml-2 text-xs tabular text-[#f0556d]">
+                {(c.ret_5 * 100).toFixed(1)}%
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-[var(--color-muted)] mt-2">
+          No names cleared price, dollar-volume, and earnings filters.
+        </p>
+      )}
+      {skipped.length ? (
+        <p className="text-[11px] text-[var(--color-muted)] mt-2">
+          Skipped for earnings: {skipped.slice(0, 8).map((s) => s.ticker).join(", ")}
+          {skipped.length > 8 ? "…" : ""}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 type ClosedSortKey =
   | "ticker"
   | "strategy"
@@ -886,13 +939,15 @@ export default function PaperPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">Paper trader</h1>
         <p className="text-[var(--color-muted)] mt-1 max-w-3xl">
-          An autonomous worker runs three strategies on one Alpaca paper account:{" "}
+          An autonomous worker runs three live books on one Alpaca paper account:{" "}
           <span className="text-white">earnings</span> (sell rich IV into a print and
-          harvest the crush), <span className="text-white">waves</span> (ride a peer-driven
-          drift into a name&apos;s own print), and{" "}
-          <span className="text-white">drift</span> (post-earnings announcement drift via
-          a directional debit spread). Each trade is sized by conviction and journaled
-          with a unique signal id. This is the live scorecard - head to the{" "}
+          harvest the crush), <span className="text-white">earnings stock</span> (same
+          directional lean as shares), and{" "}
+          <span className="text-white">5-day losers</span> (long the week&apos;s worst
+          S&amp;P 500 names for a 5-session hold, earnings ±5 sessions out). Waves and
+          drift option debits are retired. Each trade is sized by conviction (or a
+          fixed 2% sleeve for losers) and journaled with a unique signal id. This is
+          the live scorecard - head to the{" "}
           <Link href="/learning" className="text-[var(--color-accent)] hover:underline">
             Learning
           </Link>{" "}
@@ -989,6 +1044,8 @@ export default function PaperPage() {
         </Card>
       ) : null}
 
+      {data.reversal_watch ? <ReversalWatchCard watch={data.reversal_watch} /> : null}
+
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <Stat
           label="Account equity"
@@ -1030,6 +1087,7 @@ export default function PaperPage() {
           options={[
             { value: "all", label: "All" },
             { value: "earnings", label: "Earnings" },
+            { value: "reversal", label: "5-day losers" },
             { value: "waves", label: "Waves" },
             { value: "drift", label: "Drift" },
             { value: "reddit", label: "Reddit" },

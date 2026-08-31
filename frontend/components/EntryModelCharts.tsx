@@ -15,6 +15,7 @@ const LABEL: Record<string, string> = {
   "Book: waves": "Wave trades",
   "Book: drift": "Drift trades",
   "Book: reddit": "Reddit trades",
+  "Book: reversal": "5-day loser trades",
   "Direction: bullish": "Bullish setups",
   "Direction: bearish": "Bearish setups",
   "Direction: neutral": "Neutral setups",

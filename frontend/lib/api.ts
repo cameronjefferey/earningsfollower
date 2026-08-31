@@ -379,7 +379,7 @@ export interface RedditResponse {
 
 export interface PaperTrade {
   signal_id: string;
-  strategy: "earnings" | "waves" | "drift" | "reddit";
+  strategy: "earnings" | "waves" | "drift" | "reddit" | "reversal";
   ticker: string;
   structure: string;
   direction: "bearish" | "bullish" | "neutral";
@@ -459,6 +459,26 @@ export interface PaperResponse {
   last_run?: PaperLastRun | null;
   live_stop_policy?: LiveStopPolicy | null;
   live_exit_policy?: LiveExitPolicy | null;
+  reversal_watch?: ReversalWatch | null;
+}
+
+export interface ReversalWatchName {
+  ticker: string;
+  ret_5: number;
+  close: number;
+  dollar_vol: number;
+  as_of: string;
+  skipped_earn: boolean;
+}
+
+export interface ReversalWatch {
+  as_of: string | null;
+  ranked_at: string;
+  holding: boolean;
+  opened: string[];
+  note: string | null;
+  candidates: ReversalWatchName[];
+  skipped_earn: ReversalWatchName[];
 }
 
 export interface AttrCohort {

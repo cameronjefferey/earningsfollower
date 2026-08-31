@@ -57,6 +57,12 @@ from app.services.paper.reddit_trader import (
     reddit_conviction,
 )
 from app.services.paper.waves_trader import WaveSpec, build_wave_spec, wave_conviction
+from app.services.paper.reversal import (
+    STRATEGY as REVERSAL_STRATEGY,
+    rank_live,
+    reversal_exit_reason,
+    write_watch,
+)
 from app.services.reddit_sentiment import current_reddit_signals, latest_reddit_signal
 from app.services.waves import current_sympathy_waves
 
@@ -192,6 +198,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["closed"] += _manage_earnings_equity_exits(
             db, client, settings, dry_run, tp_pct
         )
+        summary["closed"] += _manage_reversal_exits(db, client, settings, dry_run)
 
         # Calibration feedback: recalibrate each strategy's model win-probability
         # by its realized track record before the EV gate sees it (opt-in, and a
@@ -236,6 +243,10 @@ def run(db: Session, dry_run: bool = False) -> dict:
                     db, client, equity, settings, dry_run, entry_model, calib
                 ),
             ),
+            (
+                "reversal",
+                lambda: _scan_reversal_entries(db, client, equity, settings, dry_run),
+            ),
         ):
             try:
                 scan_results.append(fn())
@@ -245,6 +256,14 @@ def run(db: Session, dry_run: bool = False) -> dict:
                 scan_results.append((0, []))
         summary["opened"] = sum(n for n, _ in scan_results)
         summary["skipped"] = [s for _, skips in scan_results for s in skips]
+        try:
+            from app.services.paper.reversal import read_watch
+
+            watch = read_watch()
+            if watch:
+                summary["reversal_watch"] = watch
+        except Exception as e:  # noqa: BLE001
+            logger.warning("reversal watch attach failed: %s", e)
     except AlpacaError as e:
         logger.error("Alpaca error during paper run: %s", e)
         summary["status"] = "error"
@@ -1703,6 +1722,263 @@ def _earnings_equity_exit_reason(
     if t.earnings_date and t.earnings_date < today:
         return "post-earnings"
     return None
+
+
+def _scan_reversal_entries(
+    db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
+) -> tuple[int, list]:
+    """Long the week's worst S&P 500 names for a fixed 5-session hold.
+
+    Non-overlapping: no new entries while any reversal row is pending/open/closing.
+    Does not go through the earnings entry model or fair-trade options gate.
+    """
+    if not getattr(settings, "paper_reversal_enabled", False):
+        return 0, []
+    skipped: list[dict] = []
+    open_rows = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == REVERSAL_STRATEGY,
+            PaperTrade.status.in_(OPEN_STATES),
+        )
+    ).all()
+    holding = bool(open_rows)
+    try:
+        picks, earn_skip, as_of = rank_live(db, settings)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("reversal rank failed: %s", e)
+        skipped.append({"reason": f"rank failed: {e}"})
+        return 0, skipped
+    write_watch(
+        picks,
+        earn_skip,
+        as_of=as_of,
+        holding=holding,
+        note="cohort open" if holding else None,
+    )
+    if holding:
+        skipped.append({"reason": "reversal cohort still open (non-overlapping)"})
+        return 0, skipped
+    if not picks:
+        skipped.append({"reason": "no 5-day-loser candidates after filters"})
+        return 0, skipped
+
+    regime = regime_snapshot(settings)
+    occupied = {
+        t.ticker
+        for t in db.scalars(
+            select(PaperTrade).where(PaperTrade.status.in_(OPEN_STATES))
+        ).all()
+    }
+    max_open = int(getattr(settings, "paper_reversal_max_open", 5))
+    risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.02))
+    opened = 0
+    opened_ids: list[str] = []
+    for cand in picks:
+        if opened >= max_open:
+            break
+        if cand.ticker in occupied:
+            skipped.append({"ticker": cand.ticker, "reason": "already in another book"})
+            continue
+        spot = client.stock_price(cand.ticker) or cand.close
+        if not spot or spot <= 0:
+            skipped.append({"ticker": cand.ticker, "reason": "no spot price"})
+            continue
+        notional = equity * risk_frac
+        shares = _earnings_equity_shares(notional, spot)
+        if shares < 1:
+            skipped.append(
+                {
+                    "ticker": cand.ticker,
+                    "reason": f"notional ${notional:.0f} < 1 share @ ${spot:.2f}",
+                }
+            )
+            continue
+        trade = _record_reversal_trade(db, cand, spot, shares, notional, equity)
+        feats = {
+            "direction": "bullish",
+            "structure": EQUITY_LONG,
+            "conviction": "medium",
+            "spot": round(spot, 2),
+            "contracts": shares,
+            "max_risk": round(notional, 2),
+            "modeled_price": round(spot, 2),
+            "ret_5": round(cand.ret_5, 4),
+            "dollar_vol": round(cand.dollar_vol, 0),
+            "as_of": cand.as_of.isoformat(),
+        }
+        if dry_run:
+            logger.info(
+                "[dry-run] REVERSAL BUY %s %d sh @ ~%.2f (5d %+0.1f%%, risk $%.0f)",
+                cand.ticker, shares, spot, cand.ret_5 * 100, notional,
+            )
+            trade.note = "dry-run (not submitted)"
+            record_decision(
+                db,
+                strategy=REVERSAL_STRATEGY,
+                ticker=cand.ticker,
+                decision="opened",
+                signal_id=trade.signal_id,
+                regime=regime,
+                features=feats,
+            )
+            opened += 1
+            opened_ids.append(trade.signal_id)
+            continue
+        try:
+            order = client.submit_stock_order(
+                symbol=cand.ticker,
+                qty=shares,
+                side="buy",
+                client_order_id=trade.signal_id,
+            )
+        except AlpacaError as e:
+            logger.error("Reversal entry failed for %s: %s", cand.ticker, e)
+            trade.status = "canceled"
+            trade.note = f"submit error: {e}"[:500]
+            skipped.append({"ticker": cand.ticker, "reason": f"submit error: {e}"})
+            record_decision(
+                db,
+                strategy=REVERSAL_STRATEGY,
+                ticker=cand.ticker,
+                decision="skipped",
+                skip_reason=f"submit error: {e}",
+                regime=regime,
+                features=feats,
+            )
+            continue
+        trade.entry_order_id = order.get("id")
+        _apply_entry_fill(trade, order)
+        record_decision(
+            db,
+            strategy=REVERSAL_STRATEGY,
+            ticker=cand.ticker,
+            decision="opened",
+            signal_id=trade.signal_id,
+            regime=regime,
+            features=feats,
+        )
+        opened += 1
+        opened_ids.append(trade.signal_id)
+        occupied.add(cand.ticker)
+    write_watch(
+        picks,
+        earn_skip,
+        as_of=as_of,
+        holding=bool(opened_ids) or holding,
+        opened=opened_ids,
+    )
+    if not dry_run:
+        db.commit()
+    return opened, skipped
+
+
+def _record_reversal_trade(
+    db: Session,
+    cand,
+    spot: float,
+    shares: int,
+    notional: float,
+    equity: float | None,
+) -> PaperTrade:
+    signal_id = _next_reversal_signal_id(db)
+    thesis = {
+        "instrument": "equity",
+        "headline": (
+            f"5-day loser · {cand.ret_5:+.1%} over 5 sessions through "
+            f"{cand.as_of.isoformat()}, hold 5 sessions"
+        ),
+        "ret_5": round(cand.ret_5, 4),
+        "as_of": cand.as_of.isoformat(),
+        "dollar_vol": round(cand.dollar_vol, 0),
+        "lookback_days": 5,
+        "hold_days": 5,
+    }
+    trade = PaperTrade(
+        signal_id=signal_id,
+        strategy=REVERSAL_STRATEGY,
+        ticker=cand.ticker,
+        earnings_date=None,
+        structure=EQUITY_LONG,
+        direction="bullish",
+        vol_stance="neutral",
+        conviction="medium",
+        thesis=json.dumps(thesis)[:2048],
+        status="pending",
+        legs=None,
+        contracts=shares,
+        expiration=None,
+        width=None,
+        entry_credit=round(spot, 2),
+        modeled_credit=round(spot, 2),
+        max_risk=round(notional, 2),
+        expected_move_pct=round(cand.ret_5, 4),
+        spot_entry=round(spot, 2),
+        equity_at_entry=round(equity, 2) if equity else None,
+    )
+    db.add(trade)
+    db.flush()
+    return trade
+
+
+def _next_reversal_signal_id(db: Session) -> str:
+    stamp = date.today().strftime("%Y%m%d")
+    prefix = f"RV-{stamp}-"
+    n = len(
+        db.scalars(
+            select(PaperTrade).where(PaperTrade.signal_id.like(f"{prefix}%"))
+        ).all()
+    )
+    return f"{prefix}{n + 1:03d}"
+
+
+def _manage_reversal_exits(
+    db: Session, client: AlpacaClient, settings, dry_run: bool
+) -> int:
+    """Close reversal longs after the fixed 5-session hold (or force-close)."""
+    today = date.today()
+    closed = 0
+    trades = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == REVERSAL_STRATEGY,
+            PaperTrade.status == "open",
+        )
+    ).all()
+    for t in trades:
+        reason = reversal_exit_reason(t, today, settings)
+        if reason is None:
+            continue
+        spot_now = client.stock_price(t.ticker)
+        if not spot_now:
+            continue
+        if dry_run:
+            logger.info(
+                "[dry-run] would close reversal %s (%s) at %.2f",
+                t.signal_id, reason, spot_now,
+            )
+            continue
+        try:
+            order = client.submit_stock_order(
+                symbol=t.ticker,
+                qty=t.contracts or 1,
+                side="sell",
+                client_order_id=_close_client_order_id(t.signal_id),
+            )
+        except AlpacaError as e:
+            logger.error("Reversal close failed for %s: %s", t.signal_id, e)
+            continue
+        t.exit_order_id = order.get("id")
+        t.exit_debit = round(spot_now, 2)
+        t.status = "closing"
+        t.note = reason
+        t.spot_at_exit = round(spot_now, 2)
+        entry_px = t.entry_credit or t.spot_entry
+        if entry_px:
+            t.realized_move_pct = round(spot_now / entry_px - 1, 4)
+        _finalize_pnl(t)
+        closed += 1
+    if not dry_run:
+        db.commit()
+    return closed
 
 
 # --- waves strategy ----------------------------------------------------------

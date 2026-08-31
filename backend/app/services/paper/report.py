@@ -62,6 +62,12 @@ def _thesis_headline(t: PaperTrade) -> str | None:
         vel_txt = f"{vel:.0f}x" if isinstance(vel, (int, float)) else "spiking"
         cnt_txt = f"{mentions} mentions" if isinstance(mentions, int) else "Reddit chatter"
         return f"Reddit {dir_word} · {cnt_txt} at {vel_txt} baseline"
+    if strategy == "reversal":
+        ret = data.get("ret_5")
+        as_of = data.get("as_of")
+        ret_txt = f"{ret:+.1%} over 5 sessions" if isinstance(ret, (int, float)) else "5-day loser"
+        as_txt = f" through {as_of}" if as_of else ""
+        return f"{ret_txt}{as_txt} · hold 5 sessions"
     return data.get("headline")
 
 
@@ -242,7 +248,7 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
     except Exception as e:  # noqa: BLE001 - never let health status break the page
         logger.warning("Could not load last paper run: %s", e)
 
-    return {
+    out = {
         "generated_at": datetime.utcnow().isoformat(),
         "account": account,
         "stats": stats,
@@ -250,6 +256,17 @@ def scorecard(db: Session, include_account: bool = True) -> dict:
         "closed": closed_dicts,
         "last_run": last_run,
     }
+    try:
+        from app.services.paper.reversal import read_watch
+
+        watch = read_watch()
+        if not watch and isinstance(last_run, dict):
+            watch = (last_run.get("detail") or {}).get("reversal_watch")
+        if watch:
+            out["reversal_watch"] = watch
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not load reversal watch: %s", e)
+    return out
 
 
 def _f(value) -> float | None:

@@ -37,6 +37,7 @@ def _settings(**overrides):
         paper_drift_enabled=False,
         paper_waves_enabled=False,
         paper_reddit_enabled=False,
+        paper_reversal_enabled=True,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -141,11 +142,15 @@ def test_book_of_splits_earnings_stock_from_options():
 
 
 def test_allowed_books_follow_live_flags():
-    assert allowed_books(_settings()) == frozenset({"earnings", "earnings_equity"})
+    assert allowed_books(_settings()) == frozenset(
+        {"earnings", "earnings_equity", "reversal"}
+    )
     on = allowed_books(_settings(paper_drift_enabled=True, paper_waves_enabled=True))
     assert "drift" in on and "waves" in on
     reddit = allowed_books(_settings(paper_reddit_enabled=True))
     assert "reddit" in reddit and "reddit_equity" in reddit
+    off = allowed_books(_settings(paper_reversal_enabled=False))
+    assert "reversal" not in off
 
 
 def test_counterfactual_drops_retired_books():

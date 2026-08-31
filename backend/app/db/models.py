@@ -170,6 +170,7 @@ class PaperTrade(Base):
     #   "waves"    - directional sympathy drift into a peer-driven build-up
     #   "drift"    - post-earnings announcement drift (PEAD)
     #   "reddit"   - social-attention sentiment from monitoring Reddit
+    #   "reversal" - 5-day S&P loser weekly, long shares, 5-session hold
     strategy: Mapped[str] = mapped_column(String(16), default="earnings", index=True)
     ticker: Mapped[str] = mapped_column(String(16), index=True)
     earnings_date: Mapped[date | None] = mapped_column(Date, index=True)

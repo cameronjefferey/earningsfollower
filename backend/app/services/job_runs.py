@@ -33,6 +33,7 @@ def record_job_run(
         "reason": result.get("reason"),
         "processed": result.get("processed"),
         "boards": result.get("boards"),
+        "reversal_watch": result.get("reversal_watch"),
     }
     row = JobRunLog(
         job=job,

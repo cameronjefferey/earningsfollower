@@ -183,6 +183,18 @@ services:
       # pivot, so noise around the level doesn't whipsaw a fresh entry to a loss.
       - key: PAPER_DRIFT_STOP_BUFFER
         value: "0.015"
+      # 5-day loser weekly: long the worst 5-session S&P names, hold 5
+      # sessions, skip earnings ±5 sessions. Fixed hold; no take-profit.
+      - key: PAPER_REVERSAL_ENABLED
+        value: "true"
+      - key: PAPER_REVERSAL_TOP_N
+        value: "5"
+      - key: PAPER_REVERSAL_HOLD_DAYS
+        value: "5"
+      - key: PAPER_REVERSAL_RISK_FRAC
+        value: "0.02"
+      - key: PAPER_REVERSAL_MAX_OPEN
+        value: "5"
       # Fills: entries cross (take the ask / hit the bid + a small buffer) so
       # wide, illiquid spreads fill; exits price at the mid nudged by the buffer
       # so we never dump a held spread to a dead bid. Orders go out only while

@@ -70,6 +70,9 @@ _REGIME_KEYS = (
     "paper_exit_learning_enabled",
     "paper_entry_model_enabled",
     "paper_entry_model_min_prob",
+    "paper_reversal_enabled",
+    "paper_reversal_top_n",
+    "paper_reversal_hold_days",
 )
 
 
@@ -587,6 +590,14 @@ def features_from_paper_trade(t: PaperTrade) -> tuple[str, dict]:
             "scored_by": thesis.get("scored_by"),
         })
         label = "reddit_equity" if is_equity else "reddit"
+    elif strat == "reversal":
+        feats.update({
+            "ret_5": _num(thesis.get("ret_5")),
+            "hold_days": thesis.get("hold_days"),
+            "lookback_days": thesis.get("lookback_days"),
+            "dollar_vol": _num(thesis.get("dollar_vol")),
+        })
+        label = "reversal"
     else:
         label = strat
 

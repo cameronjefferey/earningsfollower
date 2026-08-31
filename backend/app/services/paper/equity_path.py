@@ -4,8 +4,8 @@ Actual close comes from Alpaca when the API can reach the paper account;
 otherwise we reconstruct from journaled realized P&L so the page still
 renders in local/dev. The counterfactual is always journal-only: start at
 the same $100k and add only closed trades from books that are still allowed
-to open (earnings sell-vol + earnings stock). Retired books (reddit, drift,
-waves) are excluded so you can see the bleed we stopped funding.
+to open (earnings sell-vol + earnings stock + 5-day losers). Retired books
+(reddit, drift, waves) are excluded so you can see the bleed we stopped funding.
 """
 
 from __future__ import annotations
@@ -65,6 +65,12 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "title": "Drift and waves retired",
         "detail": "Post-print option debits went 0-for-12. Calibration gate turned on.",
     },
+    {
+        "date": "2026-08-31",
+        "kind": "add",
+        "title": "5-day loser weekly",
+        "detail": "Long the week's worst S&P names for 5 sessions; earnings ±5d out.",
+    },
 )
 
 BOOK_LABELS = {
@@ -74,6 +80,7 @@ BOOK_LABELS = {
     "waves": "Waves",
     "reddit": "Reddit options",
     "reddit_equity": "Reddit stock",
+    "reversal": "5-day losers",
 }
 
 
@@ -99,6 +106,8 @@ def allowed_books(settings) -> frozenset[str]:
     if getattr(settings, "paper_reddit_enabled", False):
         books.add("reddit")
         books.add("reddit_equity")
+    if getattr(settings, "paper_reversal_enabled", True):
+        books.add("reversal")
     return frozenset(books)
 
 

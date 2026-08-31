@@ -1,0 +1,174 @@
+"""Unit tests for the 5-day-loser weekly reversal book.
+
+Runnable without pytest (``python tests/test_reversal.py`` from the backend
+dir) and via pytest. No network: ranking uses an in-memory panel.
+"""
+
+from __future__ import annotations
+
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.services.paper.reversal import (  # noqa: E402
+    hold_elapsed,
+    rank_from_panel,
+    reaction_dates,
+    reversal_exit_reason,
+    trading_days_between,
+)
+
+
+def _sessions(start: date, n: int) -> list[date]:
+    """n weekdays starting at ``start`` (must be a weekday)."""
+    out: list[date] = []
+    d = start
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def _panel(tickers: dict[str, list[float]], sessions: list[date], volume: float = 2_000_000) -> pd.DataFrame:
+    rows = []
+    for t, closes in tickers.items():
+        assert len(closes) == len(sessions)
+        for d, c in zip(sessions, closes):
+            rows.append({"ticker": t, "date": d, "close": c, "volume": volume})
+    return pd.DataFrame(rows)
+
+
+def test_trading_days_monday_to_next_monday_is_five():
+    assert trading_days_between(date(2026, 8, 24), date(2026, 8, 31)) == 5
+    assert hold_elapsed(date(2026, 8, 24), date(2026, 8, 31)) == 5
+    assert hold_elapsed(date(2026, 8, 24), date(2026, 8, 24)) == 0
+
+
+def test_rank_picks_worst_five_liquid_names():
+    # 10 sessions so pct_change(5) is defined. Last 5 closes drive the rank.
+    sessions = _sessions(date(2026, 8, 17), 10)
+    # A dumps 20% over the last 5, B 15%, C 10%, D 5%, E 1%, F up 2%.
+    def path(start, ret):
+        # 5 flats, then geometrically apply `ret` over the last 5.
+        first = [start] * 5
+        step = (1 + ret) ** (1 / 5)
+        last = [start]
+        for _ in range(5):
+            last.append(last[-1] * step)
+        return first + last[1:]
+
+    tickers = {
+        "LOSE1": path(50, -0.20),
+        "LOSE2": path(50, -0.15),
+        "LOSE3": path(50, -0.10),
+        "LOSE4": path(50, -0.05),
+        "LOSE5": path(50, -0.02),
+        "WIN1": path(50, 0.08),
+        "CHEAP": path(8, -0.30),  # under $10
+        "THIN": path(50, -0.25),  # will override volume
+    }
+    df = _panel(tickers, sessions, volume=2_000_000)  # $100M dollar vol at $50
+    df.loc[df["ticker"] == "THIN", "volume"] = 100  # ~$5k, below $50M
+    picks, skipped = rank_from_panel(df, top_n=5, min_price=10, min_dollar_vol=50_000_000)
+    assert skipped == []
+    assert [c.ticker for c in picks] == ["LOSE1", "LOSE2", "LOSE3", "LOSE4", "LOSE5"]
+    assert all(c.ret_5 < 0 for c in picks)
+    assert picks[0].ret_5 < picks[-1].ret_5
+
+
+def test_earnings_window_drops_a_loser():
+    sessions = _sessions(date(2026, 8, 17), 10)
+    as_of = sessions[-1]
+
+    def dump(start, ret):
+        first = [start] * 5
+        step = (1 + ret) ** (1 / 5)
+        last = [start]
+        for _ in range(5):
+            last.append(last[-1] * step)
+        return first + last[1:]
+
+    tickers = {
+        "EARN": dump(40, -0.22),
+        "OK1": dump(40, -0.12),
+        "OK2": dump(40, -0.10),
+        "OK3": dump(40, -0.08),
+        "OK4": dump(40, -0.06),
+        "OK5": dump(40, -0.04),
+    }
+    df = _panel(tickers, sessions)
+    # EARN printed BMO on as_of — reaction is as_of, inside ±5.
+    earn = {("EARN", as_of)}
+    picks, skipped = rank_from_panel(df, earn_reaction=earn, top_n=5)
+    assert "EARN" not in [c.ticker for c in picks]
+    assert any(c.ticker == "EARN" and c.skipped_earn for c in skipped)
+    assert [c.ticker for c in picks] == ["OK1", "OK2", "OK3", "OK4", "OK5"]
+
+
+def test_amc_print_reacts_next_session():
+    sessions = _sessions(date(2026, 8, 17), 6)
+    friday = sessions[-2]
+    monday = sessions[-1]
+    react = reaction_dates([("XYZ", friday, "amc")], all_sessions=sessions)
+    assert ("XYZ", monday) in react
+    assert ("XYZ", friday) not in react
+
+
+def test_exit_after_five_sessions_not_sooner():
+    settings = SimpleNamespace(
+        paper_force_close_id_set=set(),
+        paper_reversal_hold_days=5,
+    )
+    t = SimpleNamespace(
+        signal_id="RV-1",
+        note=None,
+        opened_at=datetime(2026, 8, 24, 14, 0),  # Monday
+        created_at=None,
+    )
+    assert reversal_exit_reason(t, date(2026, 8, 25), settings) is None  # Tue
+    assert reversal_exit_reason(t, date(2026, 8, 28), settings) is None  # Fri
+    reason = reversal_exit_reason(t, date(2026, 8, 31), settings)  # next Mon
+    assert reason is not None and "hold" in reason
+
+
+def test_force_close_and_bad_fill_beat_the_hold():
+    settings = SimpleNamespace(
+        paper_force_close_id_set={"RV-X"},
+        paper_reversal_hold_days=5,
+    )
+    t = SimpleNamespace(
+        signal_id="RV-X",
+        note=None,
+        opened_at=datetime(2026, 8, 31, 14, 0),
+        created_at=None,
+    )
+    assert reversal_exit_reason(t, date(2026, 8, 31), settings) == "manual close"
+    t2 = SimpleNamespace(
+        signal_id="RV-Y",
+        note="bad fill: slipped",
+        opened_at=datetime(2026, 8, 31, 14, 0),
+        created_at=None,
+    )
+    settings.paper_force_close_id_set = set()
+    assert reversal_exit_reason(t2, date(2026, 8, 31), settings) == "flatten: bad entry fill"
+
+
+if __name__ == "__main__":
+    tests = [
+        test_trading_days_monday_to_next_monday_is_five,
+        test_rank_picks_worst_five_liquid_names,
+        test_earnings_window_drops_a_loser,
+        test_amc_print_reacts_next_session,
+        test_exit_after_five_sessions_not_sooner,
+        test_force_close_and_bad_fill_beat_the_hold,
+    ]
+    for fn in tests:
+        fn()
+        print(f"ok  {fn.__name__}")
+    print(f"{len(tests)} passed")

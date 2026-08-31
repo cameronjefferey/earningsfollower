@@ -310,7 +310,7 @@ export function EquityPathCharts({ report }: { report: EquityPathResponse | null
           <div>
             <h2 className="text-lg font-semibold tracking-tight">
               Had we only run today&apos;s book
-              <InfoTip text="Closed trades only. Earnings sell-vol and earnings stock stay in. Reddit, drift, and waves are removed. Open positions are not marked." />
+              <InfoTip text="Closed trades only. Earnings sell-vol, earnings stock, and 5-day losers stay in. Reddit, drift, and waves are removed. Open positions are not marked." />
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-[var(--color-muted)] leading-relaxed">
               Start at {dollars(start)}. Add closed P&amp;L from{" "}

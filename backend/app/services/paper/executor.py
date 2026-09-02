@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.alpaca import AlpacaClient, AlpacaError
 from app.config import get_settings
-from app.db.models import Company, EarningsEvent, PaperTrade, PriceBar
+from app.db.models import Company, EarningsEvent, PaperTrade, PriceBar, TradeDecision
 from app.services.dashboard import company_detail
 from app.services.notify import send_telegram, telegram_configured
 from app.services.paper.calibration import adjust_win_prob, compute_calibration
@@ -61,6 +61,8 @@ from app.services.paper.reversal import (
     STRATEGY as REVERSAL_STRATEGY,
     rank_live,
     reversal_exit_reason,
+    shadow_hold_due,
+    shadow_vs_live,
     tickers_in_earn_buffer,
     write_watch,
 )
@@ -76,6 +78,19 @@ SELLING_STRUCTURES = {
 }
 
 OPEN_STATES = ("pending", "open", "closing")
+
+# Sell-vol names that passed direction+vol stance but failed credit / width /
+# liquidity / fair-trade. Prefix so the existing +5d skip labels are a
+# control group for "is richness the edge, or is selling liquid pre-print
+# premium generically fine?" — not mixed in with "not a sell-vol setup".
+NEAR_MISS_PREFIX = "near-miss: "
+
+
+def _near_miss(reason: str | None) -> str:
+    r = (reason or "gate rejected").strip()
+    if r.startswith(NEAR_MISS_PREFIX):
+        return r[:256]
+    return f"{NEAR_MISS_PREFIX}{r}"[:256]
 
 # Note sentinel for a fill that breached the fair-trade plan (filled worse than
 # the limit we sent). Flagged trades are flattened on the next manage-exits pass
@@ -200,6 +215,9 @@ def run(db: Session, dry_run: bool = False) -> dict:
             db, client, settings, dry_run, tp_pct
         )
         summary["closed"] += _manage_reversal_exits(db, client, settings, dry_run)
+        summary["reversal_shadow"] = _mark_reversal_shadow_holds(
+            db, client, settings, dry_run
+        )
 
         # Calibration feedback: recalibrate each strategy's model win-probability
         # by its realized track record before the EV gate sees it (opt-in, and a
@@ -807,32 +825,39 @@ def _try_earnings_entry(
         min_credit_ratio=settings.paper_min_credit_width_ratio,
     )
     if spec is None:
+        reason = _near_miss(reason)
+        feats = earnings_features(pb, im, risk_frac=risk_frac, equity=equity)
+        feats["near_miss"] = True
         record_decision(
             db, strategy="earnings", ticker=ticker, decision="skipped",
             earnings_date=ev.date, skip_reason=reason, regime=regime,
-            features=earnings_features(pb, im, risk_frac=risk_frac, equity=equity),
+            features=feats,
         )
         return 0, {"ticker": ticker, "reason": reason}
     if spec.net_credit < settings.paper_min_credit:
-        reason = f"credit too thin ({spec.net_credit})"
+        reason = _near_miss(f"credit too thin ({spec.net_credit})")
+        feats = earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity)
+        feats["near_miss"] = True
         record_decision(
             db, strategy="earnings", ticker=ticker, decision="skipped",
             earnings_date=ev.date, skip_reason=reason, regime=regime,
-            features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
+            features=feats,
         )
         return 0, {"ticker": ticker, "reason": reason}
 
     contracts = int(budget // spec.max_risk_per_contract)
     contracts = min(contracts, settings.paper_max_contracts)
     if contracts < 1:
-        reason = (
+        reason = _near_miss(
             f"spread too wide for {pb['conviction']} budget "
             f"({risk_frac:.1%} = ${budget:.0f}; risk ${spec.max_risk_per_contract:.0f}/ct)"
         )
+        feats = earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity)
+        feats["near_miss"] = True
         record_decision(
             db, strategy="earnings", ticker=ticker, decision="skipped",
             earnings_date=ev.date, skip_reason=reason, regime=regime,
-            features=earnings_features(pb, im, spec=spec, risk_frac=risk_frac, equity=equity),
+            features=feats,
         )
         return 0, {"ticker": ticker, "reason": reason}
 
@@ -890,7 +915,9 @@ def _try_earnings_entry(
     )
     if limit is None:
         trade.status = "canceled"
+        reason = _near_miss(reason)
         trade.note = f"skipped: {reason}"
+        feats["near_miss"] = True
         record_decision(
             db, strategy="earnings", ticker=ticker, decision="skipped",
             earnings_date=ev.date, skip_reason=reason, regime=regime,
@@ -1776,8 +1803,15 @@ def _scan_reversal_entries(
         )
     ).all()
     holding = bool(open_rows)
+    deadline = getattr(settings, "paper_reversal_pit_rebuild_by", None)
+    if deadline is not None and date.today() > deadline:
+        logger.warning(
+            "reversal PIT membership rebuild deadline %s has passed; "
+            "live edge is still the 10%%-TP / current-S&P book, not the 1.22 Sharpe",
+            deadline,
+        )
     try:
-        picks, earn_skip, as_of = rank_live(db, settings)
+        picks, earn_skip, pool, as_of = rank_live(db, settings)
     except Exception as e:  # noqa: BLE001
         logger.warning("reversal rank failed: %s", e)
         skipped.append({"reason": f"rank failed: {e}"})
@@ -1787,6 +1821,7 @@ def _scan_reversal_entries(
         earn_skip,
         as_of=as_of,
         holding=holding,
+        pool=pool,
         note="cohort open" if holding else None,
     )
     if holding:
@@ -1804,7 +1839,7 @@ def _scan_reversal_entries(
         ).all()
     }
     max_open = int(getattr(settings, "paper_reversal_max_open", 5))
-    risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.02))
+    risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.01))
     opened = 0
     opened_ids: list[str] = []
     for cand in picks:
@@ -1900,6 +1935,7 @@ def _scan_reversal_entries(
         as_of=as_of,
         holding=bool(opened_ids) or holding,
         opened=opened_ids,
+        pool=pool,
     )
     if not dry_run:
         db.commit()
@@ -2027,6 +2063,80 @@ def _manage_reversal_exits(
     if not dry_run:
         db.commit()
     return closed
+
+
+def _mark_reversal_shadow_holds(
+    db: Session, client: AlpacaClient, settings, dry_run: bool
+) -> int:
+    """After a live +10% clip, mark what the 5-session hold would have paid.
+
+    Same entries as live; no capital. Gives the TP override a competing sample
+    instead of a documented preference. Natural hold exits are identical to live
+    and are not shadowed.
+    """
+    hold_days = int(getattr(settings, "paper_reversal_hold_days", 5))
+    today = date.today()
+    marked = 0
+    closed_rows = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == REVERSAL_STRATEGY,
+            PaperTrade.status == "closed",
+        )
+    ).all()
+    for t in closed_rows:
+        if not (t.note or "").startswith("take-profit"):
+            continue
+        opened = t.opened_at or t.created_at
+        if opened is None or not shadow_hold_due(opened.date(), today, hold_days):
+            continue
+        existing = db.scalars(
+            select(TradeDecision).where(
+                TradeDecision.signal_id == t.signal_id,
+                TradeDecision.decision == "shadow",
+            )
+        ).first()
+        if existing:
+            continue
+        hold_px = client.stock_price(t.ticker)
+        if not hold_px:
+            continue
+        entry_px = t.entry_credit or t.spot_entry
+        live_px = t.exit_debit or t.spot_at_exit
+        if not entry_px or not live_px:
+            continue
+        cmp = shadow_vs_live(
+            entry_px=float(entry_px),
+            live_exit_px=float(live_px),
+            hold_px=float(hold_px),
+            shares=int(t.contracts or 0),
+        )
+        if dry_run:
+            logger.info(
+                "[dry-run] reversal shadow %s live_pnl=%s hold_pnl=%s (%s)",
+                t.signal_id, cmp["live_pnl"], cmp["hold_pnl"], t.ticker,
+            )
+            continue
+        feats = {
+            "shadow_kind": "hold_vs_tp",
+            "spot": round(hold_px, 2),
+            **cmp,
+        }
+        row = record_decision(
+            db,
+            strategy=REVERSAL_STRATEGY,
+            ticker=t.ticker,
+            decision="shadow",
+            signal_id=t.signal_id,
+            features=feats,
+        )
+        if row is not None:
+            row.label_status = "final"
+            row.realized_pnl = cmp["hold_pnl"]
+            row.realized_move_pct = cmp["hold_ret"]
+        marked += 1
+    if marked and not dry_run:
+        db.commit()
+    return marked
 
 
 # --- waves strategy ----------------------------------------------------------

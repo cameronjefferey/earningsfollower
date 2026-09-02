@@ -24,10 +24,12 @@ from app.services.implied import compute_vol_edge  # noqa: E402
 from app.services.paper.executor import (  # noqa: E402
     EQUITY_LONG,
     EQUITY_SHORT,
+    NEAR_MISS_PREFIX,
     _close_client_order_id,
     _earnings_equity_exit_reason,
     _earnings_equity_shares,
     _exit_is_urgent,
+    _near_miss,
     _walk_mleg_to_fill,
     earnings_equity_trailing_halt,
 )
@@ -208,6 +210,14 @@ def test_earnings_equity_halt_needs_a_full_losing_window():
     assert earnings_equity_trailing_halt(db, s) is None
     off = FakeSettings(paper_earnings_equity_halt_enabled=False)
     assert earnings_equity_trailing_halt(db, off) is None
+
+
+def test_near_miss_prefix_tags_gate_rejects():
+    tagged = _near_miss("credit too thin (0.12)")
+    assert tagged.startswith(NEAR_MISS_PREFIX)
+    assert tagged.endswith("credit too thin (0.12)")
+    assert _near_miss(tagged) == tagged
+    assert _near_miss(None).startswith(NEAR_MISS_PREFIX)
 
 
 def test_close_client_order_id_is_unique_per_attempt():

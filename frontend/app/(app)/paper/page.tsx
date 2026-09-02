@@ -683,6 +683,7 @@ function FilterSelect({
 function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
   const names = watch.candidates ?? [];
   const skipped = watch.skipped_earn ?? [];
+  const pool = watch.pool ?? [];
   const asOf = watch.as_of ? fmtDate(watch.as_of) : "—";
   return (
     <Card className="p-4 mb-6 border-[#fbbf24]/35">
@@ -693,7 +694,8 @@ function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
           </div>
           <p className="text-xs text-[var(--color-muted)] mt-0.5">
             Worst 5-session S&amp;P names through {asOf}, hold 5 sessions or +10%,
-            earnings ±5 sessions out.
+            earnings ±5 sessions out. Sized 1% equity pending point-in-time
+            membership; expected ~0.55%/hold, not the 1.22 Sharpe backtest.
             {watch.holding ? " Cohort already open — next rebalance after the hold." : ""}
           </p>
         </div>
@@ -726,6 +728,16 @@ function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
         <p className="text-[11px] text-[var(--color-muted)] mt-2">
           Skipped for earnings: {skipped.slice(0, 8).map((s) => s.ticker).join(", ")}
           {skipped.length > 8 ? "…" : ""}
+        </p>
+      ) : null}
+      {pool.length ? (
+        <p className="text-[11px] text-[var(--color-muted)] mt-1">
+          Pool before earn-skip:{" "}
+          {pool
+            .slice(0, 12)
+            .map((s) => `${s.ticker}${s.skipped_earn ? "*" : ""}`)
+            .join(", ")}
+          {pool.length > 12 ? "…" : ""}
         </p>
       ) : null}
     </Card>

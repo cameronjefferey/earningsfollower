@@ -7,8 +7,11 @@ non-overlapping rebalance. Backtest (2019–2026, current S&P, 10 bps):
 
 The 10% take-profit is this book's own exit, not the 3% learned clip from
 the earnings directional books (that band maxes at 8% and would bank a
-bounce this sleeve is meant to ride). No earnings-equity stop, no entry
-model until this book has its own sample.
+bounce this sleeve is meant to ride). Live still clips at 10%; a shadow
+marks the 5-session hold on the same entries so the override has a number.
+No earnings-equity stop, no entry model until this book has its own sample.
+Current S&P membership until the PIT rebuild (due 2026-09-29); size 1%
+equity/name off the +0.55%/hold 10% TP grid, not the 1.22 Sharpe backtest.
 """
 
 from __future__ import annotations
@@ -75,6 +78,35 @@ def trading_days_between(start: date, end: date) -> int:
 
 def hold_elapsed(opened_on: date, today: date) -> int:
     return trading_days_between(opened_on, today)
+
+
+def shadow_hold_due(opened_on: date | None, today: date, hold_days: int) -> bool:
+    """True once the research hold has elapsed, so we can mark a 10% TP vs hold."""
+    if opened_on is None or hold_days <= 0:
+        return False
+    return hold_elapsed(opened_on, today) >= hold_days
+
+
+def shadow_vs_live(
+    *,
+    entry_px: float,
+    live_exit_px: float,
+    hold_px: float,
+    shares: int,
+) -> dict:
+    """P&L if we had ridden the 5-session hold instead of clipping at +10%."""
+    live_pnl = (live_exit_px - entry_px) * shares
+    hold_pnl = (hold_px - entry_px) * shares
+    return {
+        "live_exit_px": round(live_exit_px, 2),
+        "hold_px": round(hold_px, 2),
+        "live_pnl": round(live_pnl, 2),
+        "hold_pnl": round(hold_pnl, 2),
+        "hold_minus_live": round(hold_pnl - live_pnl, 2),
+        "live_ret": round(live_exit_px / entry_px - 1, 4) if entry_px else None,
+        "hold_ret": round(hold_px / entry_px - 1, 4) if entry_px else None,
+        "shares": int(shares),
+    }
 
 
 def reversal_exit_reason(
@@ -160,15 +192,18 @@ def rank_from_panel(
     min_price: float = 10.0,
     min_dollar_vol: float = 50_000_000.0,
     earn_buffer: int = 5,
-) -> tuple[list[ReversalCandidate], list[ReversalCandidate]]:
+) -> tuple[list[ReversalCandidate], list[ReversalCandidate], list[ReversalCandidate]]:
     """Rank liquid names by trailing `lookback`-session return.
 
     ``bars`` needs columns ticker, date, close, volume. Dates may be timestamps.
-    Returns (picks, skipped_for_earnings) — skipped names would have made the
-    worst-N list but sit inside the earnings window.
+    Returns (picks, skipped_for_earnings, pool) — ``pool`` is the worst-15
+    liquid names *before* the earnings skip, so a later calendar fill can
+    audit whether the cohort was correctly filtered, not just the names that
+    opened. Skipped names would have made the worst-N list but sit inside the
+    earnings window.
     """
     if bars is None or bars.empty:
-        return [], []
+        return [], [], []
     df = bars.copy()
     df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
     df["ticker"] = df["ticker"].astype(str)
@@ -177,7 +212,7 @@ def rank_from_panel(
         cutoff = pd.Timestamp(as_of)
         df = df[df["date"] <= cutoff]
     if df.empty:
-        return [], []
+        return [], [], []
     as_ts = df["date"].max()
     as_of_d = as_ts.date()
 
@@ -192,7 +227,7 @@ def rank_from_panel(
         & last["ret_n"].notna()
     ]
     if last.empty:
-        return [], []
+        return [], [], []
 
     earn_set = earn_reaction or set()
     last["is_earn"] = [
@@ -216,13 +251,27 @@ def rank_from_panel(
     )
     last["earn_window"] = last["earn_window"].fillna(False).astype(bool)
 
+    # Incomplete current-session bars (or missing historical days) make
+    # pct_change(5) compare the wrong closes. Live MRNA -11.4% at 13:33 UTC
+    # was a 9:33am quote vs Aug 25, not five complete sessions.
+    sessions = sorted(df["date"].unique())
+    if len(sessions) < lookback + 1:
+        return [], [], []
+    required = sessions[-lookback - 1 :]
+    have = (
+        df[df["date"].isin(required)]
+        .groupby("ticker")["date"]
+        .nunique()
+    )
+    complete = set(have[have >= lookback + 1].index)
+    last = last[last["ticker"].isin(complete)]
+    if last.empty:
+        return [], [], []
+
     last = last.sort_values("ret_n", ascending=True)
-    # Pull a deep enough loser list that earnings drops still leave `top_n`.
-    deep = last.head(max(top_n * 8, 40))
-    skipped: list[ReversalCandidate] = []
-    picks: list[ReversalCandidate] = []
-    for r in deep.itertuples(index=False):
-        cand = ReversalCandidate(
+
+    def _cand(r) -> ReversalCandidate:
+        return ReversalCandidate(
             ticker=str(r.ticker),
             ret_5=float(r.ret_n),
             close=float(r.close),
@@ -230,13 +279,23 @@ def rank_from_panel(
             as_of=as_of_d,
             skipped_earn=bool(r.earn_window),
         )
+
+    # Liquid losers before the earnings skip — persist this, not just the top-N
+    # that survived, so a thin calendar can't hide who was even considered.
+    pool = [_cand(r) for r in last.head(15).itertuples(index=False)]
+    # Pull a deep enough loser list that earnings drops still leave `top_n`.
+    deep = last.head(max(top_n * 8, 40))
+    skipped: list[ReversalCandidate] = []
+    picks: list[ReversalCandidate] = []
+    for r in deep.itertuples(index=False):
+        cand = _cand(r)
         if cand.skipped_earn:
             skipped.append(cand)
             continue
         picks.append(cand)
         if len(picks) >= top_n:
             break
-    return picks, skipped
+    return picks, skipped, pool
 
 
 def cache_dir() -> Path:
@@ -456,17 +515,29 @@ def tickers_in_earn_buffer(
     return out
 
 
-def rank_live(db: Session | None, settings, as_of: date | None = None) -> tuple[list[ReversalCandidate], list[ReversalCandidate], date | None]:
-    """Load universe + panel + earnings and rank. Returns (picks, skipped, as_of)."""
+def rank_live(db: Session | None, settings, as_of: date | None = None) -> tuple[list[ReversalCandidate], list[ReversalCandidate], list[ReversalCandidate], date | None]:
+    """Load universe + panel + earnings and rank. Returns (picks, skipped, pool, as_of)."""
     tickers = load_sp500_tickers()
     if not tickers:
-        return [], [], None
+        return [], [], [], None
     panel = load_panel(tickers, as_of=as_of)
     if panel.empty:
-        return [], [], None
+        return [], [], [], None
     panel["date"] = pd.to_datetime(panel["date"]).dt.tz_localize(None).dt.normalize()
     last = panel["date"].max().date()
-    signal_day = as_of or last
+    today = date.today()
+    if as_of is None:
+        # Live rank must not use today's in-progress daily bar. The 13:33 UTC
+        # cron is ~3 minutes after the open; Yahoo already has a partial session
+        # whose volume and return are not a 5-day close-to-close.
+        prior = [
+            d.date()
+            for d in panel["date"].unique()
+            if d.date() < today
+        ]
+        signal_day = max(prior) if prior else last
+    else:
+        signal_day = as_of
     sessions_by_ticker = {
         t: [d.date() for d in pd.to_datetime(g["date"]).dt.tz_localize(None).dt.normalize().unique()]
         for t, g in panel.groupby("ticker")
@@ -475,7 +546,7 @@ def rank_live(db: Session | None, settings, as_of: date | None = None) -> tuple[
     earn = load_earnings_reactions(
         db, set(tickers), signal_day, sessions_by_ticker, all_sessions
     )
-    picks, skipped = rank_from_panel(
+    picks, skipped, pool = rank_from_panel(
         panel,
         earn_reaction=earn,
         as_of=signal_day,
@@ -485,7 +556,12 @@ def rank_live(db: Session | None, settings, as_of: date | None = None) -> tuple[
         min_dollar_vol=float(getattr(settings, "paper_reversal_min_dollar_vol", 50_000_000.0)),
         earn_buffer=int(getattr(settings, "paper_reversal_earn_buffer_days", 5)),
     )
-    return picks, skipped, signal_day
+    # Watch/as_of is the last bar actually ranked, not today's calendar date
+    # (a 13:30 UTC run is pre-open and only has yesterday's close).
+    panel_as_of = (
+        picks[0].as_of if picks else skipped[0].as_of if skipped else last
+    )
+    return picks, skipped, pool, panel_as_of
 
 
 def write_watch(
@@ -496,6 +572,7 @@ def write_watch(
     holding: bool,
     opened: list[str] | None = None,
     note: str | None = None,
+    pool: list[ReversalCandidate] | None = None,
 ) -> None:
     cache_dir()
     payload = {
@@ -506,6 +583,7 @@ def write_watch(
         "note": note,
         "candidates": [c.as_watch_dict() for c in picks],
         "skipped_earn": [c.as_watch_dict() for c in skipped[:15]],
+        "pool": [c.as_watch_dict() for c in (pool or [])[:15]],
     }
     WATCH_PATH.write_text(json.dumps(payload))
 

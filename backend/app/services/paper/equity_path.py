@@ -77,6 +77,12 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "title": "Entry model drops book identity",
         "detail": "Fit only live earnings books, no strategy dummy. Earnings stock uses its 10%/7% band, not the 3% clip.",
     },
+    {
+        "date": "2026-09-02",
+        "kind": "guard",
+        "title": "Reversal sized off the live book, not the 1.22 Sharpe",
+        "detail": "1% equity/name, stated +0.55%/hold expectation, 10% TP vs 5-session hold shadow, PIT rebuild due 2026-09-29.",
+    },
 )
 
 BOOK_LABELS = {

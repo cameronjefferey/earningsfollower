@@ -40,7 +40,7 @@ def record_job_run(
         started_at=started_at,
         finished_at=datetime.utcnow(),
         status=status,
-        detail=json.dumps(detail, default=str)[:8000],
+        detail=json.dumps(detail, default=str)[:24000],
         opened=int(result.get("opened") or 0),
         closed=int(result.get("closed") or 0),
         error_count=len(errors) if isinstance(errors, list) else 0,

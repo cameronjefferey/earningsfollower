@@ -20,6 +20,8 @@ from app.services.paper.reversal import (  # noqa: E402
     rank_from_panel,
     reaction_dates,
     reversal_exit_reason,
+    shadow_hold_due,
+    shadow_vs_live,
     trading_days_between,
 )
 
@@ -75,9 +77,10 @@ def test_rank_picks_worst_five_liquid_names():
     }
     df = _panel(tickers, sessions, volume=2_000_000)  # $100M dollar vol at $50
     df.loc[df["ticker"] == "THIN", "volume"] = 100  # ~$5k, below $50M
-    picks, skipped = rank_from_panel(df, top_n=5, min_price=10, min_dollar_vol=50_000_000)
+    picks, skipped, pool = rank_from_panel(df, top_n=5, min_price=10, min_dollar_vol=50_000_000)
     assert skipped == []
     assert [c.ticker for c in picks] == ["LOSE1", "LOSE2", "LOSE3", "LOSE4", "LOSE5"]
+    assert [c.ticker for c in pool[:5]] == ["LOSE1", "LOSE2", "LOSE3", "LOSE4", "LOSE5"]
     assert all(c.ret_5 < 0 for c in picks)
     assert picks[0].ret_5 < picks[-1].ret_5
 
@@ -105,9 +108,41 @@ def test_earnings_window_drops_a_loser():
     df = _panel(tickers, sessions)
     # EARN printed BMO on as_of — reaction is as_of, inside ±5.
     earn = {("EARN", as_of)}
-    picks, skipped = rank_from_panel(df, earn_reaction=earn, top_n=5)
+    picks, skipped, pool = rank_from_panel(df, earn_reaction=earn, top_n=5)
     assert "EARN" not in [c.ticker for c in picks]
     assert any(c.ticker == "EARN" and c.skipped_earn for c in skipped)
+    assert any(c.ticker == "EARN" and c.skipped_earn for c in pool)
+    assert pool[0].ticker == "EARN"
+    assert [c.ticker for c in picks] == ["OK1", "OK2", "OK3", "OK4", "OK5"]
+
+
+def test_gappy_lookback_does_not_rank_as_a_five_day_loser():
+    """A missing session must not turn a 4-day drop into a 5-day rank."""
+    sessions = _sessions(date(2026, 8, 17), 10)
+    as_of = sessions[-1]
+
+    def dump(start, ret):
+        first = [start] * 5
+        step = (1 + ret) ** (1 / 5)
+        last = [start]
+        for _ in range(5):
+            last.append(last[-1] * step)
+        return first + last[1:]
+
+    tickers = {
+        "GAP": dump(50, -0.20),  # will drop the bar 5 sessions before as_of
+        "OK1": dump(50, -0.10),
+        "OK2": dump(50, -0.08),
+        "OK3": dump(50, -0.06),
+        "OK4": dump(50, -0.04),
+        "OK5": dump(50, -0.02),
+    }
+    df = _panel(tickers, sessions)
+    hole = sessions[-6]  # 5 sessions before as_of
+    df = df[~((df["ticker"] == "GAP") & (df["date"] == hole))]
+    picks, skipped, pool = rank_from_panel(df, top_n=5, as_of=as_of)
+    assert "GAP" not in [c.ticker for c in picks]
+    assert "GAP" not in [c.ticker for c in pool]
     assert [c.ticker for c in picks] == ["OK1", "OK2", "OK3", "OK4", "OK5"]
 
 
@@ -203,16 +238,34 @@ def test_flatten_when_discovered_inside_earnings_window():
     ) is None
 
 
+def test_shadow_hold_due_after_five_sessions():
+    assert not shadow_hold_due(date(2026, 8, 24), date(2026, 8, 28), 5)
+    assert shadow_hold_due(date(2026, 8, 24), date(2026, 8, 31), 5)
+    assert not shadow_hold_due(None, date(2026, 8, 31), 5)
+
+
+def test_shadow_vs_live_hold_beats_early_clip():
+    cmp = shadow_vs_live(entry_px=50.0, live_exit_px=55.0, hold_px=58.0, shares=10)
+    assert cmp["live_pnl"] == 50.0
+    assert cmp["hold_pnl"] == 80.0
+    assert cmp["hold_minus_live"] == 30.0
+    assert cmp["live_ret"] == 0.1
+    assert cmp["hold_ret"] == 0.16
+
+
 if __name__ == "__main__":
     tests = [
         test_trading_days_monday_to_next_monday_is_five,
         test_rank_picks_worst_five_liquid_names,
         test_earnings_window_drops_a_loser,
+        test_gappy_lookback_does_not_rank_as_a_five_day_loser,
         test_amc_print_reacts_next_session,
         test_exit_after_five_sessions_not_sooner,
         test_take_profit_at_ten_percent_beats_the_hold,
         test_force_close_and_bad_fill_beat_the_hold,
         test_flatten_when_discovered_inside_earnings_window,
+        test_shadow_hold_due_after_five_sessions,
+        test_shadow_vs_live_hold_beats_early_clip,
     ]
     for fn in tests:
         fn()

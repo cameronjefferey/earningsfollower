@@ -714,6 +714,9 @@ def sync_labels(db: Session) -> int:
     for row in rows:
         changed = False
 
+        if row.decision == "shadow":
+            # Counterfactual hold mark, written final at insert time.
+            continue
         if row.decision == "opened" and row.signal_id:
             trade = db.scalars(
                 select(PaperTrade).where(PaperTrade.signal_id == row.signal_id)

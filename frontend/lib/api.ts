@@ -479,6 +479,7 @@ export interface ReversalWatch {
   note: string | null;
   candidates: ReversalWatchName[];
   skipped_earn: ReversalWatchName[];
+  pool?: ReversalWatchName[];
 }
 
 export interface AttrCohort {

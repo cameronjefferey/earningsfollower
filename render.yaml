@@ -195,6 +195,8 @@ services:
         value: "0.015"
       # 5-day loser weekly: long the worst 5-session S&P names, hold 5
       # sessions or take-profit at +10%, skip earnings ±5 sessions.
+      # Sized at 1% equity off the +0.55%/hold 10% TP number, not the
+      # disowned 1.22 Sharpe. PIT membership rebuild due 2026-09-29.
       - key: PAPER_REVERSAL_ENABLED
         value: "true"
       - key: PAPER_REVERSAL_TOP_N
@@ -204,9 +206,13 @@ services:
       - key: PAPER_REVERSAL_TAKE_PROFIT_PCT
         value: "0.10"
       - key: PAPER_REVERSAL_RISK_FRAC
-        value: "0.02"
+        value: "0.01"
       - key: PAPER_REVERSAL_MAX_OPEN
         value: "5"
+      - key: PAPER_REVERSAL_EXPECTED_HOLD_PCT
+        value: "0.0055"
+      - key: PAPER_REVERSAL_PIT_REBUILD_BY
+        value: "2026-09-29"
       # Fills: entries cross (take the ask / hit the bid + a small buffer) so
       # wide, illiquid spreads fill; exits price at the mid nudged by the buffer
       # so we never dump a held spread to a dead bid. Orders go out only while

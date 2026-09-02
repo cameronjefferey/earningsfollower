@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -330,14 +331,15 @@ class Settings(BaseSettings):
 
     # --- 5-day loser weekly reversal (S&P 500, long shares) -------------------
     # Long the N worst 5-session names, hold 5 sessions or take-profit at +10%,
-    # skip earnings ±5 sessions, equal-weight, non-overlapping. Backtest
-    # 2019–2026 (current S&P, $10 / $50M dollar-vol, 10 bps): 5-name mean
-    # +1.09%/hold, t=3.36, all 8 years green. That Sharpe is a backtest number
-    # on current membership (survivorship) without a 10% TP; the live 10% TP
-    # cut the research mean to +0.55%/hold. Live still uses 10% because we
-    # chose to bank bounces rather than ride the full hold. Long-only.
-    # Kill the book the same way as waves if live goes 0-for-N. No earnings-
-    # equity stop, no entry model until this book has its own sample.
+    # skip earnings ±5 sessions, equal-weight, non-overlapping. The 1.22 Sharpe
+    # / +1.09%/hold backtest is current-membership, no TP — not a live
+    # expectation. Live runs a different strategy (current S&P + 10% clip).
+    # Interim edge: +0.55%/hold from the daily-close 10% TP grid, unknown
+    # survivorship haircut. Size 1% equity/name off that, not 2% off the
+    # retired Sharpe. Live 10% TP stays; a shadow marks the 5-session hold
+    # on the same entries so the override has a falsification sample. PIT
+    # membership rebuild due 2026-09-29; until then the ranker's live edge
+    # is unknown. Long-only. Kill the book the same way as waves (0-for-12).
     paper_reversal_enabled: bool = True
     paper_reversal_top_n: int = 5
     paper_reversal_lookback_days: int = 5
@@ -346,8 +348,11 @@ class Settings(BaseSettings):
     paper_reversal_min_price: float = 10.0
     paper_reversal_min_dollar_vol: float = 50_000_000.0
     paper_reversal_earn_buffer_days: int = 5
-    paper_reversal_risk_frac: float = 0.02
+    paper_reversal_risk_frac: float = 0.01
     paper_reversal_max_open: int = 5
+    # Stated live expectation while PIT is unbuilt. Not the 1.09% no-TP mean.
+    paper_reversal_expected_hold_pct: float = 0.0055
+    paper_reversal_pit_rebuild_by: date = date(2026, 9, 29)
 
     # --- Waves strategy (RETIRED as option debit spreads) ---------------------
     # Peer-sympathy is real on the underlying, but expressing it as a debit

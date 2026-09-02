@@ -78,17 +78,23 @@ def hold_elapsed(opened_on: date, today: date) -> int:
 
 
 def reversal_exit_reason(
-    t, today: date, settings, spot_now: float | None = None
+    t, today: date, settings, spot_now: float | None = None,
+    *,
+    in_earn_window: bool = False,
 ) -> str | None:
     """+10% take-profit, then the 5-session hold, plus operational escapes.
 
-    Does not use the global 3% learned take-profit — that clip is for earnings
-    directional books and would flatten a bounce this sleeve is hunting.
+    Does not use the global 3% learned take-profit — that clip is for the
+    retired debit rides and would flatten a bounce this sleeve is hunting.
+    Flatten if the name is discovered inside the earnings ±buffer after entry
+    (calendar was incomplete at rank time).
     """
     if t.signal_id in getattr(settings, "paper_force_close_id_set", set()):
         return "manual close"
     if (t.note or "").startswith(BAD_FILL_PREFIX):
         return "flatten: bad entry fill"
+    if in_earn_window:
+        return "flatten: earnings window"
     tp = float(getattr(settings, "paper_reversal_take_profit_pct", 0.10) or 0)
     entry_px = getattr(t, "entry_credit", None) or getattr(t, "spot_entry", None)
     if tp > 0 and spot_now and entry_px:
@@ -391,6 +397,63 @@ def load_earnings_reactions(
     except Exception as e:  # noqa: BLE001
         logger.warning("FMP earnings calendar failed for reversal: %s", e)
     return reaction_dates(events, sessions_by_ticker, all_sessions)
+
+
+def tickers_in_earn_buffer(
+    db: Session | None,
+    tickers: Iterable[str],
+    as_of: date,
+    buffer: int = 5,
+) -> set[str]:
+    """Names whose print is within ``buffer`` trading days of ``as_of``.
+
+    Used to flatten a live reversal row if the calendar was incomplete at
+    entry and we later learn the name was inside the skip window. Missing
+    calendar data fails open (hold), not flatten.
+    """
+    names = {str(t).upper() for t in tickers if t}
+    if not names or buffer < 0:
+        return set()
+    lo = as_of - timedelta(days=21)
+    hi = as_of + timedelta(days=21)
+    events: list[tuple[str, date]] = []
+    if db is not None:
+        rows = db.scalars(
+            select(EarningsEvent).where(
+                EarningsEvent.date >= lo,
+                EarningsEvent.date <= hi,
+                EarningsEvent.ticker.in_(names),
+            )
+        ).all()
+        events.extend((r.ticker, r.date) for r in rows)
+    have = set(events)
+    try:
+        from app.clients.fmp import FMPClient
+
+        cal = FMPClient().earnings_calendar(lo.isoformat(), hi.isoformat()) or []
+        for row in cal:
+            sym = (row.get("symbol") or row.get("ticker") or "").upper()
+            if sym not in names:
+                continue
+            raw_d = row.get("date")
+            if not raw_d:
+                continue
+            d = date.fromisoformat(str(raw_d)[:10])
+            if (sym, d) in have:
+                continue
+            events.append((sym, d))
+            have.add((sym, d))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("FMP earnings calendar failed for reversal flatten: %s", e)
+    out: set[str] = set()
+    for ticker, d in events:
+        if d >= as_of:
+            dist = int(np.busday_count(np.datetime64(as_of), np.datetime64(d)))
+        else:
+            dist = int(np.busday_count(np.datetime64(d), np.datetime64(as_of)))
+        if dist <= buffer:
+            out.add(ticker)
+    return out
 
 
 def rank_live(db: Session | None, settings, as_of: date | None = None) -> tuple[list[ReversalCandidate], list[ReversalCandidate], date | None]:

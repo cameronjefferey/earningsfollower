@@ -181,6 +181,28 @@ def test_force_close_and_bad_fill_beat_the_hold():
     assert reversal_exit_reason(t2, date(2026, 8, 31), settings) == "flatten: bad entry fill"
 
 
+def test_flatten_when_discovered_inside_earnings_window():
+    settings = SimpleNamespace(
+        paper_force_close_id_set=set(),
+        paper_reversal_hold_days=5,
+        paper_reversal_take_profit_pct=0.10,
+    )
+    t = SimpleNamespace(
+        signal_id="RV-1",
+        note=None,
+        opened_at=datetime(2026, 9, 1, 14, 0),
+        created_at=None,
+        entry_credit=100.0,
+        spot_entry=100.0,
+    )
+    assert reversal_exit_reason(
+        t, date(2026, 9, 2), settings, 101.0, in_earn_window=True,
+    ) == "flatten: earnings window"
+    assert reversal_exit_reason(
+        t, date(2026, 9, 2), settings, 101.0, in_earn_window=False,
+    ) is None
+
+
 if __name__ == "__main__":
     tests = [
         test_trading_days_monday_to_next_monday_is_five,
@@ -190,6 +212,7 @@ if __name__ == "__main__":
         test_exit_after_five_sessions_not_sooner,
         test_take_profit_at_ten_percent_beats_the_hold,
         test_force_close_and_bad_fill_beat_the_hold,
+        test_flatten_when_discovered_inside_earnings_window,
     ]
     for fn in tests:
         fn()

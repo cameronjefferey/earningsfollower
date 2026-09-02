@@ -61,6 +61,7 @@ from app.services.paper.reversal import (
     STRATEGY as REVERSAL_STRATEGY,
     rank_live,
     reversal_exit_reason,
+    tickers_in_earn_buffer,
     write_watch,
 )
 from app.services.reddit_sentiment import current_reddit_signals, latest_reddit_signal
@@ -1333,6 +1334,36 @@ def _earnings_equity_shares(notional: float | None, spot: float | None) -> int:
     return int(notional // spot)
 
 
+def earnings_equity_trailing_halt(db: Session, settings) -> str | None:
+    """Block new earnings-stock entries after a 0-for-N closed streak.
+
+    The book stays enabled (it is the control group). Open rows still manage.
+    Same retirement shape as waves: the live sample has to actually go 0-for-N
+    on this sleeve, not because option debits failed.
+    """
+    if not getattr(settings, "paper_earnings_equity_halt_enabled", True):
+        return None
+    window = int(getattr(settings, "paper_earnings_equity_halt_window", 12) or 0)
+    if window < 1:
+        return None
+    rows = db.scalars(
+        select(PaperTrade)
+        .where(
+            PaperTrade.strategy == "earnings",
+            PaperTrade.structure.in_(EQUITY_STRUCTURES),
+            PaperTrade.status == "closed",
+            PaperTrade.realized_pnl.is_not(None),
+        )
+        .order_by(PaperTrade.closed_at.desc(), PaperTrade.id.desc())
+        .limit(window)
+    ).all()
+    if len(rows) < window:
+        return None
+    if all((t.realized_pnl or 0) <= 0 for t in rows):
+        return f"earnings-equity halt (0-for-{window} closed)"
+    return None
+
+
 def _scan_earnings_equity_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool,
     model=None, calib: dict | None = None,
@@ -1351,6 +1382,10 @@ def _scan_earnings_equity_entries(
     """
     if not settings.paper_earnings_equity_enabled:
         return 0, []
+    halt = earnings_equity_trailing_halt(db, settings)
+    if halt:
+        logger.info("earnings-equity: %s - no new entries", halt)
+        return 0, [{"reason": halt}]
     today = date.today()
     window_end = today + timedelta(days=settings.paper_entry_window_days)
     regime = regime_snapshot(settings)
@@ -1694,10 +1729,9 @@ def _earnings_equity_exit_reason(
         return "manual close"
     if (t.note or "").startswith(_BAD_FILL_PREFIX):
         return "flatten: bad entry fill"
-    # Global learned take-profit binds before the book's wider band below.
-    tp = _underlying_take_profit(t, spot_now, settings, tp_pct)
-    if tp is not None:
-        return tp
+    # Earnings stock uses its own 10%/7% band. The global learned clip (default
+    # 3%, band 1.5–8%) was fit on retired debit rides and would bank a print
+    # move this sleeve is supposed to hold.
     # Underlying-move take-profit / stop (guardrail before and through the print).
     # Anchor to the real fill (entry_credit); spot_entry may be a stale pre-fill
     # estimate for positions opened before this reference was corrected.
@@ -1943,11 +1977,25 @@ def _manage_reversal_exits(
             PaperTrade.status == "open",
         )
     ).all()
+    earn_hits: set[str] = set()
+    if trades:
+        try:
+            earn_hits = tickers_in_earn_buffer(
+                db,
+                {t.ticker for t in trades},
+                today,
+                int(getattr(settings, "paper_reversal_earn_buffer_days", 5)),
+            )
+        except Exception as e:  # noqa: BLE001 - never skip TP/hold because the calendar failed
+            logger.warning("reversal earn-window flatten check failed: %s", e)
     for t in trades:
         spot_now = client.stock_price(t.ticker)
         if not spot_now:
             continue
-        reason = reversal_exit_reason(t, today, settings, spot_now)
+        reason = reversal_exit_reason(
+            t, today, settings, spot_now,
+            in_earn_window=t.ticker in earn_hits,
+        )
         if reason is None:
             continue
         if dry_run:

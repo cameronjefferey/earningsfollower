@@ -71,6 +71,12 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "title": "5-day loser weekly",
         "detail": "Long the week's worst S&P names for 5 sessions or +10%; earnings ±5d out.",
     },
+    {
+        "date": "2026-09-02",
+        "kind": "guard",
+        "title": "Entry model drops book identity",
+        "detail": "Fit only live earnings books, no strategy dummy. Earnings stock uses its 10%/7% band, not the 3% clip.",
+    },
 )
 
 BOOK_LABELS = {

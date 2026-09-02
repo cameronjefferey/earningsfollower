@@ -127,6 +127,11 @@ services:
         fromDatabase:
           name: earningsfollower-db
           property: connectionString
+      # Same FMP key as the API / refresh cron. The 5-day-loser book ranks the
+      # full S&P 500; without this the earnings ±5-session skip only sees names
+      # already in our journal, not the rest of the index.
+      - key: FMP_API_KEY
+        sync: false
       - key: ALPACA_API_KEY
         sync: false # paper key; set in the dashboard
       - key: ALPACA_API_SECRET
@@ -159,12 +164,17 @@ services:
       # Calibration: nudge the +EV gate with realized-vs-predicted win rates.
       - key: PAPER_CALIBRATION_ENABLED
         value: "true"
-      # Joint logistic over market cap, ADV$, implied move, and history.
-      # Vetoes names scored below 0.45; otherwise P(win) feeds the +EV gate.
+      # Joint logistic over size / implied / history on live earnings books
+      # only (retired books and strategy dummies out of the fit).
       - key: PAPER_ENTRY_MODEL_ENABLED
         value: "true"
       - key: PAPER_ENTRY_MODEL_MIN_PROB
         value: "0.45"
+      # Earnings stock: halt new entries after 0-for-12 closed on this sleeve.
+      - key: PAPER_EARNINGS_EQUITY_HALT_ENABLED
+        value: "true"
+      - key: PAPER_EARNINGS_EQUITY_HALT_WINDOW
+        value: "12"
       # Waves / drift option debit books retired (Aug 2026): 0-for-N live after
       # post-print IV crush. Open positions still manage; no new entries.
       - key: PAPER_WAVES_ENABLED

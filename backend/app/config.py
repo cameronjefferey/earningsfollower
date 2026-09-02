@@ -270,19 +270,19 @@ class Settings(BaseSettings):
     paper_entry_model_min_class: int = 8
     # Veto floor: skip a setup the model scores below this even if heuristics
     # like it. 0.45 = only reject the clearly worse-than-a-coin-flip names.
+    # The model trains only on live earnings books, without a strategy dummy.
     paper_entry_model_min_prob: float = 0.45
-    # Don't let the model veto/reprice until leave-one-out (or time-split) AUC
-    # beats a coin flip. Below this it is recorded but not applied.
+    # Don't let the model veto/reprice until walk-forward AUC beats a coin flip.
+    # Below this it is recorded but not applied.
     paper_entry_model_min_auc: float = 0.52
 
     # --- Exit discipline: underlying take-profit (learning loop acts) ----------
-    # The exit-quality backtest showed our directional books reach a favorable
-    # underlying move and then hand most of it back - capturing < 0 of the peak on
-    # average. This is a global take-profit on the direction-adjusted underlying
-    # move that binds *before* each book's looser gain target, so we harvest the
-    # move instead of round-tripping it. Applies to the directional books
-    # (waves/drift/reddit + equity twins); the earnings sell-vol options book wins
-    # on IV crush, not direction, so it's excluded.
+    # The exit-quality backtest showed retired directional debit books reach a
+    # favorable underlying move and then hand most of it back. This is a global
+    # take-profit on the direction-adjusted underlying move for waves/drift/reddit
+    # (still managing open rows). Earnings sell-vol wins on IV crush, not
+    # direction. Earnings stock has its own 10%/7% band and is excluded so the
+    # 3% clip cannot bank a print move that sleeve is meant to hold.
     paper_take_profit_enabled: bool = True
     paper_take_profit_pct: float = 0.03
     # Auto-tune the threshold from the realized record each run (the weekly
@@ -321,15 +321,23 @@ class Settings(BaseSettings):
     # bands are wider than the Reddit equity twin's.
     paper_earnings_equity_take_profit_pct: float = 0.10
     paper_earnings_equity_stop_pct: float = 0.07
+    # Own-book kill switch: stop opening new earnings-stock names after a
+    # trailing 0-for-N closed streak. Does not disable the flag (the book is
+    # still the control group) and does not flatten open rows. 12 matches the
+    # waves retirement sample. One bad week cannot trip it.
+    paper_earnings_equity_halt_enabled: bool = True
+    paper_earnings_equity_halt_window: int = 12
 
     # --- 5-day loser weekly reversal (S&P 500, long shares) -------------------
     # Long the N worst 5-session names, hold 5 sessions or take-profit at +10%,
     # skip earnings ±5 sessions, equal-weight, non-overlapping. Backtest
     # 2019–2026 (current S&P, $10 / $50M dollar-vol, 10 bps): 5-name mean
-    # +1.09%/hold, t=3.36, all 8 years green. Long-only — shorting the winners
-    # lost. Kill the book the same way as waves if live goes 0-for-N. The 10%
-    # take-profit is this sleeve's own exit, not the 3% learned clip from the
-    # earnings directional books. No entry model until it has its own sample.
+    # +1.09%/hold, t=3.36, all 8 years green. That Sharpe is a backtest number
+    # on current membership (survivorship) without a 10% TP; the live 10% TP
+    # cut the research mean to +0.55%/hold. Live still uses 10% because we
+    # chose to bank bounces rather than ride the full hold. Long-only.
+    # Kill the book the same way as waves if live goes 0-for-N. No earnings-
+    # equity stop, no entry model until this book has its own sample.
     paper_reversal_enabled: bool = True
     paper_reversal_top_n: int = 5
     paper_reversal_lookback_days: int = 5

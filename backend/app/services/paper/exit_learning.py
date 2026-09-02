@@ -25,10 +25,6 @@ from app.db.models import PaperTrade, PriceBar
 
 logger = logging.getLogger(__name__)
 
-# The equity twins store the underlying as their "structure"; used to pick out the
-# directional books the take-profit actually governs.
-_EQUITY_STRUCTURES = ("Long shares", "Short shares")
-
 # Coarse grid of take-profit thresholds to search (favorable underlying move).
 # Deliberately small to limit in-sample overfitting.
 _TP_GRID = (0.02, 0.025, 0.03, 0.04, 0.05)
@@ -61,15 +57,14 @@ class LearnedExit:
 
 
 def _directional(t: PaperTrade) -> bool:
-    """The books the underlying take-profit governs: waves/drift/reddit and the
-    equity twins. The earnings sell-vol options book wins on IV crush, not
-    direction, so it's excluded."""
+    """The books the underlying take-profit governs: waves/drift/reddit.
+
+    Earnings sell-vol wins on IV crush, not direction. Earnings stock has its
+    own 10%/7% band sized for a print; the 3% learned clip was built for the
+    retired debit rides and would bank a move this book is meant to hold.
+    """
     strat = (t.strategy or "").lower()
-    if strat in ("waves", "drift", "reddit"):
-        return True
-    if strat == "earnings" and (t.structure or "") in _EQUITY_STRUCTURES:
-        return True
-    return False
+    return strat in ("waves", "drift", "reddit")
 
 
 def _fav_path(db: Session, t: PaperTrade) -> dict | None:

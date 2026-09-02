@@ -263,6 +263,41 @@ def test_paper_trades_and_decision_rows_are_not_double_counted():
     assert model.n == 40
 
 
+def test_retired_books_and_reversal_are_not_training_examples():
+    """Waves/reddit/reversal P&L cannot leak in as a book-identity shortcut."""
+    db = _session()
+    for i in range(40):
+        company, bar, trade = _closed_paper(i, win=i < 20)
+        db.add_all([company, bar, trade])
+        db.add(_row(
+            1000 + i,
+            win=not (i < 20),  # opposite labels
+            market_cap=3e9 if i < 20 else 80e9,
+            dollar_volume=8e6 if i < 20 else 5e8,
+            dir_score=-0.4 if i < 20 else 2.4,
+            strategy="waves",
+        ))
+    db.commit()
+    model = fit_entry_model(db, FakeSettings())
+    assert model.n == 40
+    assert all(not c["feature"].startswith("strategy=") for c in model.coefficients)
+
+
+def test_no_strategy_dummy_even_when_two_live_books_are_present():
+    db = _session()
+    for i in range(40):
+        win = i < 20
+        db.add(_row(
+            i, win=win, market_cap=80e9 if win else 3e9,
+            dollar_volume=5e8 if win else 8e6, dir_score=2.4 if win else -0.4,
+            strategy="earnings_equity" if i % 2 == 0 else "earnings",
+        ))
+    db.commit()
+    model = fit_entry_model(db, FakeSettings())
+    assert model.n == 40
+    assert all(not c["feature"].startswith("strategy=") for c in model.coefficients)
+
+
 def _run_all() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0

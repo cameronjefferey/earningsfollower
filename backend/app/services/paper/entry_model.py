@@ -1,24 +1,22 @@
 """Fitted entry model - jointly weight size, implied vol, and history.
 
-The trade-decision journal records per-name features, but the grade itself
-lives on closed ``paper_trades`` (realized P&L). This module fits on that
-full closed book — not only rows that happened to be journaled going forward:
+The grade lives on closed ``paper_trades`` (realized P&L). Decision-journal
+rows overlay richer entry features when they exist; otherwise we reconstruct
+from the thesis + market-cap / ADV.
 
-  1. Every closed paper trade with a P&L is a training example. Decision-journal
-     rows overlay richer entry features when they exist; missing history is
-     reconstructed from the trade's thesis + live market-cap / ADV.
-  2. Fit a regularized logistic regression on size, implied vs realized vol,
-     unpacked reaction history, analyst positioning, trend, and days-to-print
-     — not just the four factors named at the start. Sparse columns drop out.
-  3. Put P(win) *in front of* the existing gates: veto names below
-     ``paper_entry_model_min_prob``, and feed the model probability into the
-     +EV gate. Heuristic conviction / direction / liquidity filters still run.
-  4. Guardrailed like calibration: opt-in, minimum sample *and* class count,
-     leave-one-out (or time-split) AUC must beat a coin flip, probabilities
-     clamped. Falls back to the calibrated heuristic otherwise.
+  1. Train only on books the model still scores (earnings sell-vol and
+     earnings stock). Retired books (waves / drift / reddit) and the
+     unscored reversal sleeve stay out — otherwise the strongest "feature"
+     is which book a human already killed.
+  2. No strategy/book dummy. Direction / conviction / timing stay. Sparse
+     numeric columns drop out. Sample weights follow |P&L| so a -$229 stop
+     is not the same as an -$8 scratch.
+  3. Walk-forward (chronological) AUC must beat a coin flip. Veto below
+     ``paper_entry_model_min_prob``; otherwise P(win) feeds the +EV gate.
+     Falls back to the calibrated heuristic when the journal is too thin
+     or out-of-sample AUC is a coin flip.
 
-Recomputed every run from the append-only record (no persisted weights that
-can drift). Pure numpy - no sklearn - so it adds no deploy weight.
+Recomputed every run from the append-only record. Pure numpy - no sklearn.
 """
 
 from __future__ import annotations
@@ -70,7 +68,13 @@ _NUMERIC: list[tuple[str, str]] = [
     ("log_sample", "History sample (log)"),
 ]
 
-_CATEGORICAL = ("strategy", "direction", "conviction", "earnings_timing")
+# Book identity is not a feature. A strategy dummy memorizes which sleeve a
+# human already retired, then launders that prior back as "structure."
+_CATEGORICAL = ("direction", "conviction", "earnings_timing")
+
+# Books this model is allowed to learn from / score. Reversal has its own
+# ranker and is excluded until it has a separate sample.
+_TRAIN_LABELS = frozenset({"earnings", "earnings_equity"})
 
 
 def _log10(value) -> float | None:
@@ -182,10 +186,16 @@ def _sigmoid(z: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-z))
 
 
-def _fit_logreg(X: np.ndarray, y: np.ndarray, l2: float) -> np.ndarray:
+def _fit_logreg(
+    X: np.ndarray, y: np.ndarray, l2: float, sample_weight: np.ndarray | None = None
+) -> np.ndarray:
     """Newton-IRLS logistic regression. Last column of X is the intercept (1s)
-    and is not L2-penalized."""
+    and is not L2-penalized. ``sample_weight`` is rescaled to mean 1 so L2
+    stays on the same scale as the unweighted fit."""
     n, d = X.shape
+    sw = np.ones(n) if sample_weight is None else np.asarray(sample_weight, dtype=float)
+    sw = np.clip(sw, 1e-6, None)
+    sw = sw * (n / float(sw.sum()))
     w = np.zeros(d)
     penalty = np.ones(d)
     penalty[-1] = 0.0  # intercept
@@ -193,8 +203,9 @@ def _fit_logreg(X: np.ndarray, y: np.ndarray, l2: float) -> np.ndarray:
     for _ in range(40):
         p = _sigmoid(X @ w)
         W = np.clip(p * (1.0 - p), 1e-6, None)
-        grad = (X.T @ (p - y)) / n + (l2 / n) * (penalty * w)
-        hess = (X.T * W) @ X / n + (l2 / n) * eye
+        resid = sw * (p - y)
+        grad = (X.T @ resid) / n + (l2 / n) * (penalty * w)
+        hess = (X.T * (sw * W)) @ X / n + (l2 / n) * eye
         try:
             step = np.linalg.solve(hess, grad)
         except np.linalg.LinAlgError:
@@ -226,11 +237,28 @@ def _auc(y: np.ndarray, p: np.ndarray) -> float | None:
     return (sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
 
 
-def _cv_auc(X: np.ndarray, y: np.ndarray, dates: list, l2: float) -> float | None:
+def _cv_auc(
+    X: np.ndarray,
+    y: np.ndarray,
+    dates: list,
+    l2: float,
+    sample_weight: np.ndarray | None = None,
+) -> float | None:
+    """Walk-forward AUC. LOOCV only when the journal has no real time span
+    (synthetic tests / a single-day dump); otherwise expanding chronological
+    folds so the model cannot score a trade using later labels."""
     n = len(y)
     if n < 8:
         return None
-    if n <= _LOO_MAX_N:
+    sw = np.ones(n) if sample_weight is None else np.asarray(sample_weight, dtype=float)
+    span_days = 0
+    try:
+        ords = [d.toordinal() if hasattr(d, "toordinal") else 0 for d in dates]
+        span_days = int(max(ords) - min(ords)) if ords else 0
+    except (TypeError, ValueError):
+        span_days = 0
+
+    if n <= _LOO_MAX_N and span_days < 7:
         preds = np.zeros(n)
         for i in range(n):
             mask = np.ones(n, dtype=bool)
@@ -239,12 +267,12 @@ def _cv_auc(X: np.ndarray, y: np.ndarray, dates: list, l2: float) -> float | Non
             if ytr.sum() < 1 or (len(ytr) - ytr.sum()) < 1:
                 preds[i] = float(y.mean())
                 continue
-            w = _fit_logreg(X[mask], ytr, l2)
+            w = _fit_logreg(X[mask], ytr, l2, sw[mask])
             preds[i] = float(_sigmoid(np.array([X[i] @ w]))[0])
         return _auc(y, preds)
 
     order = np.argsort([d.toordinal() if hasattr(d, "toordinal") else i for i, d in enumerate(dates)])
-    Xs, ys = X[order], y[order]
+    Xs, ys, sws = X[order], y[order], sw[order]
     fold = max(n // 5, 8)
     preds = np.full(n, np.nan)
     for start in range(fold, n, fold):
@@ -252,7 +280,7 @@ def _cv_auc(X: np.ndarray, y: np.ndarray, dates: list, l2: float) -> float | Non
         ytr = ys[:start]
         if ytr.sum() < 2 or (len(ytr) - ytr.sum()) < 2:
             continue
-        w = _fit_logreg(Xs[:start], ytr, l2)
+        w = _fit_logreg(Xs[:start], ytr, l2, sws[:start])
         preds[start:stop] = _sigmoid(Xs[start:stop] @ w)
     mask = np.isfinite(preds)
     if int(mask.sum()) < 10:
@@ -319,22 +347,30 @@ def _trade_when(t: PaperTrade) -> date:
     return date.today()
 
 
+def _pnl_weight(pnl) -> float:
+    try:
+        v = abs(float(pnl))
+    except (TypeError, ValueError):
+        return 1.0
+    return v if math.isfinite(v) and v > 0 else 1.0
+
+
 @dataclass
 class _Example:
     feats: dict
     y: float
     when: date
     signal_id: str | None = None
+    weight: float = 1.0
 
 
 def _collect_graded_examples(db: Session) -> list[_Example]:
     """Closed paper trades are the grade; the decision journal overlays features.
 
     Training must not wait for a live journal row. Every closed fill with a P&L
-    is an example. When a matching ``trade_decisions`` row exists, its snapshotted
-    features win (they were recorded at entry). Otherwise we reconstruct from the
-    trade thesis and hydrate market cap / ADV from the company + price bars.
-    Deduped by ``signal_id`` so a backfilled decision doesn't double-count.
+    is an example, but only from books this model still scores. When a matching
+    ``trade_decisions`` row exists, its snapshotted features win. Deduped by
+    ``signal_id`` so a backfilled decision doesn't double-count.
     """
     by_id: dict[str, _Example] = {}
     extra: list[_Example] = []
@@ -347,6 +383,8 @@ def _collect_graded_examples(db: Session) -> list[_Example]:
     ).all()
     for t in trades:
         label, feats = features_from_paper_trade(t)
+        if label not in _TRAIN_LABELS:
+            continue
         as_of = _trade_when(t)
         feats = attach_context_features(
             db, t.ticker, feats, as_of=as_of, earnings_date=t.earnings_date,
@@ -355,6 +393,7 @@ def _collect_graded_examples(db: Session) -> list[_Example]:
         ex = _Example(
             feats=feats, y=1.0 if _trade_win(t) else 0.0,
             when=as_of, signal_id=t.signal_id,
+            weight=_pnl_weight(t.realized_pnl),
         )
         if t.signal_id:
             by_id[t.signal_id] = ex
@@ -368,11 +407,15 @@ def _collect_graded_examples(db: Session) -> list[_Example]:
         )
     ).all()
     for row in rows:
+        label = row.strategy or "earnings"
+        if label not in _TRAIN_LABELS:
+            continue
         ex = _Example(
             feats=_hydrate(db, row),
             y=1.0 if _is_win(row) else 0.0,
             when=row.decision_date or date.today(),
             signal_id=row.signal_id,
+            weight=_pnl_weight(row.realized_pnl),
         )
         if row.signal_id:
             by_id[row.signal_id] = ex
@@ -519,14 +562,19 @@ def fit_entry_model(db: Session, settings) -> FittedEntryModel:
     feats = [e.feats for e in examples]
     y = np.array([e.y for e in examples])
     dates = [e.when for e in examples]
+    raw_w = np.array([e.weight for e in examples], dtype=float)
+    med = float(np.median(raw_w)) if raw_w.size else 1.0
+    if not math.isfinite(med) or med <= 0:
+        med = 1.0
+    sample_weight = np.clip(raw_w / med, 0.25, 4.0)
     X, stats = _design(feats)
     if X.shape[1] <= 1:
         return _empty("no usable features", settings, n, wins, losses)
 
-    weights = _fit_logreg(X, y, _L2)
+    weights = _fit_logreg(X, y, _L2, sample_weight)
     in_p = _sigmoid(X @ weights)
     in_auc = _auc(y, in_p)
-    cv_auc = _cv_auc(X, y, dates, _L2)
+    cv_auc = _cv_auc(X, y, dates, _L2, sample_weight)
 
     coefs = []
     for name, w in zip(stats["feature_names"], weights[:-1]):

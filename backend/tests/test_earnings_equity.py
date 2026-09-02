@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+from app.db.models import Base, PaperTrade  # noqa: E402
 from app.services.implied import compute_vol_edge  # noqa: E402
 from app.services.paper.executor import (  # noqa: E402
     EQUITY_LONG,
@@ -25,6 +29,7 @@ from app.services.paper.executor import (  # noqa: E402
     _earnings_equity_shares,
     _exit_is_urgent,
     _walk_mleg_to_fill,
+    earnings_equity_trailing_halt,
 )
 
 
@@ -39,6 +44,8 @@ class FakeSettings:
     paper_walk_step: float = 0.01
     paper_walk_interval_seconds: float = 0.0  # no real sleeping in tests
     paper_walk_max_seconds: float = 5.0
+    paper_earnings_equity_halt_enabled: bool = True
+    paper_earnings_equity_halt_window: int = 12
 
 
 # --- strike-level win probability --------------------------------------------
@@ -121,6 +128,15 @@ def test_long_equity_take_profit_and_stop():
     assert _earnings_equity_exit_reason(t, 103.0, date.today(), s, 0.03) is None
 
 
+def test_global_learned_clip_does_not_bank_earnings_stock():
+    """Live settings have the 3% clip on. Earnings stock must still wait for 10%."""
+    s = FakeSettings(paper_take_profit_enabled=True)
+    t = _trade(EQUITY_LONG, 100.0)
+    t.direction = "bullish"
+    assert _earnings_equity_exit_reason(t, 103.0, date.today(), s, 0.03) is None
+    assert _earnings_equity_exit_reason(t, 111.0, date.today(), s, 0.03).startswith("take-profit")
+
+
 def test_short_equity_take_profit_and_stop():
     s = FakeSettings()
     t = _trade(EQUITY_SHORT, 100.0)
@@ -157,6 +173,41 @@ def test_force_close_and_bad_fill_take_priority():
     assert _earnings_equity_exit_reason(t, 100.0, date.today(), s, 0.03) == "manual close"
     t2 = _trade(EQUITY_LONG, 100.0, note="bad fill: something", signal_id="EE-2")
     assert _earnings_equity_exit_reason(t2, 100.0, date.today(), s, 0.03) == "flatten: bad entry fill"
+
+
+def test_earnings_equity_halt_needs_a_full_losing_window():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    s = FakeSettings(paper_earnings_equity_halt_window=12)
+    assert earnings_equity_trailing_halt(db, s) is None
+    for i in range(11):
+        db.add(PaperTrade(
+            signal_id=f"EE-H{i}", strategy="earnings", ticker=f"L{i}",
+            structure=EQUITY_LONG, direction="bullish", vol_stance="neutral",
+            conviction="medium", status="closed", realized_pnl=-50.0,
+            outcome="loss", closed_at=datetime(2026, 8, 1) + timedelta(days=i),
+        ))
+    db.commit()
+    assert earnings_equity_trailing_halt(db, s) is None
+    db.add(PaperTrade(
+        signal_id="EE-H11", strategy="earnings", ticker="L11",
+        structure=EQUITY_LONG, direction="bullish", vol_stance="neutral",
+        conviction="medium", status="closed", realized_pnl=-50.0,
+        outcome="loss", closed_at=datetime(2026, 8, 20),
+    ))
+    db.commit()
+    assert earnings_equity_trailing_halt(db, s) == "earnings-equity halt (0-for-12 closed)"
+    db.add(PaperTrade(
+        signal_id="EE-W", strategy="earnings", ticker="WIN",
+        structure=EQUITY_LONG, direction="bullish", vol_stance="neutral",
+        conviction="medium", status="closed", realized_pnl=40.0,
+        outcome="win", closed_at=datetime(2026, 8, 21),
+    ))
+    db.commit()
+    assert earnings_equity_trailing_halt(db, s) is None
+    off = FakeSettings(paper_earnings_equity_halt_enabled=False)
+    assert earnings_equity_trailing_halt(db, off) is None
 
 
 def test_close_client_order_id_is_unique_per_attempt():

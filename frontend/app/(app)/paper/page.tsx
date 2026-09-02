@@ -693,9 +693,9 @@ function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
             5-day losers
           </div>
           <p className="text-xs text-[var(--color-muted)] mt-0.5">
-            Worst 5-session S&amp;P names through {asOf}, hold 5 sessions or +10%,
+            Worst 5-session S&amp;P names through {asOf}, hold 5 sessions,
             earnings ±5 sessions out. Sized 1% equity pending point-in-time
-            membership; expected ~0.55%/hold, not the 1.22 Sharpe backtest.
+            membership; 10% clip is a shadow, not the live exit.
             {watch.holding ? " Cohort already open — next rebalance after the hold." : ""}
           </p>
         </div>

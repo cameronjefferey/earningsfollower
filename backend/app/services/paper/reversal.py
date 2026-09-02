@@ -1,17 +1,14 @@
 """5-day-loser weekly paper book.
 
-Long the N worst S&P 500 names over the last 5 sessions, hold 5 sessions
-or take-profit at +10%, skip names with earnings ±5 sessions, equal-weight,
-non-overlapping rebalance. Backtest (2019–2026, current S&P, 10 bps):
-5-name mean +1.09%/hold, t=3.36. Long-only — shorting the winners lost.
+Long the N worst S&P 500 names over the last 5 sessions, hold 5 sessions,
+skip names with earnings ±5 sessions, equal-weight, non-overlapping
+rebalance. Backtest (2019–2026, current S&P, 10 bps): 5-name mean
++1.09%/hold, t=3.36. A hard daily-close 10% TP cut that to +0.55%/hold.
+Live follows the tested hold; the 10% clip is a shadow mark only.
 
-The 10% take-profit is this book's own exit, not the 3% learned clip from
-the earnings directional books (that band maxes at 8% and would bank a
-bounce this sleeve is meant to ride). Live still clips at 10%; a shadow
-marks the 5-session hold on the same entries so the override has a number.
 No earnings-equity stop, no entry model until this book has its own sample.
 Current S&P membership until the PIT rebuild (due 2026-09-29); size 1%
-equity/name off the +0.55%/hold 10% TP grid, not the 1.22 Sharpe backtest.
+equity/name off half the no-TP mean, not the 1.22 Sharpe.
 """
 
 from __future__ import annotations
@@ -114,12 +111,12 @@ def reversal_exit_reason(
     *,
     in_earn_window: bool = False,
 ) -> str | None:
-    """+10% take-profit, then the 5-session hold, plus operational escapes.
+    """5-session hold, plus operational escapes.
 
-    Does not use the global 3% learned take-profit — that clip is for the
-    retired debit rides and would flatten a bounce this sleeve is hunting.
-    Flatten if the name is discovered inside the earnings ±buffer after entry
-    (calendar was incomplete at rank time).
+    Live does not clip at +10% — the backtest hold beat that override
+    (+1.09%/hold vs +0.55%). The 10% path is a shadow mark only.
+    Does not use the global 3% learned take-profit. Flatten if the name
+    is discovered inside the earnings ±buffer after entry.
     """
     if t.signal_id in getattr(settings, "paper_force_close_id_set", set()):
         return "manual close"
@@ -127,7 +124,7 @@ def reversal_exit_reason(
         return "flatten: bad entry fill"
     if in_earn_window:
         return "flatten: earnings window"
-    tp = float(getattr(settings, "paper_reversal_take_profit_pct", 0.10) or 0)
+    tp = float(getattr(settings, "paper_reversal_take_profit_pct", 0) or 0)
     entry_px = getattr(t, "entry_credit", None) or getattr(t, "spot_entry", None)
     if tp > 0 and spot_now and entry_px:
         move = spot_now / entry_px - 1.0

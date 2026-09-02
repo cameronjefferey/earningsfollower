@@ -194,6 +194,25 @@ def test_take_profit_at_ten_percent_beats_the_hold():
     assert reason is not None and reason.startswith("take-profit")
 
 
+def test_live_hold_does_not_clip_at_ten_percent():
+    settings = SimpleNamespace(
+        paper_force_close_id_set=set(),
+        paper_reversal_hold_days=5,
+        paper_reversal_take_profit_pct=0.0,
+    )
+    t = SimpleNamespace(
+        signal_id="RV-HOLD",
+        note=None,
+        opened_at=datetime(2026, 8, 24, 14, 0),
+        created_at=None,
+        entry_credit=50.0,
+        spot_entry=50.0,
+    )
+    assert reversal_exit_reason(t, date(2026, 8, 25), settings, 55.0) is None
+    reason = reversal_exit_reason(t, date(2026, 8, 31), settings, 55.0)
+    assert reason is not None and "hold" in reason
+
+
 def test_force_close_and_bad_fill_beat_the_hold():
     settings = SimpleNamespace(
         paper_force_close_id_set={"RV-X"},
@@ -262,6 +281,7 @@ if __name__ == "__main__":
         test_amc_print_reacts_next_session,
         test_exit_after_five_sessions_not_sooner,
         test_take_profit_at_ten_percent_beats_the_hold,
+        test_live_hold_does_not_clip_at_ten_percent,
         test_force_close_and_bad_fill_beat_the_hold,
         test_flatten_when_discovered_inside_earnings_window,
         test_shadow_hold_due_after_five_sessions,

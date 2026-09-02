@@ -194,9 +194,8 @@ services:
       - key: PAPER_DRIFT_STOP_BUFFER
         value: "0.015"
       # 5-day loser weekly: long the worst 5-session S&P names, hold 5
-      # sessions or take-profit at +10%, skip earnings ±5 sessions.
-      # Sized at 1% equity off the +0.55%/hold 10% TP number, not the
-      # disowned 1.22 Sharpe. PIT membership rebuild due 2026-09-29.
+      # sessions, skip earnings ±5 sessions. Live is the tested hold;
+      # 10% clip is a shadow. Size 1% pending PIT (due 2026-09-29).
       - key: PAPER_REVERSAL_ENABLED
         value: "true"
       - key: PAPER_REVERSAL_TOP_N
@@ -204,6 +203,8 @@ services:
       - key: PAPER_REVERSAL_HOLD_DAYS
         value: "5"
       - key: PAPER_REVERSAL_TAKE_PROFIT_PCT
+        value: "0"
+      - key: PAPER_REVERSAL_SHADOW_TAKE_PROFIT_PCT
         value: "0.10"
       - key: PAPER_REVERSAL_RISK_FRAC
         value: "0.01"

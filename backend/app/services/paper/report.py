@@ -67,7 +67,7 @@ def _thesis_headline(t: PaperTrade) -> str | None:
         as_of = data.get("as_of")
         ret_txt = f"{ret:+.1%} over 5 sessions" if isinstance(ret, (int, float)) else "5-day loser"
         as_txt = f" through {as_of}" if as_of else ""
-        return f"{ret_txt}{as_txt} · hold 5 sessions or +10%"
+        return f"{ret_txt}{as_txt} · hold 5 sessions"
     return data.get("headline")
 
 

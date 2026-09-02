@@ -83,6 +83,12 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "title": "Reversal sized off the live book, not the 1.22 Sharpe",
         "detail": "1% equity/name, stated +0.55%/hold expectation, 10% TP vs 5-session hold shadow, PIT rebuild due 2026-09-29.",
     },
+    {
+        "date": "2026-09-02",
+        "kind": "guard",
+        "title": "Reversal rides the tested 5-session hold",
+        "detail": "Backtest hold (+1.09%) beat the 10% clip (+0.55%). Live dropped the clip; 10% is a shadow mark only.",
+    },
 )
 
 BOOK_LABELS = {

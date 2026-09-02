@@ -217,7 +217,7 @@ def run(db: Session, dry_run: bool = False) -> dict:
         summary["closed"] += _manage_reversal_exits(db, client, settings, dry_run)
         summary["reversal_shadow"] = _mark_reversal_shadow_holds(
             db, client, settings, dry_run
-        )
+        ) + _mark_reversal_shadow_clips(db, client, settings, dry_run)
 
         # Calibration feedback: recalibrate each strategy's model win-probability
         # by its realized track record before the EV gate sees it (opt-in, and a
@@ -1955,7 +1955,7 @@ def _record_reversal_trade(
         "instrument": "equity",
         "headline": (
             f"5-day loser · {cand.ret_5:+.1%} over 5 sessions through "
-            f"{cand.as_of.isoformat()}, hold 5 sessions or +10%"
+            f"{cand.as_of.isoformat()}, hold 5 sessions"
         ),
         "ret_5": round(cand.ret_5, 4),
         "as_of": cand.as_of.isoformat(),
@@ -2004,7 +2004,10 @@ def _next_reversal_signal_id(db: Session) -> str:
 def _manage_reversal_exits(
     db: Session, client: AlpacaClient, settings, dry_run: bool
 ) -> int:
-    """Close reversal longs on +10% take-profit, the 5-session hold, or force-close."""
+    """Close reversal longs on the 5-session hold or force-close.
+
+    Live does not clip at +10%; that path is a shadow mark only.
+    """
     today = date.today()
     closed = 0
     trades = db.scalars(
@@ -2133,6 +2136,75 @@ def _mark_reversal_shadow_holds(
             row.label_status = "final"
             row.realized_pnl = cmp["hold_pnl"]
             row.realized_move_pct = cmp["hold_ret"]
+        marked += 1
+    if marked and not dry_run:
+        db.commit()
+    return marked
+
+
+def _mark_reversal_shadow_clips(
+    db: Session, client: AlpacaClient, settings, dry_run: bool
+) -> int:
+    """While live rides the hold, mark the first print that would have hit +10%.
+
+    No capital, no flatten. The opened row later gets the hold P&L; this row
+    is what the retired clip would have paid.
+    """
+    tp = float(getattr(settings, "paper_reversal_shadow_take_profit_pct", 0.10) or 0)
+    if tp <= 0:
+        return 0
+    marked = 0
+    open_rows = db.scalars(
+        select(PaperTrade).where(
+            PaperTrade.strategy == REVERSAL_STRATEGY,
+            PaperTrade.status == "open",
+        )
+    ).all()
+    for t in open_rows:
+        existing = db.scalars(
+            select(TradeDecision).where(
+                TradeDecision.signal_id == t.signal_id,
+                TradeDecision.decision == "shadow",
+            )
+        ).first()
+        if existing:
+            continue
+        spot = client.stock_price(t.ticker)
+        entry_px = t.entry_credit or t.spot_entry
+        if not spot or not entry_px:
+            continue
+        move = float(spot) / float(entry_px) - 1.0
+        if move < tp:
+            continue
+        cmp = shadow_vs_live(
+            entry_px=float(entry_px),
+            live_exit_px=float(spot),
+            hold_px=float(spot),
+            shares=int(t.contracts or 0),
+        )
+        if dry_run:
+            logger.info(
+                "[dry-run] reversal shadow clip %s move=%+.1f%% (%s)",
+                t.signal_id, move * 100, t.ticker,
+            )
+            continue
+        feats = {
+            "shadow_kind": "tp_vs_hold",
+            "spot": round(spot, 2),
+            **cmp,
+        }
+        row = record_decision(
+            db,
+            strategy=REVERSAL_STRATEGY,
+            ticker=t.ticker,
+            decision="shadow",
+            signal_id=t.signal_id,
+            features=feats,
+        )
+        if row is not None:
+            row.label_status = "final"
+            row.realized_pnl = cmp["live_pnl"]
+            row.realized_move_pct = cmp["live_ret"]
         marked += 1
     if marked and not dry_run:
         db.commit()

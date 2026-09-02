@@ -330,27 +330,25 @@ class Settings(BaseSettings):
     paper_earnings_equity_halt_window: int = 12
 
     # --- 5-day loser weekly reversal (S&P 500, long shares) -------------------
-    # Long the N worst 5-session names, hold 5 sessions or take-profit at +10%,
-    # skip earnings ±5 sessions, equal-weight, non-overlapping. The 1.22 Sharpe
-    # / +1.09%/hold backtest is current-membership, no TP — not a live
-    # expectation. Live runs a different strategy (current S&P + 10% clip).
-    # Interim edge: +0.55%/hold from the daily-close 10% TP grid, unknown
-    # survivorship haircut. Size 1% equity/name off that, not 2% off the
-    # retired Sharpe. Live 10% TP stays; a shadow marks the 5-session hold
-    # on the same entries so the override has a falsification sample. PIT
-    # membership rebuild due 2026-09-29; until then the ranker's live edge
-    # is unknown. Long-only. Kill the book the same way as waves (0-for-12).
+    # Long the N worst 5-session names, hold 5 sessions, skip earnings ±5
+    # sessions, equal-weight, non-overlapping. Backtest no-TP mean +1.09%/hold
+    # beat a hard 10% daily TP (+0.55%/hold). Live follows the hold; the 10%
+    # clip is a shadow mark only. The 1.22 Sharpe is current-membership, not a
+    # live expectation. Size 1% equity/name off half the no-TP mean until PIT
+    # membership is rebuilt (due 2026-09-29). Long-only. Kill like waves (0-for-12).
     paper_reversal_enabled: bool = True
     paper_reversal_top_n: int = 5
     paper_reversal_lookback_days: int = 5
     paper_reversal_hold_days: int = 5
-    paper_reversal_take_profit_pct: float = 0.10
+    paper_reversal_take_profit_pct: float = 0.0
+    # Counterfactual: mark when an open name would have clipped at +10%.
+    paper_reversal_shadow_take_profit_pct: float = 0.10
     paper_reversal_min_price: float = 10.0
     paper_reversal_min_dollar_vol: float = 50_000_000.0
     paper_reversal_earn_buffer_days: int = 5
     paper_reversal_risk_frac: float = 0.01
     paper_reversal_max_open: int = 5
-    # Stated live expectation while PIT is unbuilt. Not the 1.09% no-TP mean.
+    # Half the no-TP backtest mean; survivorship still unknown.
     paper_reversal_expected_hold_pct: float = 0.0055
     paper_reversal_pit_rebuild_by: date = date(2026, 9, 29)
 

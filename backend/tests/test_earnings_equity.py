@@ -28,6 +28,7 @@ from app.services.paper.executor import (  # noqa: E402
     _close_client_order_id,
     _earnings_equity_exit_reason,
     _earnings_equity_shares,
+    _earnings_quality_skip,
     _exit_is_urgent,
     _near_miss,
     _walk_mleg_to_fill,
@@ -48,6 +49,16 @@ class FakeSettings:
     paper_walk_max_seconds: float = 5.0
     paper_earnings_equity_halt_enabled: bool = True
     paper_earnings_equity_halt_window: int = 12
+    paper_earnings_min_market_cap: float = 10_000_000_000.0
+    paper_earnings_skip_industries: str = "Software - Application"
+
+    @property
+    def paper_earnings_skip_industry_set(self) -> set[str]:
+        return {
+            s.strip()
+            for s in self.paper_earnings_skip_industries.split(",")
+            if s.strip()
+        }
 
 
 # --- strike-level win probability --------------------------------------------
@@ -210,6 +221,25 @@ def test_earnings_equity_halt_needs_a_full_losing_window():
     assert earnings_equity_trailing_halt(db, s) is None
     off = FakeSettings(paper_earnings_equity_halt_enabled=False)
     assert earnings_equity_trailing_halt(db, off) is None
+
+
+def test_earnings_quality_skip_mid_cap_and_app_software():
+    s = FakeSettings()
+    mid = SimpleNamespace(market_cap=4e9, industry="Aerospace & Defense")
+    large_sw = SimpleNamespace(market_cap=80e9, industry="Software - Application")
+    large_ok = SimpleNamespace(market_cap=80e9, industry="Semiconductors")
+    mega_missing_ind = SimpleNamespace(market_cap=400e9, industry=None)
+    unknown_cap = SimpleNamespace(market_cap=None, industry="Banks - Regional")
+    assert _earnings_quality_skip(mid, s).startswith("market cap")
+    assert _earnings_quality_skip(large_sw, s).startswith("industry skipped")
+    assert _earnings_quality_skip(large_ok, s) is None
+    assert _earnings_quality_skip(mega_missing_ind, s) is None
+    # Share-class names with no cap on file must not be vetoed.
+    assert _earnings_quality_skip(unknown_cap, s) is None
+    assert _earnings_quality_skip(None, s) is None
+    off = FakeSettings(paper_earnings_min_market_cap=0.0, paper_earnings_skip_industries="")
+    assert _earnings_quality_skip(mid, off) is None
+    assert _earnings_quality_skip(large_sw, off) is None
 
 
 def test_near_miss_prefix_tags_gate_rejects():

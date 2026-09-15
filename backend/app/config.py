@@ -328,6 +328,13 @@ class Settings(BaseSettings):
     # waves retirement sample. One bad week cannot trip it.
     paper_earnings_equity_halt_enabled: bool = True
     paper_earnings_equity_halt_window: int = 12
+    # Paper-only universe cuts (the public calendar stays at $2B). Live
+    # earnings-stock P&L is entirely a mid-cap ($2-10B) leak plus 0-for-N
+    # application software; skip those at entry so the control group can
+    # actually be a control group.
+    paper_earnings_min_market_cap: float = 10_000_000_000.0
+    # Comma-separated FMP industry names to refuse on the earnings-stock book.
+    paper_earnings_skip_industries: str = "Software - Application"
 
     # --- 5-day loser weekly reversal (S&P 500, long shares) -------------------
     # Long the N worst 5-session names, hold 5 sessions, skip earnings ±5
@@ -524,6 +531,14 @@ class Settings(BaseSettings):
     @property
     def paper_force_close_id_set(self) -> set[str]:
         return {s.strip() for s in self.paper_force_close_ids.split(",") if s.strip()}
+
+    @property
+    def paper_earnings_skip_industry_set(self) -> set[str]:
+        return {
+            s.strip()
+            for s in self.paper_earnings_skip_industries.split(",")
+            if s.strip()
+        }
 
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""

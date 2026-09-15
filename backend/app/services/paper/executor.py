@@ -1361,6 +1361,29 @@ def _earnings_equity_shares(notional: float | None, spot: float | None) -> int:
     return int(notional // spot)
 
 
+def _earnings_quality_skip(company: Company | None, settings) -> str | None:
+    """Paper-only size / industry cuts for the earnings-stock book.
+
+    The public calendar stays at ``calendar_min_market_cap`` ($2B). Missing
+    market cap does not veto (share-class tickers like GOOGL/BRK.B); only a
+    known print below the floor does.
+    """
+    min_cap = float(getattr(settings, "paper_earnings_min_market_cap", 0) or 0)
+    cap = getattr(company, "market_cap", None) if company else None
+    if min_cap > 0 and cap and cap < min_cap:
+        return (
+            f"market cap ${cap / 1e9:.1f}B below ${min_cap / 1e9:.0f}B floor"
+        )
+    skip = getattr(settings, "paper_earnings_skip_industry_set", None)
+    if skip is None:
+        raw = getattr(settings, "paper_earnings_skip_industries", "") or ""
+        skip = {s.strip() for s in raw.split(",") if s.strip()}
+    industry = (getattr(company, "industry", None) if company else None) or ""
+    if industry and industry in skip:
+        return f"industry skipped ({industry})"
+    return None
+
+
 def earnings_equity_trailing_halt(db: Session, settings) -> str | None:
     """Block new earnings-stock entries after a 0-for-N closed streak.
 
@@ -1474,6 +1497,20 @@ def _scan_earnings_equity_entries(
         if existing:
             continue
 
+        company = db.get(Company, ticker.upper())
+        quality_skip = _earnings_quality_skip(company, settings)
+        if quality_skip:
+            skipped.append({"ticker": ticker, "reason": quality_skip})
+            record_decision(
+                db, strategy="earnings_equity", ticker=ticker, decision="skipped",
+                earnings_date=ev.date, skip_reason=quality_skip, regime=regime,
+                features={
+                    "market_cap": company.market_cap if company else None,
+                    "industry": company.industry if company else None,
+                },
+            )
+            continue
+
         detail = company_detail(db, ticker)
         pb = (detail or {}).get("playbook")
         if not pb:
@@ -1508,7 +1545,6 @@ def _scan_earnings_equity_entries(
         # bet; the waves strategy rides the rest of the sector sympathy.
         cap_per_sector = settings.paper_earnings_equity_max_per_sector
         if cap_per_sector > 0:
-            company = db.get(Company, ticker.upper())
             sector = (company.sector if company else None) or "unknown"
             if sector_counts.get(sector, 0) >= cap_per_sector:
                 skipped.append(

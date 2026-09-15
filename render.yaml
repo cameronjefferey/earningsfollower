@@ -175,6 +175,12 @@ services:
         value: "true"
       - key: PAPER_EARNINGS_EQUITY_HALT_WINDOW
         value: "12"
+      # Paper-only universe: skip mid-caps and application software on the
+      # earnings-stock book. Public calendar stays at $2B.
+      - key: PAPER_EARNINGS_MIN_MARKET_CAP
+        value: "10000000000"
+      - key: PAPER_EARNINGS_SKIP_INDUSTRIES
+        value: "Software - Application"
       # Waves / drift option debit books retired (Aug 2026): 0-for-N live after
       # post-print IV crush. Open positions still manage; no new entries.
       - key: PAPER_WAVES_ENABLED

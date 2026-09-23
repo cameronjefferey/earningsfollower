@@ -7,8 +7,9 @@ rebalance. Backtest (2019–2026, current S&P, 10 bps): 5-name mean
 Live follows the tested hold; the 10% clip is a shadow mark only.
 
 No earnings-equity stop, no entry model until this book has its own sample.
-Current S&P membership until the PIT rebuild (due 2026-09-29); size 2%
-equity/name after the first live bounce week, not the 1.22 Sharpe.
+Current S&P membership until the PIT rebuild (due 2026-09-29). Size by
+how deep the washout is: 3% at −12% or worse, 2% from there to −8%,
+1% for milder names that still make the top 5. Not the 1.22 Sharpe.
 """
 
 from __future__ import annotations
@@ -58,6 +59,31 @@ class ReversalCandidate:
         d["close"] = round(self.close, 2)
         d["dollar_vol"] = round(self.dollar_vol, 0)
         return d
+
+
+def reversal_conviction(
+    ret_5: float,
+    settings=None,
+    *,
+    high_ret: float = -0.12,
+    medium_ret: float = -0.08,
+) -> str:
+    """Deeper 5-session washout = more confident bounce.
+
+    ``high`` at or below ``high_ret`` (default −12%), ``medium`` at or below
+    ``medium_ret`` (default −8%), otherwise ``low``. Thresholds come off
+    settings when passed.
+    """
+    if settings is not None:
+        high_ret = float(getattr(settings, "paper_reversal_conviction_high_ret", high_ret))
+        medium_ret = float(
+            getattr(settings, "paper_reversal_conviction_medium_ret", medium_ret)
+        )
+    if ret_5 <= high_ret:
+        return "high"
+    if ret_5 <= medium_ret:
+        return "medium"
+    return "low"
 
 
 def yahoo_symbol(ticker: str) -> str:
@@ -570,17 +596,27 @@ def write_watch(
     opened: list[str] | None = None,
     note: str | None = None,
     pool: list[ReversalCandidate] | None = None,
+    settings=None,
 ) -> None:
     cache_dir()
+
+    def _row(cand: ReversalCandidate) -> dict:
+        row = cand.as_watch_dict()
+        conv = reversal_conviction(cand.ret_5, settings)
+        row["conviction"] = conv
+        if settings is not None and hasattr(settings, "paper_reversal_risk_fraction"):
+            row["risk_frac"] = round(float(settings.paper_reversal_risk_fraction(conv)), 4)
+        return row
+
     payload = {
         "as_of": as_of.isoformat() if as_of else None,
         "ranked_at": datetime.utcnow().isoformat() + "Z",
         "holding": holding,
         "opened": opened or [],
         "note": note,
-        "candidates": [c.as_watch_dict() for c in picks],
-        "skipped_earn": [c.as_watch_dict() for c in skipped[:15]],
-        "pool": [c.as_watch_dict() for c in (pool or [])[:15]],
+        "candidates": [_row(c) for c in picks],
+        "skipped_earn": [_row(c) for c in skipped[:15]],
+        "pool": [_row(c) for c in (pool or [])[:15]],
     }
     WATCH_PATH.write_text(json.dumps(payload))
 

@@ -76,6 +76,10 @@ _REGIME_KEYS = (
     "paper_reversal_take_profit_pct",
     "paper_reversal_shadow_take_profit_pct",
     "paper_reversal_risk_frac",
+    "paper_reversal_risk_high",
+    "paper_reversal_risk_low",
+    "paper_reversal_conviction_high_ret",
+    "paper_reversal_conviction_medium_ret",
     "paper_earnings_min_market_cap",
     "paper_earnings_skip_industries",
 )

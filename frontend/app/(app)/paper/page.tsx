@@ -694,8 +694,8 @@ function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
           </div>
           <p className="text-xs text-[var(--color-muted)] mt-0.5">
             Worst 5-session S&amp;P names through {asOf}, hold 5 sessions,
-            earnings ±5 sessions out. Sized 2% equity per name; 10% clip is a
-            shadow, not the live exit.
+            earnings ±5 sessions out. Sized 1–3% by how deep the drop is
+            (3% at −12% or worse); 10% clip is a shadow, not the live exit.
             {watch.holding ? " Cohort already open — next rebalance after the hold." : ""}
           </p>
         </div>
@@ -716,6 +716,11 @@ function ReversalWatchCard({ watch }: { watch: ReversalWatch }) {
               <span className="ml-2 text-xs tabular text-[#f0556d]">
                 {(c.ret_5 * 100).toFixed(1)}%
               </span>
+              {c.risk_frac != null ? (
+                <span className="ml-2 text-[11px] text-[var(--color-muted)]">
+                  {(c.risk_frac * 100).toFixed(0)}% size
+                </span>
+              ) : null}
             </Link>
           ))}
         </div>

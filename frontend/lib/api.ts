@@ -469,6 +469,8 @@ export interface ReversalWatchName {
   dollar_vol: number;
   as_of: string;
   skipped_earn: boolean;
+  conviction?: string;
+  risk_frac?: number;
 }
 
 export interface ReversalWatch {

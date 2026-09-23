@@ -341,9 +341,10 @@ class Settings(BaseSettings):
     # sessions, equal-weight, non-overlapping. Backtest no-TP mean +1.09%/hold
     # beat a hard 10% daily TP (+0.55%/hold). Live follows the hold; the 10%
     # clip is a shadow mark only. The 1.22 Sharpe is current-membership, not a
-    # live expectation. First live bounce week (VRT/LRCX) confirmed the
-    # sleeve, so size is 2% equity/name — still PIT-capped (due 2026-09-29),
-    # not the full 1.22-Sharpe bet. Long-only. Kill like waves (0-for-12).
+    # live expectation. Size by washout depth, capped at 3%: −12% or worse
+    # is high, down through −8% is medium (the flat 2% we just ran), milder
+    # top-5 names are low at 1%. Still PIT-capped (due 2026-09-29).
+    # Long-only. Kill like waves (0-for-12).
     paper_reversal_enabled: bool = True
     paper_reversal_top_n: int = 5
     paper_reversal_lookback_days: int = 5
@@ -354,7 +355,13 @@ class Settings(BaseSettings):
     paper_reversal_min_price: float = 10.0
     paper_reversal_min_dollar_vol: float = 50_000_000.0
     paper_reversal_earn_buffer_days: int = 5
+    # Medium tier. High/low scale off how deep the 5-day drop is.
     paper_reversal_risk_frac: float = 0.02
+    paper_reversal_risk_high: float = 0.03
+    paper_reversal_risk_low: float = 0.01
+    # ret_5 at or below these (more negative) maps to high / medium.
+    paper_reversal_conviction_high_ret: float = -0.12
+    paper_reversal_conviction_medium_ret: float = -0.08
     paper_reversal_max_open: int = 5
     # Half the no-TP backtest mean; survivorship still unknown.
     paper_reversal_expected_hold_pct: float = 0.0055
@@ -540,6 +547,18 @@ class Settings(BaseSettings):
             for s in self.paper_earnings_skip_industries.split(",")
             if s.strip()
         }
+
+    def paper_reversal_risk_fraction(self, conviction: str) -> float:
+        """Map a 5-day-loser conviction tier to the fraction of equity to buy.
+
+        Medium stays on ``paper_reversal_risk_frac`` so the live 2% knob is
+        the middle of the band. High caps at 3%; low is 1%.
+        """
+        return {
+            "high": self.paper_reversal_risk_high,
+            "medium": self.paper_reversal_risk_frac,
+            "low": self.paper_reversal_risk_low,
+        }.get(conviction, self.paper_reversal_risk_low)
 
     def paper_risk_fraction(self, conviction: str) -> float:
         """Map a playbook conviction tier to the fraction of equity to risk."""

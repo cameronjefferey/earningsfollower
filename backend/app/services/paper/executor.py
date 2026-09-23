@@ -60,6 +60,7 @@ from app.services.paper.waves_trader import WaveSpec, build_wave_spec, wave_conv
 from app.services.paper.reversal import (
     STRATEGY as REVERSAL_STRATEGY,
     rank_live,
+    reversal_conviction,
     reversal_exit_reason,
     shadow_hold_due,
     shadow_vs_live,
@@ -1858,6 +1859,7 @@ def _scan_reversal_entries(
         as_of=as_of,
         holding=holding,
         pool=pool,
+        settings=settings,
         note="cohort open" if holding else None,
     )
     if holding:
@@ -1875,7 +1877,6 @@ def _scan_reversal_entries(
         ).all()
     }
     max_open = int(getattr(settings, "paper_reversal_max_open", 5))
-    risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.02))
     opened = 0
     opened_ids: list[str] = []
     for cand in picks:
@@ -1888,6 +1889,11 @@ def _scan_reversal_entries(
         if not spot or spot <= 0:
             skipped.append({"ticker": cand.ticker, "reason": "no spot price"})
             continue
+        conviction = reversal_conviction(cand.ret_5, settings)
+        if hasattr(settings, "paper_reversal_risk_fraction"):
+            risk_frac = float(settings.paper_reversal_risk_fraction(conviction))
+        else:
+            risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.02))
         notional = equity * risk_frac
         shares = _earnings_equity_shares(notional, spot)
         if shares < 1:
@@ -1898,11 +1904,13 @@ def _scan_reversal_entries(
                 }
             )
             continue
-        trade = _record_reversal_trade(db, cand, spot, shares, notional, equity)
+        trade = _record_reversal_trade(
+            db, cand, spot, shares, notional, equity, conviction=conviction,
+        )
         feats = {
             "direction": "bullish",
             "structure": EQUITY_LONG,
-            "conviction": "medium",
+            "conviction": conviction,
             "spot": round(spot, 2),
             "contracts": shares,
             "max_risk": round(notional, 2),
@@ -1913,8 +1921,8 @@ def _scan_reversal_entries(
         }
         if dry_run:
             logger.info(
-                "[dry-run] REVERSAL BUY %s %d sh @ ~%.2f (5d %+0.1f%%, risk $%.0f)",
-                cand.ticker, shares, spot, cand.ret_5 * 100, notional,
+                "[dry-run] REVERSAL BUY %s %d sh @ ~%.2f (5d %+0.1f%%, %s, risk $%.0f)",
+                cand.ticker, shares, spot, cand.ret_5 * 100, conviction, notional,
             )
             trade.note = "dry-run (not submitted)"
             record_decision(
@@ -1972,6 +1980,7 @@ def _scan_reversal_entries(
         holding=bool(opened_ids) or holding,
         opened=opened_ids,
         pool=pool,
+        settings=settings,
     )
     if not dry_run:
         db.commit()
@@ -1985,6 +1994,7 @@ def _record_reversal_trade(
     shares: int,
     notional: float,
     equity: float | None,
+    conviction: str = "medium",
 ) -> PaperTrade:
     signal_id = _next_reversal_signal_id(db)
     thesis = {
@@ -1998,6 +2008,8 @@ def _record_reversal_trade(
         "dollar_vol": round(cand.dollar_vol, 0),
         "lookback_days": 5,
         "hold_days": 5,
+        "conviction": conviction,
+        "risk_frac": round(notional / equity, 4) if equity else None,
     }
     trade = PaperTrade(
         signal_id=signal_id,
@@ -2007,7 +2019,7 @@ def _record_reversal_trade(
         structure=EQUITY_LONG,
         direction="bullish",
         vol_stance="neutral",
-        conviction="medium",
+        conviction=conviction,
         thesis=json.dumps(thesis)[:2048],
         status="pending",
         legs=None,

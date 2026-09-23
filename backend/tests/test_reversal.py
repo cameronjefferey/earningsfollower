@@ -19,6 +19,7 @@ from app.services.paper.reversal import (  # noqa: E402
     hold_elapsed,
     rank_from_panel,
     reaction_dates,
+    reversal_conviction,
     reversal_exit_reason,
     shadow_hold_due,
     shadow_vs_live,
@@ -272,6 +273,21 @@ def test_shadow_vs_live_hold_beats_early_clip():
     assert cmp["hold_ret"] == 0.16
 
 
+def test_conviction_scales_with_washout_depth():
+    assert reversal_conviction(-0.15) == "high"
+    assert reversal_conviction(-0.12) == "high"
+    assert reversal_conviction(-0.10) == "medium"
+    assert reversal_conviction(-0.08) == "medium"
+    assert reversal_conviction(-0.05) == "low"
+    s = SimpleNamespace(
+        paper_reversal_conviction_high_ret=-0.10,
+        paper_reversal_conviction_medium_ret=-0.06,
+    )
+    assert reversal_conviction(-0.10, s) == "high"
+    assert reversal_conviction(-0.07, s) == "medium"
+    assert reversal_conviction(-0.04, s) == "low"
+
+
 if __name__ == "__main__":
     tests = [
         test_trading_days_monday_to_next_monday_is_five,
@@ -286,6 +302,7 @@ if __name__ == "__main__":
         test_flatten_when_discovered_inside_earnings_window,
         test_shadow_hold_due_after_five_sessions,
         test_shadow_vs_live_hold_beats_early_clip,
+        test_conviction_scales_with_washout_depth,
     ]
     for fn in tests:
         fn()

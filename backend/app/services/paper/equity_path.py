@@ -95,6 +95,12 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "title": "Reversal sized 2% after the first live bounce week",
         "detail": "VRT/LRCX confirmed the sleeve. 2% equity/name, still PIT-capped (due 2026-09-29). Open rows keep their entry size; next cohort gets 2%.",
     },
+    {
+        "date": "2026-09-23",
+        "kind": "guard",
+        "title": "Reversal sizes 1–3% by washout depth",
+        "detail": "−12% or worse gets 3% equity. Through −8% stays at 2%. Milder top-5 names get 1%. Open rows keep their entry size.",
+    },
 )
 
 BOOK_LABELS = {

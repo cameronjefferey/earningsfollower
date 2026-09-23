@@ -366,6 +366,9 @@ class Settings(BaseSettings):
     # Half the no-TP backtest mean; survivorship still unknown.
     paper_reversal_expected_hold_pct: float = 0.0055
     paper_reversal_pit_rebuild_by: date = date(2026, 9, 29)
+    # Friday 12:55 PM PT candidate list. The 12:30 paper run waits and texts
+    # it. That message does not place orders.
+    paper_reversal_preview_enabled: bool = True
 
     # --- Waves strategy (RETIRED as option debit spreads) ---------------------
     # Peer-sympathy is real on the underlying, but expressing it as a debit

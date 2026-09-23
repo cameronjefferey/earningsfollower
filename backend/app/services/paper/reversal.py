@@ -19,6 +19,7 @@ import logging
 import tempfile
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Iterable
 from urllib.error import URLError
@@ -400,13 +401,19 @@ def _flatten_yf(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True)
 
 
-def load_panel(tickers: list[str], as_of: date | None = None) -> pd.DataFrame:
-    """~30 sessions of OHLCV for the universe. Cached per as_of calendar day."""
+def load_panel(
+    tickers: list[str], as_of: date | None = None, *, refresh: bool = False
+) -> pd.DataFrame:
+    """~30 sessions of OHLCV for the universe. Cached per as_of calendar day.
+
+    ``refresh`` skips the cache. The Friday preview needs the 12:55 print,
+    not the panel the 12:30 run already stored.
+    """
     import yfinance as yf
 
     day = (as_of or date.today()).isoformat()
     path = cache_dir() / f"panel_{day}.pkl"
-    if path.exists():
+    if path.exists() and not refresh:
         try:
             return pd.read_pickle(path)
         except Exception:  # noqa: BLE001
@@ -538,17 +545,29 @@ def tickers_in_earn_buffer(
     return out
 
 
-def rank_live(db: Session | None, settings, as_of: date | None = None) -> tuple[list[ReversalCandidate], list[ReversalCandidate], list[ReversalCandidate], date | None]:
-    """Load universe + panel + earnings and rank. Returns (picks, skipped, pool, as_of)."""
+def rank_live(
+    db: Session | None,
+    settings,
+    as_of: date | None = None,
+    *,
+    include_today: bool = False,
+) -> tuple[list[ReversalCandidate], list[ReversalCandidate], list[ReversalCandidate], date | None]:
+    """Load universe + panel + earnings and rank. Returns (picks, skipped, pool, as_of).
+
+    ``include_today`` keeps the in-progress session. Live entries leave it
+    off; the Friday 12:55 preview turns it on so the list matches the tape.
+    """
     tickers = load_sp500_tickers()
     if not tickers:
         return [], [], [], None
-    panel = load_panel(tickers, as_of=as_of)
+    panel = load_panel(tickers, as_of=as_of, refresh=include_today)
     if panel.empty:
         return [], [], [], None
     panel["date"] = pd.to_datetime(panel["date"]).dt.tz_localize(None).dt.normalize()
     last = panel["date"].max().date()
     today = date.today()
+    if include_today and as_of is None:
+        as_of = today
     if as_of is None:
         # Live rank must not use today's in-progress daily bar. The 13:33 UTC
         # cron is ~3 minutes after the open; Yahoo already has a partial session
@@ -637,3 +656,137 @@ def read_watch() -> dict | None:
     if datetime.utcnow() - ts > timedelta(days=7):
         return None
     return data
+
+
+PACIFIC = ZoneInfo("America/Los_Angeles")
+_PREVIEW_LEAD = timedelta(minutes=30)
+
+
+def preview_wait_target(now: datetime | None = None) -> datetime | None:
+    """Friday 12:55 PM Pacific, if ``now`` is inside the preceding 30 minutes.
+
+    The paper cron already fires at 12:30 PM local (19:30 UTC during PDT,
+    20:30 UTC during PST). That run waits and sends. It does not place orders.
+    """
+    now = now or datetime.now(PACIFIC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=PACIFIC)
+    else:
+        now = now.astimezone(PACIFIC)
+    if now.weekday() != 4:
+        return None
+    target = now.replace(hour=12, minute=55, second=0, microsecond=0)
+    delta = target - now
+    if timedelta(0) < delta <= _PREVIEW_LEAD:
+        return target
+    return None
+
+
+def format_reversal_preview(
+    picks: list[ReversalCandidate],
+    skipped: list[ReversalCandidate],
+    held: dict[str, str],
+    *,
+    reversal_open: bool,
+    as_of: date | None,
+    today: date,
+    settings,
+) -> str:
+    """Telegram body for the Friday candidate list. Never an order."""
+    lines = [
+        "5-day losers — next week",
+        "Friday 12:55 PM PT preview. No orders.",
+    ]
+    if as_of is None:
+        lines.append("No ranking (panel empty).")
+    elif as_of < today:
+        lines.append(
+            f"Last bar in the download is {as_of.isoformat()}, so Friday's "
+            "session is not in this list yet."
+        )
+    else:
+        lines.append(f"Through the {as_of.isoformat()} print, about 5 min before the close.")
+    if reversal_open:
+        lines.append("Current cohort is still open. This is the next rebalance, not a fill today.")
+    lines.append("The live book uses the closing print, so a name can still drop off.")
+    if not picks:
+        lines.append("No names cleared price, dollar-volume, and earnings filters.")
+    for i, cand in enumerate(picks, start=1):
+        conv = reversal_conviction(cand.ret_5, settings)
+        frac = (
+            settings.paper_reversal_risk_fraction(conv)
+            if hasattr(settings, "paper_reversal_risk_fraction")
+            else None
+        )
+        size = f" · {frac:.0%}" if frac is not None else ""
+        note = ""
+        owner = held.get(cand.ticker)
+        if owner and owner != STRATEGY:
+            note = f" · skip, already in {owner}"
+        elif owner == STRATEGY:
+            note = " · already in this cohort"
+        lines.append(
+            f"{i}. {cand.ticker} {cand.ret_5:+.1%}{size} ({conv}){note}"
+        )
+    earn = [c for c in skipped if c.skipped_earn][:8]
+    if earn:
+        lines.append(
+            "Earnings window: "
+            + ", ".join(f"{c.ticker} {c.ret_5:+.1%}" for c in earn)
+        )
+    return "\n".join(lines)
+
+
+def notify_reversal_preview(db: Session, settings) -> bool:
+    """Rank with today's session and text the list. Does not submit orders."""
+    from app.db.models import PaperTrade
+    from app.services.notify import send_telegram, telegram_configured
+
+    if not telegram_configured():
+        logger.warning("reversal preview skipped: Telegram is not configured")
+        return False
+    picks, skipped, _pool, as_of = rank_live(db, settings, include_today=True)
+    open_rows = db.scalars(
+        select(PaperTrade).where(PaperTrade.status.in_(("pending", "open", "closing")))
+    ).all()
+    held = {t.ticker: (t.strategy or "") for t in open_rows}
+    text = format_reversal_preview(
+        picks,
+        skipped,
+        held,
+        reversal_open=any((t.strategy or "") == STRATEGY for t in open_rows),
+        as_of=as_of,
+        today=date.today(),
+        settings=settings,
+    )
+    logger.info("reversal preview:\n%s", text)
+    return send_telegram(text)
+
+
+def deliver_reversal_preview(target: datetime) -> None:
+    """Sleep until ``target`` if needed, then send once for that calendar day."""
+    import time
+
+    from app.config import get_settings
+    from app.db.session import session_scope
+
+    now = datetime.now(PACIFIC)
+    delay = (target.astimezone(PACIFIC) - now).total_seconds()
+    if delay > 0:
+        logger.info(
+            "reversal preview waiting %.0fs until %s", delay, target.isoformat()
+        )
+        time.sleep(delay)
+    day = target.astimezone(PACIFIC).date().isoformat()
+    marker = cache_dir() / f"preview_{day}"
+    if marker.exists():
+        logger.info("reversal preview already sent for %s", day)
+        return
+    settings = get_settings()
+    if not getattr(settings, "paper_reversal_preview_enabled", True):
+        return
+    with session_scope() as db:
+        ok = notify_reversal_preview(db, settings)
+    if ok:
+        marker.write_text(target.isoformat())
+

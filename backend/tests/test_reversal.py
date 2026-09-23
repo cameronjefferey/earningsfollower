@@ -16,7 +16,10 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.paper.reversal import (  # noqa: E402
+    ReversalCandidate,
+    format_reversal_preview,
     hold_elapsed,
+    preview_wait_target,
     rank_from_panel,
     reaction_dates,
     reversal_conviction,
@@ -288,6 +291,47 @@ def test_conviction_scales_with_washout_depth():
     assert reversal_conviction(-0.04, s) == "low"
 
 
+def test_preview_waits_only_before_friday_1255_pacific():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("America/Los_Angeles")
+    target = preview_wait_target(datetime(2026, 9, 25, 12, 30, tzinfo=tz))
+    assert target is not None
+    assert target.hour == 12 and target.minute == 55
+    assert preview_wait_target(datetime(2026, 9, 25, 12, 0, tzinfo=tz)) is None
+    assert preview_wait_target(datetime(2026, 9, 25, 12, 55, tzinfo=tz)) is None
+    assert preview_wait_target(datetime(2026, 9, 25, 13, 0, tzinfo=tz)) is None
+    assert preview_wait_target(datetime(2026, 9, 24, 12, 30, tzinfo=tz)) is None
+
+
+def test_preview_message_places_no_orders():
+    settings = SimpleNamespace(
+        paper_reversal_conviction_high_ret=-0.12,
+        paper_reversal_conviction_medium_ret=-0.08,
+        paper_reversal_risk_fraction=lambda conv: {
+            "high": 0.03, "medium": 0.02, "low": 0.01
+        }[conv],
+    )
+    picks = [
+        ReversalCandidate("VRT", -0.15, 250.0, 80_000_000, date(2026, 9, 25)),
+        ReversalCandidate("XYZ", -0.05, 40.0, 80_000_000, date(2026, 9, 25)),
+    ]
+    text = format_reversal_preview(
+        picks,
+        [],
+        {"XYZ": "earnings"},
+        reversal_open=True,
+        as_of=date(2026, 9, 25),
+        today=date(2026, 9, 25),
+        settings=settings,
+    )
+    assert "No orders" in text
+    assert "VRT -15.0% · 3% (high)" in text
+    assert "XYZ -5.0% · 1% (low) · skip, already in earnings" in text
+    assert "still open" in text
+
+
 if __name__ == "__main__":
     tests = [
         test_trading_days_monday_to_next_monday_is_five,
@@ -303,6 +347,8 @@ if __name__ == "__main__":
         test_shadow_hold_due_after_five_sessions,
         test_shadow_vs_live_hold_beats_early_clip,
         test_conviction_scales_with_washout_depth,
+        test_preview_waits_only_before_friday_1255_pacific,
+        test_preview_message_places_no_orders,
     ]
     for fn in tests:
         fn()

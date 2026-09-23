@@ -229,6 +229,11 @@ services:
         value: "0.0055"
       - key: PAPER_REVERSAL_PIT_REBUILD_BY
         value: "2026-09-29"
+      # Friday 12:55 PM PT: the 12:30 run waits and texts next week's names.
+      # That message does not place orders. 12:30 local is already inside
+      # this cron (19:30 UTC in PDT, 20:30 UTC in PST).
+      - key: PAPER_REVERSAL_PREVIEW_ENABLED
+        value: "true"
       # Fills: entries cross (take the ask / hit the bid + a small buffer) so
       # wide, illiquid spreads fill; exits price at the mid nudged by the buffer
       # so we never dump a held spread to a dead bid. Orders go out only while

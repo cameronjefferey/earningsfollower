@@ -57,6 +57,20 @@ def main() -> None:
         logger.info("Test message %s.", "sent" if ok else "failed to send")
         raise SystemExit(0 if ok else 1)
 
+    from app.config import get_settings
+    from app.services.paper.reversal import (
+        deliver_reversal_preview,
+        preview_wait_target,
+    )
+
+    preview_target = None
+    if not args.dry_run:
+        try:
+            if get_settings().paper_reversal_preview_enabled:
+                preview_target = preview_wait_target()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("reversal preview schedule check failed: %s", e)
+
     init_db()
     db = SessionLocal()
     started = datetime.utcnow()
@@ -85,6 +99,11 @@ def main() -> None:
                 logger.warning("failed to persist paper job run: %s", e)
     finally:
         db.close()
+        if preview_target is not None:
+            try:
+                deliver_reversal_preview(preview_target)
+            except Exception:  # noqa: BLE001
+                logger.exception("reversal preview failed")
     logger.info("Paper run result:\n%s", json.dumps(result, indent=2, default=str))
 
     # Fail the process (and page via Telegram / Render notifyOnFail) when the

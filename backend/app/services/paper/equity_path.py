@@ -89,6 +89,12 @@ POLICY_EVENTS: tuple[dict, ...] = (
         "title": "Reversal rides the tested 5-session hold",
         "detail": "Backtest hold (+1.09%) beat the 10% clip (+0.55%). Live dropped the clip; 10% is a shadow mark only.",
     },
+    {
+        "date": "2026-09-22",
+        "kind": "guard",
+        "title": "Reversal sized 2% after the first live bounce week",
+        "detail": "VRT/LRCX confirmed the sleeve. 2% equity/name, still PIT-capped (due 2026-09-29). Open rows keep their entry size; next cohort gets 2%.",
+    },
 )
 
 BOOK_LABELS = {

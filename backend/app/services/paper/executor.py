@@ -1875,7 +1875,7 @@ def _scan_reversal_entries(
         ).all()
     }
     max_open = int(getattr(settings, "paper_reversal_max_open", 5))
-    risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.01))
+    risk_frac = float(getattr(settings, "paper_reversal_risk_frac", 0.02))
     opened = 0
     opened_ids: list[str] = []
     for cand in picks:

@@ -341,8 +341,9 @@ class Settings(BaseSettings):
     # sessions, equal-weight, non-overlapping. Backtest no-TP mean +1.09%/hold
     # beat a hard 10% daily TP (+0.55%/hold). Live follows the hold; the 10%
     # clip is a shadow mark only. The 1.22 Sharpe is current-membership, not a
-    # live expectation. Size 1% equity/name off half the no-TP mean until PIT
-    # membership is rebuilt (due 2026-09-29). Long-only. Kill like waves (0-for-12).
+    # live expectation. First live bounce week (VRT/LRCX) confirmed the
+    # sleeve, so size is 2% equity/name — still PIT-capped (due 2026-09-29),
+    # not the full 1.22-Sharpe bet. Long-only. Kill like waves (0-for-12).
     paper_reversal_enabled: bool = True
     paper_reversal_top_n: int = 5
     paper_reversal_lookback_days: int = 5
@@ -353,7 +354,7 @@ class Settings(BaseSettings):
     paper_reversal_min_price: float = 10.0
     paper_reversal_min_dollar_vol: float = 50_000_000.0
     paper_reversal_earn_buffer_days: int = 5
-    paper_reversal_risk_frac: float = 0.01
+    paper_reversal_risk_frac: float = 0.02
     paper_reversal_max_open: int = 5
     # Half the no-TP backtest mean; survivorship still unknown.
     paper_reversal_expected_hold_pct: float = 0.0055

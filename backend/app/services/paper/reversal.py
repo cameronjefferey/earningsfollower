@@ -7,8 +7,8 @@ rebalance. Backtest (2019–2026, current S&P, 10 bps): 5-name mean
 Live follows the tested hold; the 10% clip is a shadow mark only.
 
 No earnings-equity stop, no entry model until this book has its own sample.
-Current S&P membership until the PIT rebuild (due 2026-09-29); size 1%
-equity/name off half the no-TP mean, not the 1.22 Sharpe.
+Current S&P membership until the PIT rebuild (due 2026-09-29); size 2%
+equity/name after the first live bounce week, not the 1.22 Sharpe.
 """
 
 from __future__ import annotations

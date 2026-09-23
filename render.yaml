@@ -201,7 +201,8 @@ services:
         value: "0.015"
       # 5-day loser weekly: long the worst 5-session S&P names, hold 5
       # sessions, skip earnings ±5 sessions. Live is the tested hold;
-      # 10% clip is a shadow. Size 1% pending PIT (due 2026-09-29).
+      # 10% clip is a shadow. Size 2%/name after the first live bounce
+      # week; still PIT-capped (due 2026-09-29).
       - key: PAPER_REVERSAL_ENABLED
         value: "true"
       - key: PAPER_REVERSAL_TOP_N
@@ -213,7 +214,7 @@ services:
       - key: PAPER_REVERSAL_SHADOW_TAKE_PROFIT_PCT
         value: "0.10"
       - key: PAPER_REVERSAL_RISK_FRAC
-        value: "0.01"
+        value: "0.02"
       - key: PAPER_REVERSAL_MAX_OPEN
         value: "5"
       - key: PAPER_REVERSAL_EXPECTED_HOLD_PCT

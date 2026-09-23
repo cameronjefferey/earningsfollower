@@ -8,7 +8,7 @@ import { WeekHeat } from "@/components/marketing/WeekHeat";
 export const metadata: Metadata = {
   title: "earningsfollower - priced-in calendar & trading boards",
   description:
-    "Earnings research built around what’s already priced in options, plus live Waves and Drift boards for post-report continuation and peer setups.",
+    "Earnings research on $10B+ names: priced-in calendar, peer waves, and the week’s 5-day losers.",
   alternates: { canonical: "https://www.earningsfollower.com/" },
 };
 
@@ -21,7 +21,7 @@ export default function MarketingHomePage() {
     operatingSystem: "Web",
     url: "https://www.earningsfollower.com",
     description:
-      "Priced-in earnings calendar plus Pro Waves and Drift boards for post-report continuation and peer-wave setups.",
+      "Priced-in earnings calendar for $10B+ names, plus peer waves and the week’s 5-day losers.",
     offers: [
       {
         "@type": "Offer",
@@ -35,7 +35,7 @@ export default function MarketingHomePage() {
         price: "9.99",
         priceCurrency: "USD",
         name: "Pro",
-        description: "Live Waves and Drift boards, billed monthly",
+        description: "Live Waves board and the 5-day losers list, billed monthly",
       },
     ],
   };
@@ -64,8 +64,8 @@ export default function MarketingHomePage() {
             reports, and after a peer reports.
           </h1>
           <p className="m-hero-line m-hero-line-2 mt-4 max-w-lg text-[var(--m-muted)]">
-            Calendar for the field. Waves and Drift boards when you&apos;re ready to
-            trade the follow-through.
+            Calendar for large caps. Waves and the 5-day losers when you&apos;re ready
+            to look at a setup.
           </p>
           <div className="m-hero-line m-hero-line-3 mt-9 flex flex-wrap items-center gap-3">
             <Link href="/login?mode=signup&next=/calendar" className="m-btn-primary">
@@ -98,12 +98,12 @@ export default function MarketingHomePage() {
               {
                 n: "02",
                 t: "After it reports",
-                d: "Peer waves into the next name. Drift after a strong report. History with n attached - thin samples get called thin.",
+                d: "Peer waves into the next large-cap name. The week’s worst 5-day losers. History with n attached - thin samples get called thin.",
               },
               {
                 n: "03",
                 t: "Boards",
-                d: "Live Waves and Drift - post-earnings continuation and peer setups, with sample size attached. Trade from the board, not a catalog.",
+                d: "Live Waves for peer setups, and the 5-day losers the book ranks. Large caps only.",
               },
             ].map((s, i) => (
               <Reveal key={s.t} delayMs={i * 50}>
@@ -152,8 +152,8 @@ export default function MarketingHomePage() {
                 Follow-through after it reports
               </h2>
               <p className="mt-4 text-[var(--m-muted)] leading-relaxed">
-                Boards surface peer waves (a related name already reported) and
-                post-earnings drift (the report already landed). Sample size stays on the
+                Boards surface peer waves (a related large-cap already reported) and
+                the week&apos;s worst 5-day losers. Sample size stays on the wave
                 card. If history is junk, we say so.
               </p>
             </Reveal>
@@ -164,8 +164,8 @@ export default function MarketingHomePage() {
                   into the next peer report
                 </li>
                 <li className="border-l-2 border-[var(--m-warm)] pl-3">
-                  <span className="text-white font-medium">Drift</span> - after a strong
-                  report, history on whether the move kept going
+                  <span className="text-white font-medium">5-day losers</span> - the worst
+                  five-session S&amp;P names, earnings window skipped
                 </li>
                 <li className="border-l-2 border-[var(--m-line)] pl-3">
                   <span className="text-white font-medium">Drop-if</span> - explicit kill
@@ -184,7 +184,7 @@ export default function MarketingHomePage() {
             </Reveal>
             <Reveal delayMs={100}>
               <Link href="/how-it-works" className="text-sm text-[var(--m-accent)] hover:underline">
-                How waves &amp; drift work →
+                How waves &amp; 5-day losers work →
               </Link>
             </Reveal>
           </div>
@@ -238,8 +238,8 @@ export default function MarketingHomePage() {
               Start with the map
             </h2>
             <p className="mt-4 max-w-md text-[var(--m-muted)] leading-relaxed">
-              See what&apos;s priced for this week. When reports start landing, open
-              Waves and Drift.
+              See what&apos;s priced for this week. When you want a setup, open
+              Waves or the 5-day losers.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/login?mode=signup&next=/calendar" className="m-btn-primary">

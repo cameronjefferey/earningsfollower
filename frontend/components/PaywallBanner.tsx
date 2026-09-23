@@ -33,7 +33,7 @@ export function PaywallBanner({
           <div className="text-sm font-semibold tracking-tight">{title}</div>
           <p className="text-sm text-[var(--color-muted)] mt-1 leading-relaxed">
             {note ||
-              "This is demo data so you can see the layout - not today's live book. Pro unlocks live Waves and Drift."}
+              "This is demo data so you can see the layout - not today's live book. Pro unlocks live Waves."}
           </p>
         </div>
       </div>

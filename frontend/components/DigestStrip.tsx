@@ -10,9 +10,9 @@ function boardsHref(focus: RankedSetup | null, isPreview: boolean): string {
   if (isPreview) return "/pricing?next=/boards";
   if (focus?.board_href?.startsWith("/")) {
     if (focus.board_href.includes("wave")) return "/boards?tab=waves";
-    if (focus.board_href.includes("drift")) return "/boards?tab=drift";
+    if (focus.board_href.includes("drift")) return "/boards?tab=losers";
   }
-  if (focus?.kind === "drift") return "/boards?tab=drift";
+  if (focus?.kind === "drift") return "/boards?tab=losers";
   return "/boards?tab=waves";
 }
 
@@ -48,7 +48,7 @@ export function DigestStrip() {
 
   const href = boardsHref(focus, false);
   const cta =
-    focus?.kind === "wave" ? "Waves →" : focus ? "Drift →" : "Boards →";
+    focus?.kind === "wave" ? "Waves →" : focus ? "Boards →" : "Boards →";
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">

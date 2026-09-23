@@ -43,8 +43,8 @@ export default function MarketingLayout({
               earnings<span>follower</span>
             </p>
             <p>
-              Priced-in map, post-report drift, peer waves. Not a signal service. Not
-              advice. Numbers can be late or wrong.
+              Priced-in map for large caps, peer waves, 5-day losers. Not a signal
+              service. Not advice. Numbers can be late or wrong.
             </p>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2 sm:flex-col sm:items-end">

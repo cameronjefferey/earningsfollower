@@ -186,7 +186,7 @@ export function FocusHero({
   setup: RankedSetup;
   preview?: boolean;
 }) {
-  const kindLabel = setup.kind === "wave" ? "Peer wave" : "Post-earnings drift";
+  const kindLabel = setup.kind === "wave" ? "Peer wave" : "Board";
   const kindColor = setup.kind === "wave" ? "#5b8def" : "#28c08a";
   const dirLong = setup.direction !== "bearish";
   const plan = setup.plan;
@@ -286,10 +286,10 @@ export function FocusHero({
           </span>
         ) : (
           <Link
-            href={setup.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=drift"}
+            href={setup.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=losers"}
             className="text-[var(--color-accent)] hover:underline ml-auto"
           >
-            {setup.kind === "wave" ? "Wave" : "Drift"} board →
+            {setup.kind === "wave" ? "Wave" : "Boards"} board →
           </Link>
         )}
       </div>

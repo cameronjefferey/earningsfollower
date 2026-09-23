@@ -616,7 +616,7 @@ def write_watch(
     note: str | None = None,
     pool: list[ReversalCandidate] | None = None,
     settings=None,
-) -> None:
+) -> dict:
     cache_dir()
 
     def _row(cand: ReversalCandidate) -> dict:
@@ -638,6 +638,7 @@ def write_watch(
         "pool": [_row(c) for c in (pool or [])[:15]],
     }
     WATCH_PATH.write_text(json.dumps(payload))
+    return payload
 
 
 def read_watch() -> dict | None:

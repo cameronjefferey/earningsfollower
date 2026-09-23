@@ -234,8 +234,8 @@ function PricingInner() {
           <div>
             <div className="text-lg font-semibold">Pro</div>
             <div className="text-sm text-[var(--color-muted)] mt-1 max-w-xs">
-              The live Waves board: peers rip, the next name re-prices. Plus Drift
-              and the stats behind each setup.
+              The live Waves board: peers rip, the next large-cap re-prices. Plus the
+              week&apos;s 5-day losers.
             </div>
           </div>
           <div className="text-right">
@@ -255,8 +255,8 @@ function PricingInner() {
             when a new wave forms, so you catch the setup without watching the board
           </li>
           <li>
-            <span className="text-white font-medium">Drift board</span> - live
-            post-earnings continuation setups with history and stops
+            <span className="text-white font-medium">5-day losers</span> - the
+            worst five-session S&amp;P names, the same list the book ranks
           </li>
           <li>
             <span className="text-white font-medium">Sample honesty</span> - win rate

@@ -46,6 +46,26 @@ WINDOWS = {"all", "today", "week", "last_week", "upcoming", "around"}
 def _is_admin(caller: OptionalAuth, settings: Settings) -> bool:
     return bool(caller and caller.is_admin(settings))
 
+def _page_universe(db: Session, cards: list, settings: Settings, limit: int) -> tuple[list, bool]:
+    """Drop names the live book will not trade, then paginate."""
+    from app.services.universe import universe_tickers
+
+    allowed = universe_tickers(db, [c.get("ticker") or "" for c in cards], settings)
+    kept = [c for c in cards if (c.get("ticker") or "").upper() in allowed]
+    return kept[:limit], len(kept) > limit
+
+
+def _universe_signals(db: Session, signals: list, settings: Settings) -> list:
+    from app.services.universe import universe_tickers
+    from app.services.waves import filter_by_min_peers
+
+    allowed = universe_tickers(
+        db, [s.get("target") or "" for s in signals], settings
+    )
+    kept = [s for s in signals if (s.get("target") or "").upper() in allowed]
+    return filter_by_min_peers(kept)
+
+
 @router.get("/themes", tags=["reference"])
 def get_themes(db: Session = Depends(get_db)) -> list[dict]:
     # Public (freemium): calendar filters need theme list.
@@ -63,6 +83,7 @@ def get_earnings(
         description="Return at most this many cards (date-ordered). Raise to load more.",
     ),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     if window not in WINDOWS:
         raise HTTPException(400, f"window must be one of {sorted(WINDOWS)}")
@@ -70,6 +91,7 @@ def get_earnings(
     # Day + limit in the key so Mon–Sun windows roll correctly at midnight.
     cache_key = (
         f"earnings:{window}:{theme or ''}:{start.isoformat()}:{end.isoformat()}:{limit}"
+        f":{int(settings.calendar_min_market_cap)}"
     )
     cached = response_cache.get(cache_key)
     if cached is not None:
@@ -108,20 +130,18 @@ def get_earnings(
                 for c in cards
                 if any(t.get("key") == theme for t in (c.get("themes") or []))
             ]
-        has_more = len(cards) > limit
-        cards = cards[:limit]
     elif window == "all" and not theme:
         # First full-span request materializes the snapshot (slow once).
-        all_cards, _ = dashboard.earnings_cards(db, "all")
+        cards, _ = dashboard.earnings_cards(db, "all")
         try:
-            row = board_snapshots.persist_earnings_snapshot(db, all_cards)
+            row = board_snapshots.persist_earnings_snapshot(db, cards)
             updated_at = row.computed_at.isoformat() if row.computed_at else None
         except Exception:
             updated_at = None
-        has_more = len(all_cards) > limit
-        cards = all_cards[:limit]
     else:
-        cards, has_more = dashboard.earnings_cards(db, window, theme, limit=limit)
+        cards, _ = dashboard.earnings_cards(db, window, theme)
+
+    cards, has_more = _page_universe(db, cards or [], settings, limit)
 
     payload = {
         "window": window,
@@ -167,7 +187,10 @@ def get_company(
 
 
 @router.get("/waves/watch", tags=["waves"])
-def get_wave_watch(db: Session = Depends(get_db)) -> dict:
+def get_wave_watch(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
     """Public teaser: which waves are forming right now, without the Pro stats.
 
     Free surfaces (calendar strip, /start) show real targets, report dates, and
@@ -180,6 +203,11 @@ def get_wave_watch(db: Session = Depends(get_db)) -> dict:
 
     recent, upcoming = board_snapshots.DEFAULT_WAVES
     snap = board_snapshots.get_snapshot(db, "waves", f"{recent}:{upcoming}")
+    if snap is not None:
+        snap = {
+            **snap,
+            "signals": _universe_signals(db, list(snap.get("signals") or []), settings),
+        }
     from app.services.wave_alerts import summarize_wave_targets
 
     items = []
@@ -278,13 +306,14 @@ def get_waves(
         description="Max signals to return. Smaller values early-stop for faster first paint.",
     ),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     # Guests get a static demo board instantly - no live compute, no live book.
     if access == "preview":
         payload = demo_waves(recent_days=recent_days, upcoming_days=upcoming_days)
         return {**payload, "limit": limit, "has_more": False}
 
-    cache_key = f"waves:{recent_days}:{upcoming_days}:{limit}"
+    cache_key = f"waves:{recent_days}:{upcoming_days}:{limit}:{int(settings.calendar_min_market_cap)}"
     cached = response_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -293,6 +322,10 @@ def get_waves(
     params_key = f"{recent_days}:{upcoming_days}"
     snap = board_snapshots.get_snapshot(db, "waves", params_key)
     if snap is not None:
+        snap = {
+            **snap,
+            "signals": _universe_signals(db, list(snap.get("signals") or []), settings),
+        }
         payload = board_snapshots.slice_list_payload(snap, list_key="signals", limit=limit)
         response_cache.set(cache_key, payload)
         return payload
@@ -303,6 +336,7 @@ def get_waves(
         upcoming_days=upcoming_days,
         limit=limit,
     )
+    signals = _universe_signals(db, signals, settings)
     payload = {
         "recent_days": recent_days,
         "upcoming_days": upcoming_days,
@@ -316,6 +350,27 @@ def get_waves(
     }
     response_cache.set(cache_key, payload)
     return payload
+
+
+@router.get("/reversal", tags=["reversal"])
+def get_reversal(db: Session = Depends(get_db)) -> dict:
+    """This week's 5-day-loser candidates. The paper cron publishes the list.
+
+    Public: five S&P names, the drop, and the size the book would use.
+    Publishing the list does not place an order.
+    """
+    cached = response_cache.get("reversal:live")
+    if cached is not None:
+        return cached
+    snap = board_snapshots.get_snapshot(db, "reversal", "live") or {
+        "candidates": [],
+        "skipped_earn": [],
+        "holding": False,
+        "as_of": None,
+        "updated_at": None,
+    }
+    response_cache.set("reversal:live", snap)
+    return snap
 
 
 @router.get("/drift", tags=["drift"])

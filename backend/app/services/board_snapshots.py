@@ -82,6 +82,16 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
     wave_signals, _ = waves.current_waves(
         db, recent_days=recent, upcoming_days=upcoming, limit=FULL_WAVES_LIMIT
     )
+    from app.config import get_settings
+    from app.services.universe import universe_tickers
+    from app.services.waves import filter_by_min_peers
+
+    allowed = universe_tickers(
+        db, [s.get("target") or "" for s in wave_signals], get_settings()
+    )
+    wave_signals = filter_by_min_peers(
+        [s for s in wave_signals if (s.get("target") or "").upper() in allowed]
+    )
     wave_payload = {
         "recent_days": recent,
         "upcoming_days": upcoming,
@@ -156,6 +166,11 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
         "drift": len(drift_setups),
         "earnings": len(earn_cards),
     }
+
+
+def persist_reversal_watch(db: Session, payload: dict) -> None:
+    """The paper cron's candidate list, served on the 5-day losers board."""
+    _upsert(db, "reversal", "live", payload)
 
 
 def get_snapshot(db: Session, kind: str, params_key: str) -> dict | None:

@@ -4,22 +4,22 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "FAQ for earningsfollower: free earnings calendar vs Pro Waves/Drift boards, pricing, data sources, and what the product is not.",
+    "FAQ for earningsfollower: free $10B+ earnings calendar, peer waves, and 5-day losers.",
   alternates: { canonical: "https://www.earningsfollower.com/faq" },
 };
 
 const faqs: { q: string; a: string }[] = [
   {
     q: "What is earningsfollower?",
-    a: "Research for earnings season built around what’s already priced in options, plus live Waves and Drift boards for post-report continuation and peer setups.",
+    a: "Research for earnings season on large caps: what’s already priced in options, peer waves into the next report, and the week’s worst 5-day losers.",
   },
   {
     q: "What’s free vs paid?",
-    a: "The earnings calendar is free with no account. Company pages - full reaction history and implied move context - are free too: a few pages as a guest, unlimited with a free account. Live Waves and Drift boards are Pro. Details on Pricing.",
+    a: "The earnings calendar is free with no account, and it only lists $10B+ names (application software is left off). Company pages are free too: a few pages as a guest, unlimited with a free account. The live Waves board is Pro. The 5-day losers list is on the boards page. Details on Pricing.",
   },
   {
     q: "What’s on the boards?",
-    a: "Drift: stocks that just printed hard and historically keep moving for ~5 sessions. Waves: names reporting next that historically run after peers in the same theme already reported.",
+    a: "Waves: large-cap names reporting next, after at least two peers in the theme already ripped. 5-day losers: the worst five-session S&P names, the same list the book ranks each week.",
   },
   {
     q: "Is this financial advice or trade signals?",
@@ -30,8 +30,8 @@ const faqs: { q: string; a: string }[] = [
     a: "Mostly Financial Modeling Prep and Yahoo Finance. Implied moves are ATM-straddle estimates and can be wrong or delayed.",
   },
   {
-    q: "Peer waves and post-earnings drift?",
-    a: "Peer waves: a related company already reported; we look at how names in that theme have moved into their own reports. Drift: after a report, some stocks historically keep moving for a few sessions - we show that with sample size attached.",
+    q: "Peer waves and 5-day losers?",
+    a: "Peer waves: a related large-cap already reported and ripped; we look at how names in that theme have moved into their own reports. 5-day losers: the worst five-session drops in the S&P 500, with names that report too soon left off.",
   },
   {
     q: "How do I cancel?",

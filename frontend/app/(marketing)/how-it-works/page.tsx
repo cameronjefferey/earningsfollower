@@ -5,7 +5,7 @@ import { Reveal } from "@/components/marketing/Reveal";
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "Priced-in calendar, peer waves, and post-report drift boards - the research surfaces you trade from.",
+    "Priced-in calendar for $10B+ names, peer waves, and the week's 5-day losers.",
   alternates: {
     canonical: "https://www.earningsfollower.com/how-it-works",
   },
@@ -18,8 +18,8 @@ export default function HowItWorksPage() {
         How it works
       </h1>
       <p className="m-hero-line mt-5 text-lg text-[var(--m-muted)] leading-relaxed">
-        Priced-in map. Follow-through after a name reports and after a peer reports -
-        on live Waves and Drift boards.
+        Priced-in map for large caps. Peer waves into the next report, and the
+        week&apos;s worst 5-day losers.
       </p>
 
       <div className="mt-12 space-y-12 text-[var(--m-muted)] leading-relaxed">
@@ -27,8 +27,8 @@ export default function HowItWorksPage() {
           <h2 className="m-display text-xl text-[var(--m-ink)]">Priced-in calendar</h2>
           <p className="mt-3">
             Who reports, BMO/AMC, themes, market cap, and an options-implied move when we
-            can estimate one. That&apos;s the field - what the market already baked in -
-            not a secret EPS.
+            can estimate one. The calendar is $10B+ and leaves application software
+            off - the same bar as the live book.
           </p>
           <p className="mt-3">
             Company pages hold the reaction history. The calendar stays usable without
@@ -56,11 +56,10 @@ export default function HowItWorksPage() {
         </Reveal>
 
         <Reveal delayMs={60}>
-          <h2 className="m-display text-xl text-[var(--m-ink)]">Drift: after it reports</h2>
+          <h2 className="m-display text-xl text-[var(--m-ink)]">5-day losers</h2>
           <p className="mt-3">
-            <span className="text-[var(--m-ink)]">Post-earnings drift</span> - the report
-            already landed; history on whether similar reports kept moving (or faded),
-            with sample size attached.
+            The worst five-session drops in the S&amp;P 500. Names with earnings
+            too close are left off. The same short list the book ranks each week.
           </p>
         </Reveal>
 
@@ -68,9 +67,9 @@ export default function HowItWorksPage() {
           <h2 className="m-display text-xl text-[var(--m-ink)]">Trade from the board</h2>
           <p className="mt-3">
             Open{" "}
-            <span className="text-[var(--m-ink)]">Waves</span> or{" "}
-            <span className="text-[var(--m-ink)]">Drift</span>, filter by sample quality,
-            and work the live list. Calendar&apos;s Today strip can point you at a board
+            <span className="text-[var(--m-ink)]">Waves</span> or the{" "}
+            <span className="text-[var(--m-ink)]">5-day losers</span>, and work the
+            live list. Calendar&apos;s Today strip can point you at a board
             when something&apos;s hot - without a separate brief page.
           </p>
         </Reveal>

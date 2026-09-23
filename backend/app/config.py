@@ -117,6 +117,8 @@ class Settings(BaseSettings):
     # it, so earnings + PEAD coverage isn't capped at a hand-picked watchlist.
     # (Optionability enforces itself at trade time - the option builders bail on
     # names with no listed contracts - so the screen bar is just price + cap.)
+    # The public site uses the same floor as the earnings book: $10B+, and the
+    # industry skip below. Mid-caps were the live leak.
     calendar_universe_enabled: bool = True
     # How far back / forward to scan the calendar. Back must cover the PEAD
     # lookback (~12 trading days) so just-reported names still surface as drift
@@ -124,7 +126,7 @@ class Settings(BaseSettings):
     calendar_back_days: int = 16
     calendar_forward_days: int = 14
     # Moderate liquidity bar for a name to be tradeable.
-    calendar_min_market_cap: float = 2_000_000_000.0
+    calendar_min_market_cap: float = 10_000_000_000.0
     calendar_min_price: float = 10.0
     # Cap how many names a single refresh ingests (biggest market caps win), to
     # bound runtime and API spend. Raise once we're comfortable with the load.

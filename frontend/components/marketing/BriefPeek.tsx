@@ -7,7 +7,7 @@ import { useMarketingData } from "./MarketingData";
 
 function kindLabel(kind: RankedSetup["kind"]): string {
   if (kind === "wave") return "Peer wave";
-  if (kind === "drift") return "Post-report drift";
+  if (kind === "drift") return "Board";
   return kind;
 }
 
@@ -19,7 +19,7 @@ function kindLabel(kind: RankedSetup["kind"]): string {
 export function BriefPeek() {
   const { focus } = useMarketingData();
   const boardsHref =
-    focus.data?.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=drift";
+    focus.data?.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=losers";
 
   return (
     <div className="m-mid-product">

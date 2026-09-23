@@ -1365,9 +1365,10 @@ def _earnings_equity_shares(notional: float | None, spot: float | None) -> int:
 def _earnings_quality_skip(company: Company | None, settings) -> str | None:
     """Paper-only size / industry cuts for the earnings-stock book.
 
-    The public calendar stays at ``calendar_min_market_cap`` ($2B). Missing
-    market cap does not veto (share-class tickers like GOOGL/BRK.B); only a
-    known print below the floor does.
+    The public calendar uses the same $10B floor. Missing
+    market cap does not veto a paper entry (share-class tickers like
+    GOOGL/BRK.B); only a known print below the floor does. The site hides
+    a missing cap, because it only lists names we know are big.
     """
     min_cap = float(getattr(settings, "paper_earnings_min_market_cap", 0) or 0)
     cap = getattr(company, "market_cap", None) if company else None
@@ -1822,6 +1823,15 @@ def _earnings_equity_exit_reason(
     return None
 
 
+def _publish_reversal_watch(db: Session, payload: dict, *, dry_run: bool) -> None:
+    if dry_run:
+        return
+    from app.services.board_snapshots import persist_reversal_watch
+
+    persist_reversal_watch(db, payload)
+    db.commit()
+
+
 def _scan_reversal_entries(
     db: Session, client: AlpacaClient, equity: float, settings, dry_run: bool
 ) -> tuple[int, list]:
@@ -1853,7 +1863,7 @@ def _scan_reversal_entries(
         logger.warning("reversal rank failed: %s", e)
         skipped.append({"reason": f"rank failed: {e}"})
         return 0, skipped
-    write_watch(
+    payload = write_watch(
         picks,
         earn_skip,
         as_of=as_of,
@@ -1862,6 +1872,7 @@ def _scan_reversal_entries(
         settings=settings,
         note="cohort open" if holding else None,
     )
+    _publish_reversal_watch(db, payload, dry_run=dry_run)
     if holding:
         skipped.append({"reason": "reversal cohort still open (non-overlapping)"})
         return 0, skipped
@@ -1973,7 +1984,7 @@ def _scan_reversal_entries(
         opened += 1
         opened_ids.append(trade.signal_id)
         occupied.add(cand.ticker)
-    write_watch(
+    payload = write_watch(
         picks,
         earn_skip,
         as_of=as_of,
@@ -1982,6 +1993,7 @@ def _scan_reversal_entries(
         pool=pool,
         settings=settings,
     )
+    _publish_reversal_watch(db, payload, dry_run=dry_run)
     if not dry_run:
         db.commit()
     return opened, skipped

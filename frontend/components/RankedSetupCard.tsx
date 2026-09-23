@@ -17,10 +17,10 @@ export function RankedSetupCard({
   /** hero = today's focus; compact = secondary board rows */
   variant?: "hero" | "default" | "compact";
 }) {
-  const kindLabel = setup.kind === "wave" ? "Wave" : "Drift";
+  const kindLabel = setup.kind === "wave" ? "Wave" : "Board";
   const kindColor = setup.kind === "wave" ? "#5b8def" : "#28c08a";
   const boardHref =
-    setup.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=drift";
+    setup.kind === "wave" ? "/boards?tab=waves" : "/boards?tab=losers";
 
   if (variant === "compact") {
     return (

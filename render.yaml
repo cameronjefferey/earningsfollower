@@ -72,6 +72,10 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: CALENDAR_MIN_MARKET_CAP
+        value: "10000000000"
+      - key: PAPER_EARNINGS_SKIP_INDUSTRIES
+        value: "Software - Application"
 
   # Daily data refresh (earnings, prices, implied move, analyst)
   - type: cron
@@ -108,6 +112,10 @@ services:
         value: https://www.earningsfollower.com
       - key: API_PUBLIC_URL
         value: https://api.earningsfollower.com
+      - key: CALENDAR_MIN_MARKET_CAP
+        value: "10000000000"
+      - key: PAPER_EARNINGS_SKIP_INDUSTRIES
+        value: "Software - Application"
 
   # Autonomous paper earnings trader (places & manages Alpaca paper trades)
   - type: cron

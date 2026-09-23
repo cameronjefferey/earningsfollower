@@ -39,8 +39,6 @@ const SORTS: { key: SortKey; label: string }[] = [
 const CAP_BUCKETS: { key: string; label: string; min: number; max: number }[] = [
   { key: "mega", label: "Mega ($200B+)", min: 200e9, max: Infinity },
   { key: "large", label: "Large ($10–200B)", min: 10e9, max: 200e9 },
-  { key: "mid", label: "Mid ($2–10B)", min: 2e9, max: 10e9 },
-  { key: "small", label: "Small (<$2B)", min: 0, max: 2e9 },
 ];
 
 // Playbook-aligned conviction tiers (same labels as company page).
@@ -437,9 +435,14 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          Earnings calendar
-        </h1>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+            Earnings calendar
+          </h1>
+          <p className="text-xs text-[var(--color-muted)] mt-0.5">
+            $10B+ market cap. Application software is left off.
+          </p>
+        </div>
         <UpdatedAt value={updatedAt} />
       </div>
 

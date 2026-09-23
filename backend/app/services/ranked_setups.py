@@ -425,14 +425,19 @@ def _demo_preview_setup(row: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dict[str, Any]:
+    from app.config import get_settings
+    from app.services.universe import universe_tickers
+
     today = date.today()
     waves = board_snapshots.get_snapshot(db, "waves", "14:21") or {}
-    drift = board_snapshots.get_snapshot(db, "drift", "12") or {}
-
-    wave_signals = filter_by_min_peers(list(waves.get("signals") or []))
+    signals = list(waves.get("signals") or [])
+    allowed = universe_tickers(
+        db, [s.get("target") or "" for s in signals], get_settings()
+    )
+    signals = [s for s in signals if (s.get("target") or "").upper() in allowed]
+    wave_signals = filter_by_min_peers(signals)
     wave_rows = _cluster_waves(_wave_rows(wave_signals, today))
-    drift_rows = _drift_rows(list(drift.get("setups") or []), today)
-    rows = wave_rows + drift_rows
+    rows = wave_rows
 
     # Prefer non-thin when we have enough; never let thin dominate the top.
     solidish = [r for r in rows if r.get("sample_tier") != "thin"]
@@ -441,7 +446,7 @@ def ranked_setups(db: Session, *, limit: int = 12, preview: bool = False) -> dic
 
     cap = max(2, (limit * 2) // 3)
     picked: list[dict] = []
-    kind_counts = {"wave": 0, "drift": 0}
+    kind_counts = {"wave": 0}
     deferred: list[dict] = []
     for r in pool:
         k = r["kind"]

@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const alt =
-  "earningsfollower - priced-in earnings calendar and Waves/Drift trading boards";
+  "earningsfollower - priced-in earnings calendar, peer waves, and 5-day losers";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -56,7 +56,7 @@ export default function OpengraphImage() {
               maxWidth: 820,
             }}
           >
-            Earnings calendar, peer waves &amp; drift, one morning lean.
+            Earnings calendar, peer waves, and 5-day losers. Large caps only.
           </div>
         </div>
 

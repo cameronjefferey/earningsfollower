@@ -475,13 +475,14 @@ export interface ReversalWatchName {
 
 export interface ReversalWatch {
   as_of: string | null;
-  ranked_at: string;
+  ranked_at?: string;
   holding: boolean;
-  opened: string[];
-  note: string | null;
+  opened?: string[];
+  note?: string | null;
   candidates: ReversalWatchName[];
   skipped_earn: ReversalWatchName[];
   pool?: ReversalWatchName[];
+  updated_at?: string | null;
 }
 
 export interface AttrCohort {
@@ -1040,6 +1041,7 @@ export const api = {
       accessToken
     ),
   waveWatch: () => getJSON<WaveWatchResponse>("/waves/watch"),
+  reversal: () => getJSON<ReversalWatch>("/reversal"),
   waveReceipts: () => getJSON<WaveReceiptsResponse>("/waves/receipts"),
   drift: (lookbackDays = 12, limit = 30, accessToken?: string | null) =>
     getJSON<DriftResponse>(

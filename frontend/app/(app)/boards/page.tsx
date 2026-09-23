@@ -2,14 +2,14 @@
 
 import { Suspense, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { DriftBoard } from "@/components/boards/DriftBoard";
+import { LosersBoard } from "@/components/boards/LosersBoard";
 import { WavesBoard } from "@/components/boards/WavesBoard";
 import { Spinner } from "@/components/ui";
 
-type BoardTab = "drift" | "waves";
+type BoardTab = "losers" | "waves";
 
 function parseTab(value: string | null): BoardTab {
-  return value === "drift" ? "drift" : "waves";
+  return value === "losers" || value === "drift" ? "losers" : "waves";
 }
 
 function BoardsInner() {
@@ -33,14 +33,14 @@ function BoardsInner() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Boards</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1 max-w-2xl">
-            Live peer-wave and post-earnings drift setups - the boards you trade from.
+            $10B+ names only. Peer waves, and the week&apos;s 5-day losers.
           </p>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-[var(--color-edge)] p-0.5">
           {(
             [
               { key: "waves", label: "Waves" },
-              { key: "drift", label: "Drift" },
+              { key: "losers", label: "5-day losers" },
             ] as const
           ).map((t) => (
             <button
@@ -59,11 +59,7 @@ function BoardsInner() {
         </div>
       </div>
 
-      {tab === "waves" ? (
-        <WavesBoard embedded />
-      ) : (
-        <DriftBoard embedded />
-      )}
+      {tab === "waves" ? <WavesBoard embedded /> : <LosersBoard embedded />}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthMenu } from "@/components/AuthMenu";
 
-/** Product nav: Calendar + Boards. Drift/Waves live under Boards. */
+/** Product nav: Calendar + Boards. Waves and 5-day losers live under Boards. */
 const links = [
   { href: "/calendar", label: "Calendar" },
   { href: "/boards?tab=waves", label: "Boards" },

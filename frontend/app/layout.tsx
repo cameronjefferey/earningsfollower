@@ -22,20 +22,20 @@ export const metadata: Metadata = {
     template: "%s · earningsfollower",
   },
   description:
-    "Free earnings calendar with implied moves, plus Pro Waves and Drift boards for post-earnings continuation and peer-wave setups.",
+    "Free $10B+ earnings calendar with implied moves, plus peer waves and the week's 5-day losers.",
   openGraph: {
     type: "website",
     siteName: "earningsfollower",
     title: "earningsfollower | earnings calendar & trading boards",
     description:
-      "Who reports, what's priced in, and the live boards to trade from. Free calendar; Pro Waves + Drift.",
+      "Who reports, what's priced in, and the boards to look at. Free calendar; Pro Waves. $10B+ only.",
     url: "https://www.earningsfollower.com",
   },
   twitter: {
     card: "summary_large_image",
     title: "earningsfollower | earnings calendar & trading boards",
     description:
-      "Who reports, what's priced in, and the live boards to trade from. Free calendar; Pro Waves + Drift.",
+      "Who reports, what's priced in, and the boards to look at. Free calendar; Pro Waves. $10B+ only.",
   },
   alternates: {
     canonical: "https://www.earningsfollower.com",

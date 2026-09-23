@@ -16,14 +16,18 @@ from app.services import board_snapshots
 logger = logging.getLogger(__name__)
 
 
-def _load_snapshot_lists(db: Session) -> tuple[list[dict], list[dict]]:
+def _load_snapshot_lists(db: Session) -> list[dict]:
+    from app.config import get_settings
+    from app.services.universe import universe_tickers
     from app.services.waves import filter_by_min_peers
 
     waves = board_snapshots.get_snapshot(db, "waves", "14:21") or {}
-    drift = board_snapshots.get_snapshot(db, "drift", "12") or {}
-    return filter_by_min_peers(list(waves.get("signals") or [])), list(
-        drift.get("setups") or []
+    signals = list(waves.get("signals") or [])
+    allowed = universe_tickers(
+        db, [s.get("target") or "" for s in signals], get_settings()
     )
+    kept = [s for s in signals if (s.get("target") or "").upper() in allowed]
+    return filter_by_min_peers(kept)
 
 
 def _prior_digest_payload(db: Session, today: date) -> dict | None:
@@ -50,19 +54,22 @@ def build_digest(db: Session, *, as_of: date | None = None) -> dict[str, Any]:
         .order_by(EarningsEvent.date.asc())
     ).all()
 
+    from app.config import get_settings
+    from app.services.universe import universe_tickers
+
+    allowed = universe_tickers(db, [e.ticker for e in upcoming], get_settings())
+    upcoming = [e for e in upcoming if e.ticker.upper() in allowed]
+
     # New prints in the next week (first-seen names vs prior digest keys).
     prior = _prior_digest_payload(db, today) or {}
     prior_earn = set(prior.get("earnings_tickers") or [])
     earn_tickers = sorted({e.ticker for e in upcoming})
     new_earn = [t for t in earn_tickers if t not in prior_earn][:12]
 
-    wave_signals, drift_setups = _load_snapshot_lists(db)
+    wave_signals = _load_snapshot_lists(db)
     wave_targets = sorted({s.get("target") for s in wave_signals if s.get("target")})
-    drift_tickers = sorted({s.get("ticker") for s in drift_setups if s.get("ticker")})
     prior_waves = set(prior.get("wave_targets") or [])
-    prior_drift = set(prior.get("drift_tickers") or [])
     new_waves = [t for t in wave_targets if t not in prior_waves][:10]
-    new_drift = [t for t in drift_tickers if t not in prior_drift][:10]
 
     # Notable implied-move shifts vs yesterday's snapshot (if any).
     rich_flips: list[str] = []
@@ -127,19 +134,13 @@ def build_digest(db: Session, *, as_of: date | None = None) -> dict[str, Any]:
             }
         )
 
-    if new_drift:
+    rev = board_snapshots.get_snapshot(db, "reversal", "live") or {}
+    losers = [c.get("ticker") for c in (rev.get("candidates") or []) if c.get("ticker")]
+    if losers:
         bullets.append(
             {
-                "kind": "drift",
-                "text": f"{len(new_drift)} new post-earnings drift setup"
-                f"{'' if len(new_drift) == 1 else 's'}: {', '.join(new_drift[:5])}",
-            }
-        )
-    elif drift_tickers:
-        bullets.append(
-            {
-                "kind": "drift",
-                "text": f"{len(drift_tickers)} live PEAD setups on the board",
+                "kind": "reversal",
+                "text": f"5-day losers: {', '.join(losers[:5])}",
             }
         )
 
@@ -165,7 +166,7 @@ def build_digest(db: Session, *, as_of: date | None = None) -> dict[str, Any]:
         "bullets": bullets,
         "earnings_tickers": earn_tickers,
         "wave_targets": wave_targets,
-        "drift_tickers": drift_tickers,
+        "drift_tickers": [],
         "richness_flips": rich_flips,
     }
 

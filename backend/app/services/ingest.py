@@ -541,6 +541,8 @@ def _ingest_earnings_fmp(
             revenue_actual=_f(row.get("revenueActual")),
             fiscal_period=row.get("fiscalDateEnding"),
         )
+    if count:
+        _drop_abandoned_earnings(db, ticker, {d for d in (_parse_date(r.get("date")) for r in rows) if d})
     return count > 0
 
 
@@ -558,6 +560,9 @@ def _ingest_earnings_yahoo(db: Session, ticker: str) -> bool:
             revenue_actual=None,
             fiscal_period=None,
         )
+    kept = {r["date"] for r in rows if r.get("date") is not None}
+    if kept:
+        _drop_abandoned_earnings(db, ticker, kept)
     return bool(rows)
 
 
@@ -774,6 +779,28 @@ def _upsert_peer_link(db: Session, ticker: str, peer: str) -> None:
     ).first()
     if exists is None:
         db.add(PeerLink(ticker=ticker, peer=peer))
+
+
+def _drop_abandoned_earnings(db: Session, ticker: str, kept: set[date]) -> int:
+    """Remove unreported dates the source no longer lists.
+
+    A revised print (MU Sep 23, then Sep 30) used to stay as a second event.
+    Reported rows are left alone.
+    """
+    if not kept:
+        return 0
+    stale = db.scalars(
+        select(EarningsEvent).where(
+            EarningsEvent.ticker == ticker,
+            EarningsEvent.eps_actual.is_(None),
+            EarningsEvent.date.notin_(kept),
+        )
+    ).all()
+    for event in stale:
+        db.delete(event)
+    if stale:
+        db.flush()
+    return len(stale)
 
 
 def _upsert_earnings(

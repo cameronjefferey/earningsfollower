@@ -781,6 +781,109 @@ def _upsert_peer_link(db: Session, ticker: str, peer: str) -> None:
         db.add(PeerLink(ticker=ticker, peer=peer))
 
 
+def kept_open_dates(
+    stored: set[date], fmp_dates: set[date], yahoo_open: set[date] | None
+) -> set[date]:
+    """Which unreported dates to keep when a print has been revised.
+
+    One source listing several days is not several prints. Yahoo's single
+    upcoming date wins a disagreement; otherwise the current calendar does.
+    """
+    if not fmp_dates and not yahoo_open:
+        return stored
+    extras = stored - fmp_dates
+    if not extras and len(stored) <= 1:
+        return stored
+    if yahoo_open is not None and len(yahoo_open) == 1:
+        return set(yahoo_open)
+    return set(fmp_dates) if fmp_dates else stored
+
+
+def reconcile_open_earnings(db: Session) -> int:
+    """Make the live calendar match the current print, without a full refresh.
+
+    Deletes unreported dates the calendar no longer lists and strips them from
+    the served snapshot. Reported history is left alone.
+    """
+    from app import cache as response_cache
+    from app.clients import yahoo
+    from app.clients.fmp import FMPClient
+    from app.services import board_snapshots
+
+    today = date.today()
+    start = today - timedelta(days=14)
+    end = today + timedelta(days=120)
+    fmp_dates: dict[str, set[date]] = {}
+    try:
+        with FMPClient() as fmp:
+            if not fmp.enabled:
+                return 0
+            cur = start
+            while cur < end:
+                window_end = min(cur + timedelta(days=90), end)
+                rows = fmp.earnings_calendar(cur.isoformat(), window_end.isoformat()) or []
+                for row in rows:
+                    sym = (row.get("symbol") or "").upper()
+                    d = _parse_date(row.get("date"))
+                    if not sym or d is None:
+                        continue
+                    fmp_dates.setdefault(sym, set()).add(d)
+                    _upsert_earnings(
+                        db,
+                        ticker=sym,
+                        event_date=d,
+                        timing=_timing_from_fmp(row.get("time")),
+                        eps_estimate=_f(row.get("epsEstimated")),
+                        eps_actual=_f(row.get("epsActual")),
+                        revenue_estimate=_f(row.get("revenueEstimated")),
+                        revenue_actual=_f(row.get("revenueActual")),
+                        fiscal_period=None,
+                    )
+                cur = window_end
+    except FMPError as exc:
+        logger.warning("Open-earnings reconcile skipped: %s", exc)
+        return 0
+
+    events = db.scalars(
+        select(EarningsEvent).where(
+            EarningsEvent.date >= start,
+            EarningsEvent.date <= end,
+            EarningsEvent.eps_actual.is_(None),
+        )
+    ).all()
+    by_ticker: dict[str, list[EarningsEvent]] = {}
+    for event in events:
+        by_ticker.setdefault(event.ticker, []).append(event)
+
+    dropped = 0
+    kept_by_ticker: dict[str, set[date]] = {}
+    for ticker, evs in by_ticker.items():
+        fmp_set = fmp_dates.get(ticker)
+        if not fmp_set:
+            continue
+        stored = {e.date for e in evs}
+        yahoo_open: set[date] | None = None
+        if stored - fmp_set or len(stored) > 1:
+            yahoo_open = {
+                r["date"]
+                for r in yahoo.get_earnings_dates(ticker, limit=8)
+                if r.get("date") is not None
+                and start <= r["date"] <= end
+                and r.get("eps_actual") is None
+            }
+        keep = kept_open_dates(stored, fmp_set, yahoo_open)
+        kept_by_ticker[ticker] = keep
+        for event in evs:
+            if event.date not in keep:
+                db.delete(event)
+                dropped += 1
+    db.commit()
+    board_snapshots.apply_kept_earnings_dates(db, kept_by_ticker)
+    response_cache.clear()
+    logger.info("Open-earnings reconcile dropped %d stale dates", dropped)
+    return dropped
+
+
 def _drop_abandoned_earnings(db: Session, ticker: str, kept: set[date]) -> int:
     """Remove unreported dates the source no longer lists.
 

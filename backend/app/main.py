@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -40,6 +41,18 @@ async def lifespan(app: FastAPI):
     if settings.enable_scheduler:
         start_scheduler()
         logger.info("Daily refresh scheduler started.")
+
+    def _reconcile_open_prints() -> None:
+        from app.db.session import session_scope
+        from app.services.ingest import reconcile_open_earnings
+
+        try:
+            with session_scope() as db:
+                reconcile_open_earnings(db)
+        except Exception:
+            logger.exception("Open-earnings reconcile failed")
+
+    threading.Thread(target=_reconcile_open_prints, name="earnings-reconcile", daemon=True).start()
     yield
     shutdown_scheduler()
 

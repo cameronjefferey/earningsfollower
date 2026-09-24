@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 from app.db.models import Base, EarningsEvent  # noqa: E402
-from app.services.ingest import _drop_abandoned_earnings  # noqa: E402
+from app.services.ingest import _drop_abandoned_earnings, kept_open_dates  # noqa: E402
 
 
 def _session():
@@ -44,3 +44,21 @@ def test_drop_abandoned_keeps_the_print_and_the_reported_history():
         ("MU", date(2026, 6, 24)),
         ("MU", date(2026, 9, 30)),
     ]
+
+
+def test_yahoo_picks_the_print_when_the_calendar_moved():
+    stored = {
+        date(2026, 9, 22),
+        date(2026, 9, 23),
+        date(2026, 9, 29),
+        date(2026, 9, 30),
+    }
+    assert kept_open_dates(stored, {date(2026, 9, 30)}, {date(2026, 9, 30)}) == {
+        date(2026, 9, 30)
+    }
+
+
+def test_single_matching_date_is_left_alone():
+    assert kept_open_dates({date(2026, 9, 24)}, {date(2026, 9, 24)}, None) == {
+        date(2026, 9, 24)
+    }

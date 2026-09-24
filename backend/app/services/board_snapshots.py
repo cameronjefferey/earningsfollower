@@ -168,6 +168,47 @@ def refresh_board_snapshots(db: Session) -> dict[str, Any]:
     }
 
 
+def apply_kept_earnings_dates(db: Session, kept: dict[str, set]) -> None:
+    """Drop served cards whose date is no longer the open print."""
+    if not kept:
+        return
+    snap = get_snapshot(db, "earnings", earnings_snapshot_key())
+    if not snap or not isinstance(snap.get("cards"), list):
+        return
+    kept_iso = {t: {d.isoformat() for d in dates} for t, dates in kept.items()}
+    cards = []
+    present: set[tuple[str, str]] = set()
+    for card in snap["cards"]:
+        ticker = (card.get("ticker") or "").upper()
+        day = str(card.get("date") or "")[:10]
+        allowed = kept_iso.get(ticker)
+        if allowed is not None and day not in allowed:
+            continue
+        cards.append(card)
+        present.add((ticker, day))
+    for ticker, days in kept_iso.items():
+        for day in days:
+            if (ticker, day) in present:
+                continue
+            donor = next(
+                (c for c in snap["cards"] if (c.get("ticker") or "").upper() == ticker),
+                None,
+            )
+            if donor is None:
+                continue
+            cards.append({**donor, "date": day, "reported": False, "eps_actual": None})
+    cards.sort(key=lambda c: (c.get("date") or "", c.get("ticker") or ""))
+    payload = {
+        "window": snap.get("window") or "all",
+        "start": snap.get("start"),
+        "end": snap.get("end"),
+        "count": len(cards),
+        "cards": cards,
+    }
+    _upsert(db, "earnings", earnings_snapshot_key(), payload)
+    db.commit()
+
+
 def persist_reversal_watch(db: Session, payload: dict) -> None:
     """The paper cron's candidate list, served on the 5-day losers board."""
     _upsert(db, "reversal", "live", payload)

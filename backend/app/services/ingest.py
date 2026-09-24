@@ -862,7 +862,6 @@ def reconcile_open_earnings(db: Session) -> int:
         by_ticker.setdefault(event.ticker, []).append(event)
 
     dropped = 0
-    kept_by_ticker: dict[str, set[date]] = {}
     for ticker, evs in by_ticker.items():
         fmp_set = fmp_dates.get(ticker)
         if not fmp_set:
@@ -872,13 +871,15 @@ def reconcile_open_earnings(db: Session) -> int:
         # from this host, so a disagreement waits for the next per-name ingest
         # instead of blocking the correction.
         keep = set(fmp_set) if (stored - fmp_set or len(stored) > 1) else stored
-        kept_by_ticker[ticker] = keep
         for event in evs:
             if event.date not in keep:
                 db.delete(event)
                 dropped += 1
     db.commit()
-    board_snapshots.apply_kept_earnings_dates(db, kept_by_ticker)
+    from app.services import dashboard
+
+    cards, _ = dashboard.earnings_cards(db, "all")
+    board_snapshots.persist_earnings_snapshot(db, cards)
     response_cache.clear()
     logger.info("Open-earnings reconcile dropped %d stale dates", dropped)
     return dropped

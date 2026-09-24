@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.db.session import init_db
 from app.scheduler import shutdown_scheduler, start_scheduler
 
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s | %(message)s",

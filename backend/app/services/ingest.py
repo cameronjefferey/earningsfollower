@@ -806,7 +806,6 @@ def reconcile_open_earnings(db: Session) -> int:
     the served snapshot. Reported history is left alone.
     """
     from app import cache as response_cache
-    from app.clients import yahoo
     from app.clients.fmp import FMPClient
     from app.services import board_snapshots
 
@@ -862,16 +861,10 @@ def reconcile_open_earnings(db: Session) -> int:
         if not fmp_set:
             continue
         stored = {e.date for e in evs}
-        yahoo_open: set[date] | None = None
-        if stored - fmp_set or len(stored) > 1:
-            yahoo_open = {
-                r["date"]
-                for r in yahoo.get_earnings_dates(ticker, limit=8)
-                if r.get("date") is not None
-                and start <= r["date"] <= end
-                and r.get("eps_actual") is None
-            }
-        keep = kept_open_dates(stored, fmp_set, yahoo_open)
+        # The bulk calendar is one row per current print. Yahoo is rate-limited
+        # from this host, so a disagreement waits for the next per-name ingest
+        # instead of blocking the correction.
+        keep = set(fmp_set) if (stored - fmp_set or len(stored) > 1) else stored
         kept_by_ticker[ticker] = keep
         for event in evs:
             if event.date not in keep:

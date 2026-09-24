@@ -819,8 +819,15 @@ def reconcile_open_earnings(db: Session) -> int:
                 return 0
             cur = start
             while cur < end:
-                window_end = min(cur + timedelta(days=90), end)
+                window_end = min(cur + timedelta(days=7), end)
                 rows = fmp.earnings_calendar(cur.isoformat(), window_end.isoformat()) or []
+                if len(rows) >= 4000:
+                    logger.warning(
+                        "Earnings calendar %s..%s hit the 4000-row cap; reconcile aborted",
+                        cur,
+                        window_end,
+                    )
+                    return 0
                 for row in rows:
                     sym = (row.get("symbol") or "").upper()
                     d = _parse_date(row.get("date"))
